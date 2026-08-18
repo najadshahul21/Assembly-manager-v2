@@ -1,0 +1,184 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile authenticated via Firebase Auth",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "The unique Firebase Auth UID"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "User's email address"
+        },
+        "displayName": {
+          "type": "string",
+          "maxLength": 150,
+          "description": "User display name"
+        },
+        "photoURL": {
+          "type": "string",
+          "description": "User avatar URL"
+        },
+        "role": {
+          "type": "string",
+          "enum": ["admin", "editor", "viewer"],
+          "description": "User access role"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "ISO timestamp of profile creation"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "ISO timestamp of last update"
+        }
+      },
+      "required": ["id", "email"]
+    },
+    "Person": {
+      "title": "Person",
+      "description": "Political leader or assembly representative",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique person ID" },
+        "name": { "type": "string", "maxLength": 200, "description": "Full name" },
+        "partyId": { "type": "string", "description": "Associated party identifier" },
+        "imageUrl": { "type": "string", "description": "Profile picture URL" },
+        "bio": { "type": "string", "maxLength": 5000, "description": "Biography" },
+        "born": { "type": "string", "description": "Date of birth" },
+        "died": { "type": "string", "description": "Date of death if applicable" },
+        "isSuspended": { "type": "boolean", "description": "Suspension flag" },
+        "updatedAt": { "type": "number", "description": "Timestamp of last modification" }
+      },
+      "required": ["id", "name"]
+    },
+    "Party": {
+      "title": "Party",
+      "description": "Political party entity",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique party identifier" },
+        "name": { "type": "string", "maxLength": 200, "description": "Full party name" },
+        "abbreviation": { "type": "string", "maxLength": 50, "description": "Party short acronym" },
+        "allianceId": { "type": "string", "description": "Associated alliance ID" },
+        "logoUrl": { "type": "string", "description": "Party logo URL" },
+        "founded": { "type": "string", "description": "Date founded" },
+        "isSuspended": { "type": "boolean", "description": "Suspension flag" },
+        "updatedAt": { "type": "number", "description": "Timestamp of last update" }
+      },
+      "required": ["id", "name", "abbreviation"]
+    },
+    "Alliance": {
+      "title": "Alliance",
+      "description": "Coalition front of political parties",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique alliance ID" },
+        "name": { "type": "string", "maxLength": 200, "description": "Alliance name" },
+        "abbreviation": { "type": "string", "maxLength": 50, "description": "Alliance abbreviation" },
+        "logoUrl": { "type": "string", "description": "Logo URL" },
+        "leadingPartyId": { "type": "string", "description": "Lead party in front" },
+        "isSuspended": { "type": "boolean", "description": "Suspension flag" },
+        "updatedAt": { "type": "number", "description": "Timestamp of last update" }
+      },
+      "required": ["id", "name", "abbreviation"]
+    },
+    "Assembly": {
+      "title": "Assembly",
+      "description": "Legislative Assembly term snapshot",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique assembly term ID" },
+        "name": { "type": "string", "maxLength": 200, "description": "Assembly term title" },
+        "number": { "type": "number", "description": "Assembly sequential term number" },
+        "startDate": { "type": "string", "description": "Term start date" },
+        "endDate": { "type": "string", "description": "Term end date" },
+        "partyControlId": { "type": "string", "description": "Ruling party or alliance" },
+        "precededById": { "type": "string", "description": "Preceding assembly ID" },
+        "speakerId": { "type": "string", "description": "Speaker person ID" },
+        "chiefMinisterId": { "type": "string", "description": "Chief Minister person ID" },
+        "totalSeats": { "type": "number", "description": "Total seats in assembly" },
+        "updatedAt": { "type": "number", "description": "Timestamp of last modification" }
+      },
+      "required": ["id", "name"]
+    },
+    "Designation": {
+      "title": "Designation",
+      "description": "Official constitutional or cabinet post",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique designation ID" },
+        "name": { "type": "string", "maxLength": 200, "description": "Designation title" },
+        "incumbentId": { "type": "string", "description": "Person ID of current incumbent" },
+        "assemblyId": { "type": "string", "description": "Assembly ID if applicable" },
+        "constituency": { "type": "string", "description": "State or Constituency" },
+        "isCabinet": { "type": "boolean", "description": "Whether post is a cabinet minister" },
+        "updatedAt": { "type": "number", "description": "Timestamp of last modification" }
+      },
+      "required": ["id", "name", "incumbentId"]
+    },
+    "Constituency": {
+      "title": "Constituency",
+      "description": "Legislative constituency seat",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique constituency slug or ID" },
+        "slNo": { "type": "string", "maxLength": 10, "description": "Serial seat number" },
+        "name": { "type": "string", "maxLength": 200, "description": "Constituency name" },
+        "district": { "type": "string", "maxLength": 100, "description": "District name" },
+        "currentIncumbentId": { "type": "string", "description": "Current elected MLA person ID" },
+        "currentAssemblyId": { "type": "string", "description": "Current assembly ID" },
+        "updatedAt": { "type": "number", "description": "Timestamp of last update" }
+      },
+      "required": ["id", "slNo", "name", "currentIncumbentId"]
+    },
+    "ConnectionTest": {
+      "title": "ConnectionTest",
+      "description": "Heartbeat probe document to test Firestore connectivity",
+      "type": "object",
+      "properties": {
+        "status": { "type": "string", "description": "Connection test status" },
+        "timestamp": { "type": "number", "description": "Timestamp" }
+      },
+      "required": ["status"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profile documents stored by Firebase Auth UID"
+    },
+    "/persons/{personId}": {
+      "schema": "Person",
+      "description": "Political representatives collection"
+    },
+    "/parties/{partyId}": {
+      "schema": "Party",
+      "description": "Political parties collection"
+    },
+    "/alliances/{allianceId}": {
+      "schema": "Alliance",
+      "description": "Political alliances and coalitions collection"
+    },
+    "/assemblies/{assemblyId}": {
+      "schema": "Assembly",
+      "description": "Legislative assembly terms and frozen records"
+    },
+    "/designations/{designationId}": {
+      "schema": "Designation",
+      "description": "Official constitutional and ministerial designations"
+    },
+    "/constituencies/{constituencyId}": {
+      "schema": "Constituency",
+      "description": "Legislative constituencies collection"
+    },
+    "/test/{testId}": {
+      "schema": "ConnectionTest",
+      "description": "Heartbeat connection test"
+    }
+  }
+}

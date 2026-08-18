@@ -1,0 +1,150 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Catch-All Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helper Functions ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == "najadshahul21@gmail.com" ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // --- Entity Validation Helpers ---
+    function isValidUserProfile(data) {
+      return data.id is string && data.id.size() <= 128 &&
+             data.email is string && data.email.size() <= 254 &&
+             (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 150)) &&
+             (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 2048)) &&
+             (!('role' in data) || (data.role in ['admin', 'editor', 'viewer']));
+    }
+
+    function isValidPerson(data) {
+      return data.id is string && data.id.size() <= 128 &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 200 &&
+             (!('partyId' in data) || (data.partyId is string && data.partyId.size() <= 128)) &&
+             (!('bio' in data) || (data.bio is string && data.bio.size() <= 5000)) &&
+             (!('imageUrl' in data) || (data.imageUrl is string && data.imageUrl.size() <= 2048));
+    }
+
+    function isValidParty(data) {
+      return data.id is string && data.id.size() <= 128 &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 200 &&
+             data.abbreviation is string && data.abbreviation.size() > 0 && data.abbreviation.size() <= 50 &&
+             (!('allianceId' in data) || (data.allianceId is string && data.allianceId.size() <= 128)) &&
+             (!('logoUrl' in data) || (data.logoUrl is string && data.logoUrl.size() <= 2048));
+    }
+
+    function isValidAlliance(data) {
+      return data.id is string && data.id.size() <= 128 &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 200 &&
+             data.abbreviation is string && data.abbreviation.size() > 0 && data.abbreviation.size() <= 50 &&
+             (!('logoUrl' in data) || (data.logoUrl is string && data.logoUrl.size() <= 2048));
+    }
+
+    function isValidAssembly(data) {
+      return data.id is string && data.id.size() <= 128 &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 200;
+    }
+
+    function isValidDesignation(data) {
+      return data.id is string && data.id.size() <= 128 &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 200 &&
+             data.incumbentId is string && data.incumbentId.size() <= 128;
+    }
+
+    function isValidConstituency(data) {
+      return data.id is string && data.id.size() <= 128 &&
+             data.slNo is string && data.slNo.size() <= 10 &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 200 &&
+             data.currentIncumbentId is string && data.currentIncumbentId.size() <= 128;
+    }
+
+    // --- User Profiles ---
+    match /users/{userId} {
+      allow get: if isOwner(userId) || isAdmin();
+      allow list: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      allow create: if isOwner(userId) && isValidId(userId) && isValidUserProfile(incoming());
+      allow update: if isOwner(userId) && isValidUserProfile(incoming());
+      allow delete: if isOwner(userId) || isAdmin();
+    }
+
+    // --- Persons ---
+    match /persons/{personId} {
+      allow get, list: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(personId) && isValidPerson(incoming());
+      allow update: if isSignedIn() && isValidPerson(incoming());
+      allow delete: if isSignedIn();
+    }
+
+    // --- Parties ---
+    match /parties/{partyId} {
+      allow get, list: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(partyId) && isValidParty(incoming());
+      allow update: if isSignedIn() && isValidParty(incoming());
+      allow delete: if isSignedIn();
+    }
+
+    // --- Alliances ---
+    match /alliances/{allianceId} {
+      allow get, list: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(allianceId) && isValidAlliance(incoming());
+      allow update: if isSignedIn() && isValidAlliance(incoming());
+      allow delete: if isSignedIn();
+    }
+
+    // --- Assemblies ---
+    match /assemblies/{assemblyId} {
+      allow get, list: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(assemblyId) && isValidAssembly(incoming());
+      allow update: if isSignedIn() && isValidAssembly(incoming());
+      allow delete: if isSignedIn();
+    }
+
+    // --- Designations ---
+    match /designations/{designationId} {
+      allow get, list: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(designationId) && isValidDesignation(incoming());
+      allow update: if isSignedIn() && isValidDesignation(incoming());
+      allow delete: if isSignedIn();
+    }
+
+    // --- Constituencies ---
+    match /constituencies/{constituencyId} {
+      allow get, list: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(constituencyId) && isValidConstituency(incoming());
+      allow update: if isSignedIn() && isValidConstituency(incoming());
+      allow delete: if isSignedIn();
+    }
+
+    // --- Connection Test ---
+    match /test/{testId} {
+      allow read, write: if true;
+    }
+  }
+}

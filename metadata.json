@@ -1,0 +1,6 @@
+{
+  "name": "Assembly Manager",
+  "description": "A legislative management application for assembly constituencies, political parties, alliances, members, and executive posts.",
+  "requestFramePermissions": ["camera", "microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API", "Image Upload", "Searchable Database", "Relationship Linking"]
+}

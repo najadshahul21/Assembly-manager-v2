@@ -1,0 +1,67 @@
+@import "tailwindcss";
+
+@theme {
+  --color-background: #050505;
+  --color-foreground: #ffffff;
+  --color-accent-red: #D32F2F;
+  --color-accent-gold: #FFD700;
+  --color-card-bg: rgba(20, 20, 20, 0.8);
+  --color-card-border: rgba(255, 215, 0, 0.2);
+  
+  --font-sans: "Inter", system-ui, sans-serif;
+}
+
+:root {
+  background-color: var(--color-background);
+  color: var(--color-foreground);
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  background: radial-gradient(circle at top, #1a0505 0%, #050505 100%);
+  min-height: 100vh;
+}
+
+.glass-card {
+  background: var(--color-card-bg);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--color-card-border);
+  border-radius: 1.5rem;
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
+}
+
+.gold-text {
+  color: var(--color-accent-gold);
+  text-shadow: 0 0 10px rgba(255, 215, 0, 0.3);
+}
+
+.silver-text {
+  color: #e2e8f0;
+  text-shadow: 0 0 10px rgba(226, 232, 240, 0.4);
+}
+
+.red-accent {
+  background-color: var(--color-accent-red);
+}
+
+.gold-border {
+  border-color: var(--color-accent-gold);
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0a0a0a;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #2a2a2a;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-accent-red);
+}
