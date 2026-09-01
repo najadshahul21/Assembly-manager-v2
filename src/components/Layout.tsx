@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, Plus, Home, Users, Flag, Landmark, Shield, Menu, X, MapPin, LogOut, Cloud, RefreshCw, CheckCircle2 } from 'lucide-react';
+import { Search, Plus, Home, Users, Flag, Landmark, Shield, Menu, X, Award, MapPin, LogOut } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useNavigate, useLocation } from 'react-router';
 import { useDbLookup } from '../context/DbLookupContext';
@@ -13,12 +13,10 @@ interface LayoutProps {
 
 export const Layout: React.FC<LayoutProps> = ({ children, onSearch, onPlusClick }) => {
   const [isSidebarOpen, setSidebarOpen] = useState(false);
-  const [showSyncMenu, setShowSyncMenu] = useState(false);
-  const [syncFeedback, setSyncFeedback] = useState<string | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
   const { loaded } = useDbLookup();
-  const { user, logout, isSyncing, syncToCloud, syncFromCloud, lastSyncedAt } = useAuth();
+  const { user, logout } = useAuth();
 
   const navItems = [
     { title: 'Dashboard', icon: Home, path: '/' },
@@ -29,28 +27,6 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSearch, onPlusClick 
     { title: 'Assemblies', icon: Landmark, path: '/assemblies' },
     { title: 'Constituencies', icon: MapPin, path: '/constituencies' },
   ];
-
-  const handleSyncToCloud = async () => {
-    setSyncFeedback('Uploading data to Firestore...');
-    const ok = await syncToCloud();
-    if (ok) {
-      setSyncFeedback('Successfully backed up to Firestore!');
-    } else {
-      setSyncFeedback('Cloud sync failed. Check connection.');
-    }
-    setTimeout(() => setSyncFeedback(null), 3000);
-  };
-
-  const handleSyncFromCloud = async () => {
-    setSyncFeedback('Downloading data from Firestore...');
-    const ok = await syncFromCloud();
-    if (ok) {
-      setSyncFeedback('Successfully restored from Firestore!');
-    } else {
-      setSyncFeedback('Download failed. Cloud may be empty.');
-    }
-    setTimeout(() => setSyncFeedback(null), 3000);
-  };
 
   if (!loaded) {
     return (
@@ -166,7 +142,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSearch, onPlusClick 
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col min-w-0">
         {/* Header */}
-        <header className="h-20 border-b border-[#FFD700]/10 flex items-center justify-between px-6 bg-black/20 backdrop-blur-md relative z-30">
+        <header className="h-20 border-b border-[#FFD700]/10 flex items-center justify-between px-6 bg-black/20 backdrop-blur-md">
           <div className="flex items-center gap-4 flex-1">
             <button onClick={() => setSidebarOpen(true)} className="p-2 lg:hidden hover:bg-white/10 rounded-full">
               <Menu size={24} />
@@ -177,84 +153,15 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSearch, onPlusClick 
                 type="text"
                 placeholder="Search entities..."
                 onChange={(e) => onSearch(e.target.value)}
-                className="w-full bg-[#1a1a1a] border border-[#FFD700]/10 rounded-full py-2 pl-10 pr-4 focus:outline-none focus:border-[#FFD700]/40 transition-colors text-sm"
+                className="w-full bg-[#1a1a1a] border border-[#FFD700]/10 rounded-full py-2 pl-10 pr-4 focus:outline-none focus:border-[#FFD700]/40 transition-colors"
                 id="global-search"
               />
             </div>
           </div>
-
           <div className="flex items-center gap-3 sm:gap-4 ml-4">
-            {/* Cloud Sync Menu & Status */}
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => setShowSyncMenu(!showSyncMenu)}
-                title="Firebase Cloud Sync"
-                className="p-2 rounded-xl bg-white/5 hover:bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:border-emerald-500/40 transition-all flex items-center gap-1.5 cursor-pointer text-xs font-bold"
-              >
-                <Cloud size={16} className={isSyncing ? 'animate-pulse text-[#FFD700]' : 'text-emerald-400'} />
-                <span className="hidden md:inline">Cloud Sync</span>
-              </button>
-
-              <AnimatePresence>
-                {showSyncMenu && (
-                  <motion.div
-                    initial={{ opacity: 0, scale: 0.95, y: 10 }}
-                    animate={{ opacity: 1, scale: 1, y: 0 }}
-                    exit={{ opacity: 0, scale: 0.95, y: 10 }}
-                    className="absolute right-0 mt-2 w-72 bg-[#121216] border border-zinc-700/60 rounded-2xl shadow-2xl p-4 z-50 text-left"
-                  >
-                    <div className="flex items-center justify-between pb-3 mb-3 border-b border-zinc-800">
-                      <div className="flex items-center gap-2">
-                        <Cloud size={18} className="text-emerald-400" />
-                        <div>
-                          <p className="text-xs font-bold text-white">Firestore Cloud Sync</p>
-                          <p className="text-[10px] text-zinc-400">
-                            {lastSyncedAt ? `Last synced ${new Date(lastSyncedAt).toLocaleTimeString()}` : 'Live auto-sync active'}
-                          </p>
-                        </div>
-                      </div>
-                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-                    </div>
-
-                    {syncFeedback && (
-                      <div className="p-2 mb-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-[11px] text-emerald-400 flex items-center gap-1.5">
-                        <CheckCircle2 size={14} />
-                        <span>{syncFeedback}</span>
-                      </div>
-                    )}
-
-                    <div className="space-y-2">
-                      <button
-                        type="button"
-                        onClick={handleSyncToCloud}
-                        disabled={isSyncing}
-                        className="w-full py-2 px-3 rounded-xl bg-[#FFD700]/10 hover:bg-[#FFD700]/20 border border-[#FFD700]/30 text-[#FFD700] text-xs font-bold flex items-center justify-between cursor-pointer transition-colors disabled:opacity-50"
-                      >
-                        <span>Backup Local to Cloud</span>
-                        <RefreshCw size={14} className={isSyncing ? 'animate-spin' : ''} />
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={handleSyncFromCloud}
-                        disabled={isSyncing}
-                        className="w-full py-2 px-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-300 text-xs font-bold flex items-center justify-between cursor-pointer transition-colors disabled:opacity-50"
-                      >
-                        <span>Restore from Cloud</span>
-                        <RefreshCw size={14} className={isSyncing ? 'animate-spin' : ''} />
-                      </button>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-
             <div className="text-right hidden sm:block">
               <p className="text-xs font-bold text-white truncate max-w-[140px]">{user?.name || user?.username || 'Admin'}</p>
-              <p className="text-[10px] text-[#FFD700] uppercase tracking-wider font-semibold truncate max-w-[140px]">
-                {user?.isFirebase ? (user?.email || `@${user?.username}`) : `@${user?.username || 'admin'}`}
-              </p>
+              <p className="text-[10px] text-[#FFD700] uppercase tracking-wider font-semibold truncate max-w-[140px]">@{user?.username || 'admin'}</p>
             </div>
             <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-[#D32F2F] to-[#FFD700] p-[2px] shrink-0 overflow-hidden">
               <div className="w-full h-full rounded-full bg-black flex items-center justify-center overflow-hidden">

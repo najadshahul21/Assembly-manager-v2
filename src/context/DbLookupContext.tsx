@@ -22,7 +22,7 @@ const DbLookupContext = createContext<DbLookupContextType | null>(null);
 
 export const DbLookupProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const data = useLiveQuery(async () => {
-    const [parties, alliances, assemblies, designations, persons, constituencies] = await Promise.all([
+    const [rawParties, rawAlliances, assemblies, rawDesignations, rawPersons, constituencies] = await Promise.all([
       db.parties.toArray(),
       db.alliances.toArray(),
       db.assemblies.toArray(),
@@ -30,6 +30,11 @@ export const DbLookupProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       db.persons.toArray(),
       db.constituencies.toArray(),
     ]);
+
+    const parties = rawParties.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
+    const alliances = rawAlliances.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
+    const persons = rawPersons.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
+    const designations = rawDesignations.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
 
     const partiesMap: Record<string, Party> = {};
     parties.forEach(p => {

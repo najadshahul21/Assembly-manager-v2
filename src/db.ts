@@ -1,6 +1,5 @@
 import Dexie, { type Table } from 'dexie';
 import { Person, Party, Alliance, Assembly, Designation, Constituency } from './types';
-import { syncDocumentToFirestore, deleteDocumentFromFirestore } from './services/firestoreSync';
 
 export class LegislativeDB extends Dexie {
   persons!: Table<Person>;
@@ -24,50 +23,6 @@ export class LegislativeDB extends Dexie {
 }
 
 export const db = new LegislativeDB();
-
-// Attach real-time cloud sync hooks to automatically mirror all local modifications into Firestore
-const setupCloudHooks = () => {
-  const collections = [
-    { table: db.persons, name: 'persons' },
-    { table: db.parties, name: 'parties' },
-    { table: db.alliances, name: 'alliances' },
-    { table: db.assemblies, name: 'assemblies' },
-    { table: db.designations, name: 'designations' },
-    { table: db.constituencies, name: 'constituencies' },
-  ];
-
-  collections.forEach(({ table, name }) => {
-    table.hook('creating', (primKey, obj, trans) => {
-      trans.on('complete', () => {
-        const id = (obj as any).id || (primKey as string);
-        if (id) {
-          syncDocumentToFirestore(name, id, obj);
-        }
-      });
-    });
-
-    table.hook('updating', (modifications, primKey, obj, trans) => {
-      trans.on('complete', () => {
-        const id = (primKey as string) || (obj as any)?.id;
-        if (id) {
-          const merged = { ...obj, ...modifications, id };
-          syncDocumentToFirestore(name, id, merged);
-        }
-      });
-    });
-
-    table.hook('deleting', (primKey, obj, trans) => {
-      trans.on('complete', () => {
-        const id = (primKey as string) || (obj as any)?.id;
-        if (id) {
-          deleteDocumentFromFirestore(name, id);
-        }
-      });
-    });
-  });
-};
-
-setupCloudHooks();
 
 export const clearAllData = async () => {
   await db.persons.clear();

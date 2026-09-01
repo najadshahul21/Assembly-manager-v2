@@ -34,9 +34,21 @@ export const EntityListPage: React.FC<ListPageProps> = ({ type, searchQuery = ''
   const entities = useLiveQuery(async () => {
     let results: any[] = [];
     switch (type) {
-      case EntityType.PERSON: results = await db.persons.toArray(); break;
-      case EntityType.PARTY: results = await db.parties.toArray(); break;
-      case EntityType.ALLIANCE: results = await db.alliances.toArray(); break;
+      case EntityType.PERSON: {
+        const list = await db.persons.toArray();
+        results = list.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
+        break;
+      }
+      case EntityType.PARTY: {
+        const list = await db.parties.toArray();
+        results = list.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
+        break;
+      }
+      case EntityType.ALLIANCE: {
+        const list = await db.alliances.toArray();
+        results = list.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
+        break;
+      }
       case EntityType.ASSEMBLY: {
         const assemblies = await db.assemblies.toArray();
         results = assemblies.sort((a, b) => {
@@ -52,10 +64,13 @@ export const EntityListPage: React.FC<ListPageProps> = ({ type, searchQuery = ''
         });
         break;
       }
-      case EntityType.DESIGNATION: 
-        results = await db.designations.toArray();
-        results = results.filter(e => !e.constituencyId);
+      case EntityType.DESIGNATION: {
+        const list = await db.designations.toArray();
+        results = list
+          .filter(e => !e.constituencyId)
+          .sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
         break;
+      }
       case EntityType.CONSTITUENCY: {
         const constituencies = await db.constituencies.toArray();
         results = constituencies.sort((a, b) => {

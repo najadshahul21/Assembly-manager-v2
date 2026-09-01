@@ -1,7 +1,11 @@
 import React, { useState } from 'react';
 import { useForm, useFieldArray } from 'react-hook-form';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, User, Flag, Shield, Landmark, Award, Upload, Plus, Trash2, History, MapPin } from 'lucide-react';
+import { 
+  X, User, Users, Flag, Shield, Landmark, Award, Upload, 
+  Plus, Trash2, History, MapPin, Copy, Sparkles, Check, 
+  AlertCircle, Layers, CheckCircle2 
+} from 'lucide-react';
 import { db, freezeAssembly } from '../db';
 import { EntityType } from '../types';
 import { nanoid } from 'nanoid';
@@ -14,9 +18,35 @@ interface CreateModalsProps {
   editData?: any;
 }
 
+interface BulkPersonItem {
+  id: string;
+  name: string;
+  gender: string;
+  partyId: string;
+  imageUrl: string;
+}
+
+const createDefaultBulkPerson = (partyId = 'independent'): BulkPersonItem => ({
+  id: nanoid(),
+  name: '',
+  gender: 'Male',
+  partyId,
+  imageUrl: ''
+});
+
 export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClose, editData }) => {
   const { register, handleSubmit, reset, setValue, control } = useForm();
   
+  // Bulk Person State
+  const [isBulkMode, setIsBulkMode] = useState(false);
+  const [bulkPersons, setBulkPersons] = useState<BulkPersonItem[]>([
+    createDefaultBulkPerson(),
+    createDefaultBulkPerson()
+  ]);
+  const [bulkErrors, setBulkErrors] = useState<Record<string, string>>({});
+  const [bulkPartyToApply, setBulkPartyToApply] = useState<string>('');
+  const [isSubmittingBulk, setIsSubmittingBulk] = useState(false);
+
   const { fields: historyFields, append: appendHistory, remove: removeHistory } = useFieldArray({
     control,
     name: "history"
@@ -30,6 +60,7 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
   // Pre-fill form when editing or with initial values
   React.useEffect(() => {
     if (editData && isOpen) {
+      setIsBulkMode(false);
       Object.entries(editData).forEach(([key, value]) => {
         if (key === 'history' && Array.isArray(value) && type === EntityType.DESIGNATION) {
           const formattedHistory = value.map(h => ({
@@ -51,8 +82,17 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
     } else if (isOpen && !editData && type === EntityType.PARTY && colorFields.length === 0) {
       // Default color for new party
       appendColor({ value: '#D32F2F' });
+    } else if (isOpen && !editData && type === EntityType.PERSON) {
+      // Reset bulk list to 2 default rows if empty
+      if (bulkPersons.length === 0) {
+        setBulkPersons([createDefaultBulkPerson(), createDefaultBulkPerson()]);
+      }
     } else if (!isOpen) {
       reset();
+      setIsBulkMode(false);
+      setBulkErrors({});
+      setBulkPersons([createDefaultBulkPerson(), createDefaultBulkPerson()]);
+      setBulkPartyToApply('');
     }
   }, [editData, isOpen, setValue, reset, type]);
 
@@ -106,9 +146,18 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
   };
 
   // Data for relations
-  const persons = useLiveQuery(() => db.persons.toArray()) || [];
-  const parties = useLiveQuery(() => db.parties.toArray()) || [];
-  const alliances = useLiveQuery(() => db.alliances.toArray()) || [];
+  const persons = useLiveQuery(async () => {
+    const list = await db.persons.toArray();
+    return list.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
+  }) || [];
+  const parties = useLiveQuery(async () => {
+    const list = await db.parties.toArray();
+    return list.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
+  }) || [];
+  const alliances = useLiveQuery(async () => {
+    const list = await db.alliances.toArray();
+    return list.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
+  }) || [];
   const assemblies = useLiveQuery(() => db.assemblies.toArray()) || [];
   const activeAssembly = assemblies.find(a => a.isActive);
   const constituenciesCount = useLiveQuery(() => db.constituencies.count()) || 0;
@@ -172,6 +221,180 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
       </>
     );
   }, [type, editData, persons, constituencies, personOptions]);
+
+  // Bulk Person Helper Functions
+  const handleAddBulkRow = () => {
+    if (bulkPersons.length >= 10) return;
+    setBulkPersons(prev => [
+      ...prev,
+      createDefaultBulkPerson(bulkPartyToApply || 'independent')
+    ]);
+  };
+
+  const handleQuickAddRows = (count: number) => {
+    setBulkPersons(prev => {
+      const needed = Math.min(10 - prev.length, count);
+      if (needed <= 0) return prev;
+      const newItems: BulkPersonItem[] = Array.from({ length: needed }, () =>
+        createDefaultBulkPerson(bulkPartyToApply || 'independent')
+      );
+      return [...prev, ...newItems];
+    });
+  };
+
+  const handleRemoveBulkRow = (id: string) => {
+    if (bulkPersons.length <= 1) return;
+    setBulkPersons(prev => prev.filter(p => p.id !== id));
+    setBulkErrors(prev => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+  };
+
+  const handleDuplicateBulkRow = (index: number) => {
+    if (bulkPersons.length >= 10) return;
+    const target = bulkPersons[index];
+    if (!target) return;
+    const duplicateItem: BulkPersonItem = {
+      id: nanoid(),
+      name: target.name ? `${target.name} (Copy)` : '',
+      gender: target.gender,
+      partyId: target.partyId,
+      imageUrl: target.imageUrl
+    };
+    setBulkPersons(prev => {
+      const next = [...prev];
+      next.splice(index + 1, 0, duplicateItem);
+      return next;
+    });
+  };
+
+  const handleUpdateBulkField = (id: string, field: keyof BulkPersonItem, value: string) => {
+    setBulkPersons(prev =>
+      prev.map(item => (item.id === id ? { ...item, [field]: value } : item))
+    );
+    if (field === 'name' && value.trim()) {
+      setBulkErrors(prev => {
+        if (!prev[id]) return prev;
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+    }
+  };
+
+  const handleBulkImageUpload = (id: string) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.onchange = (e: any) => {
+      const file = e.target.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = (event: any) => {
+          const img = new Image();
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            const MAX_WIDTH = 300;
+            const MAX_HEIGHT = 300;
+            let width = img.width;
+            let height = img.height;
+
+            if (width > height) {
+              if (width > MAX_WIDTH) {
+                height *= MAX_WIDTH / width;
+                width = MAX_WIDTH;
+              }
+            } else {
+              if (height > MAX_HEIGHT) {
+                width *= MAX_HEIGHT / height;
+                height = MAX_HEIGHT;
+              }
+            }
+
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+              ctx.drawImage(img, 0, 0, width, height);
+              const dataUrl = canvas.toDataURL('image/jpeg', 0.6);
+              handleUpdateBulkField(id, 'imageUrl', dataUrl);
+            } else {
+              handleUpdateBulkField(id, 'imageUrl', event.target.result);
+            }
+          };
+          img.src = event.target.result;
+        };
+        reader.readAsDataURL(file);
+      }
+    };
+    input.click();
+  };
+
+  const handleApplyPartyToAll = (partyId: string) => {
+    setBulkPartyToApply(partyId);
+    if (!partyId) return;
+    setBulkPersons(prev =>
+      prev.map(item => ({ ...item, partyId }))
+    );
+  };
+
+  const handleBulkSubmit = async () => {
+    const errors: Record<string, string> = {};
+    bulkPersons.forEach((person, index) => {
+      if (!person.name.trim()) {
+        errors[person.id] = `Person #${index + 1}: Name is required`;
+      }
+    });
+
+    if (Object.keys(errors).length > 0) {
+      setBulkErrors(errors);
+      return;
+    }
+
+    if (bulkPersons.length === 0) {
+      alert("Please add at least one person.");
+      return;
+    }
+
+    setIsSubmittingBulk(true);
+    const now = Date.now();
+    try {
+      const payloads = bulkPersons.map(p => ({
+        id: nanoid(),
+        name: p.name.trim(),
+        gender: p.gender || 'Male',
+        imageUrl: p.imageUrl.trim() || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(p.name.trim())}`,
+        partyId: p.partyId || 'independent',
+        designations: [],
+        assemblyRoles: {},
+        isSuspended: false,
+        updatedAt: now
+      }));
+
+      await db.persons.bulkAdd(payloads);
+      
+      setBulkPersons([createDefaultBulkPerson(), createDefaultBulkPerson()]);
+      setBulkErrors({});
+      setIsBulkMode(false);
+      onClose();
+    } catch (error: any) {
+      console.error('Error saving bulk persons:', error);
+      const isQuotaError = error?.name === 'QuotaExceededError' || error?.message?.includes('QuotaExceeded') || String(error).includes('QuotaExceeded');
+      if (isQuotaError) {
+        alert(
+          "Error saving persons: Storage Quota Exceeded.\n\n" +
+          "Your browser's local database storage is full. This usually happens if you uploaded large images directly.\n\n" +
+          "Auto-compression is enabled for future uploads! For existing data, you can clear some old entities or your browser's site data to free up space."
+        );
+      } else {
+        alert(`Error saving persons:\n${error?.message || error || 'Unknown database error'}`);
+      }
+    } finally {
+      setIsSubmittingBulk(false);
+    }
+  };
 
   const onSubmit = async (data: any) => {
     const isEdit = !!(editData && editData.id);
@@ -417,16 +640,276 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
   const renderForm = () => {
     switch (type) {
       case EntityType.PERSON:
+        if (isBulkMode && !editData) {
+          return (
+            <div className="space-y-4">
+              {/* Bulk Control Bar */}
+              <div className="p-4 bg-white/5 border border-white/10 rounded-2xl space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-gray-400 uppercase font-bold tracking-wider">
+                      Batch Capacity:
+                    </span>
+                    <span className="px-2.5 py-0.5 rounded-full text-xs font-black bg-[#FFD700]/20 text-[#FFD700] border border-[#FFD700]/30 font-mono">
+                      {bulkPersons.length} / 10 Persons
+                    </span>
+                    {bulkPersons.length === 10 && (
+                      <span className="text-[10px] text-amber-400 font-bold uppercase tracking-wider flex items-center gap-1">
+                        <AlertCircle size={12} /> Limit Reached
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {/* Quick Fill Add */}
+                    {bulkPersons.length < 10 && (
+                      <button
+                        type="button"
+                        onClick={() => handleQuickAddRows(Math.min(3, 10 - bulkPersons.length))}
+                        className="px-2.5 py-1.5 bg-white/5 hover:bg-white/10 rounded-lg text-xs font-bold text-gray-300 border border-white/10 hover:border-white/20 transition-all flex items-center gap-1 cursor-pointer"
+                      >
+                        <Plus size={12} /> +{Math.min(3, 10 - bulkPersons.length)} Rows
+                      </button>
+                    )}
+
+                    {/* Add Person Button */}
+                    <button
+                      type="button"
+                      onClick={handleAddBulkRow}
+                      disabled={bulkPersons.length >= 10}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-[#FFD700]/10 hover:bg-[#FFD700]/20 rounded-lg text-xs font-bold text-[#FFD700] border border-[#FFD700]/30 transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                    >
+                      <Plus size={14} /> Add Row
+                    </button>
+                  </div>
+                </div>
+
+                {/* Quick Party Batch Assigner */}
+                <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-white/5">
+                  <div className="flex items-center gap-2 flex-1 min-w-[200px]">
+                    <label className="text-[11px] text-gray-400 uppercase font-bold tracking-wider whitespace-nowrap flex items-center gap-1.5">
+                      <Layers size={13} className="text-[#FFD700]" /> Batch Party:
+                    </label>
+                    <select
+                      value={bulkPartyToApply}
+                      onChange={(e) => handleApplyPartyToAll(e.target.value)}
+                      className="flex-1 bg-white/5 border border-white/10 rounded-xl px-2.5 py-1.5 text-xs focus:outline-none focus:border-[#FFD700]/50 appearance-none text-gray-200"
+                    >
+                      <option value="">Apply to all rows...</option>
+                      <option value="independent">Independent</option>
+                      {parties.filter(p => !p.isSuspended).map(p => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBulkPersons([createDefaultBulkPerson(bulkPartyToApply || 'independent')]);
+                      setBulkErrors({});
+                    }}
+                    className="text-[11px] text-gray-500 hover:text-red-400 transition-colors uppercase font-bold tracking-wider cursor-pointer"
+                  >
+                    Reset List
+                  </button>
+                </div>
+
+                {/* Visual Progress Bar */}
+                <div className="w-full bg-black/40 h-1.5 rounded-full overflow-hidden">
+                  <div
+                    className={`h-full transition-all duration-300 ${
+                      bulkPersons.length === 10 ? 'bg-[#FFD700]' : 'bg-[#D32F2F]'
+                    }`}
+                    style={{ width: `${(bulkPersons.length / 10) * 100}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* Dynamic Person Input List */}
+              <div className="space-y-3">
+                {bulkPersons.map((person, index) => {
+                  const hasError = !!bulkErrors[person.id];
+                  const isNameFilled = person.name.trim().length > 0;
+                  const avatarUrl = person.imageUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(person.name || `Person${index + 1}`)}`;
+
+                  return (
+                    <div
+                      key={person.id}
+                      className={`p-4 rounded-2xl border transition-all relative group ${
+                        hasError
+                          ? 'bg-red-500/10 border-red-500/40'
+                          : 'bg-white/5 border-white/10 hover:border-white/20'
+                      }`}
+                    >
+                      {/* Row Header */}
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-3">
+                          <div className="relative">
+                            <img
+                              src={avatarUrl}
+                              alt="Avatar"
+                              referrerPolicy="no-referrer"
+                              className="w-9 h-9 rounded-xl bg-black/30 border border-white/10 object-cover"
+                            />
+                            {isNameFilled ? (
+                              <div className="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-emerald-500 rounded-full flex items-center justify-center border-2 border-black">
+                                <Check size={8} className="text-black stroke-[3]" />
+                              </div>
+                            ) : (
+                              <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-amber-500/80 rounded-full border-2 border-black" />
+                            )}
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-black text-[#FFD700] uppercase tracking-wider font-mono">
+                                #{index + 1}
+                              </span>
+                              <span className="text-xs font-bold text-white uppercase tracking-tight">
+                                {person.name.trim() || `Person ${index + 1}`}
+                              </span>
+                            </div>
+                            <span className="text-[10px] text-gray-500 block uppercase tracking-wider">
+                              {parties.find(p => p.id === person.partyId)?.name || (person.partyId === 'independent' ? 'Independent' : 'Unassigned')} • {person.gender || 'Male'}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1.5">
+                          {bulkPersons.length < 10 && (
+                            <button
+                              type="button"
+                              onClick={() => handleDuplicateBulkRow(index)}
+                              title="Duplicate row"
+                              className="p-2 bg-white/5 hover:bg-white/10 text-gray-400 hover:text-[#FFD700] rounded-lg transition-all border border-white/5 cursor-pointer"
+                            >
+                              <Copy size={13} />
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveBulkRow(person.id)}
+                            disabled={bulkPersons.length <= 1}
+                            title="Remove person"
+                            className="p-2 bg-white/5 hover:bg-red-500/20 text-gray-400 hover:text-red-400 rounded-lg transition-all border border-white/5 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Fields Grid */}
+                      <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+                        {/* Full Name */}
+                        <div className="sm:col-span-4">
+                          <label className="text-[10px] text-gray-400 uppercase font-bold tracking-wider mb-1 block">
+                            Full Name <span className="text-red-400">*</span>
+                          </label>
+                          <input
+                            type="text"
+                            value={person.name}
+                            onChange={(e) => handleUpdateBulkField(person.id, 'name', e.target.value)}
+                            placeholder="e.g. John Doe"
+                            className={`w-full bg-white/5 border rounded-xl p-2.5 text-xs text-white focus:outline-none ${
+                              hasError ? 'border-red-500 focus:border-red-500' : 'border-white/10 focus:border-[#FFD700]/50'
+                            }`}
+                          />
+                          {hasError && (
+                            <span className="text-[10px] text-red-400 mt-1 block font-medium">
+                              {bulkErrors[person.id]}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Gender */}
+                        <div className="sm:col-span-2">
+                          <label className="text-[10px] text-gray-400 uppercase font-bold tracking-wider mb-1 block">
+                            Gender
+                          </label>
+                          <select
+                            value={person.gender}
+                            onChange={(e) => handleUpdateBulkField(person.id, 'gender', e.target.value)}
+                            className="w-full bg-white/5 border border-white/10 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-[#FFD700]/50 appearance-none"
+                          >
+                            <option value="Male">Male</option>
+                            <option value="Female">Female</option>
+                            <option value="Non-binary">Non-binary</option>
+                            <option value="Other">Other</option>
+                            <option value="Prefer not to say">Prefer not to say</option>
+                          </select>
+                        </div>
+
+                        {/* Party Affiliation */}
+                        <div className="sm:col-span-3">
+                          <label className="text-[10px] text-gray-400 uppercase font-bold tracking-wider mb-1 block">
+                            Party Affiliation
+                          </label>
+                          <select
+                            value={person.partyId}
+                            onChange={(e) => handleUpdateBulkField(person.id, 'partyId', e.target.value)}
+                            className="w-full bg-white/5 border border-white/10 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-[#FFD700]/50 appearance-none"
+                          >
+                            <option value="independent">Independent</option>
+                            {parties.filter(p => !p.isSuspended).map(p => (
+                              <option key={p.id} value={p.id}>{p.name}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {/* Image URL / Upload */}
+                        <div className="sm:col-span-3">
+                          <label className="text-[10px] text-gray-400 uppercase font-bold tracking-wider mb-1 block">
+                            Photo (Optional)
+                          </label>
+                          <div className="flex gap-1.5">
+                            <input
+                              type="text"
+                              value={person.imageUrl}
+                              onChange={(e) => handleUpdateBulkField(person.id, 'imageUrl', e.target.value)}
+                              placeholder="Image URL..."
+                              className="flex-1 min-w-0 bg-white/5 border border-white/10 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-[#FFD700]/50"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleBulkImageUpload(person.id)}
+                              title="Upload Image"
+                              className="p-2.5 bg-white/5 border border-white/10 hover:border-[#FFD700]/40 rounded-xl text-gray-400 hover:text-[#FFD700] transition-all flex items-center justify-center shrink-0 cursor-pointer"
+                            >
+                              <Upload size={14} />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Footer Add Button */}
+              {bulkPersons.length < 10 && (
+                <button
+                  type="button"
+                  onClick={handleAddBulkRow}
+                  className="w-full py-3 border-2 border-dashed border-white/10 hover:border-[#FFD700]/40 rounded-2xl text-xs font-bold text-gray-400 hover:text-[#FFD700] flex items-center justify-center gap-2 transition-all group cursor-pointer"
+                >
+                  <Plus size={16} className="group-hover:scale-110 transition-transform" />
+                  <span>Add Person #{bulkPersons.length + 1} (Up to 10)</span>
+                </button>
+              )}
+            </div>
+          );
+        }
+
         return (
           <>
             <div className="space-y-4">
               <div>
                 <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Full Name</label>
-                <input {...register('name')} placeholder="Enter person name..." className="w-full bg-white/5 border border-white/10 rounded-xl p-3 focus:outline-none focus:border-[#FFD700]/50" required />
+                <input {...register('name')} placeholder="Enter person name..." className="w-full bg-white/5 border border-white/10 rounded-xl p-3 focus:outline-none focus:border-[#FFD700]/50" required={!isBulkMode} />
               </div>
               <div>
                 <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Gender</label>
-                <select {...register('gender')} className="w-full bg-white/5 border border-white/10 rounded-xl p-3 focus:outline-none focus:border-[#FFD700]/50 appearance-none" required>
+                <select {...register('gender')} className="w-full bg-white/5 border border-white/10 rounded-xl p-3 focus:outline-none focus:border-[#FFD700]/50 appearance-none" required={!isBulkMode}>
                   <option value="">Select Gender...</option>
                   <option value="Male">Male</option>
                   <option value="Female">Female</option>
@@ -885,6 +1368,15 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
 
   const Icon = type ? entityIcons[type] : User;
 
+  const handleFormSubmit = (e: React.FormEvent) => {
+    if (type === EntityType.PERSON && isBulkMode && !editData) {
+      e.preventDefault();
+      handleBulkSubmit();
+    } else {
+      handleSubmit(onSubmit)(e);
+    }
+  };
+
   return (
     <AnimatePresence>
       {isOpen && (
@@ -902,36 +1394,102 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
             initial={{ scale: 0.9, opacity: 0, y: 20 }}
             animate={{ scale: 1, opacity: 1, y: 0 }}
             exit={{ scale: 0.9, opacity: 0, y: 20 }}
-            className="w-full max-w-xl glass-card relative overflow-hidden"
+            className={`w-full ${type === EntityType.PERSON && isBulkMode && !editData ? 'max-w-4xl' : 'max-w-xl'} glass-card relative overflow-hidden transition-all duration-300`}
           >
             {/* Header */}
             <div className={`h-2 shadow-lg ${type === EntityType.ALLIANCE ? 'bg-[#FFD700]' : 'bg-[#D32F2F]'}`} />
             <div className="p-6">
-              <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-3">
                   <div className="p-2 bg-white/5 rounded-lg text-[#FFD700]">
-                    <Icon size={24} />
+                    {type === EntityType.PERSON && isBulkMode && !editData ? <Users size={24} /> : <Icon size={24} />}
                   </div>
-                  <h2 className="text-xl font-bold uppercase tracking-tight">{editData ? 'Update' : 'Create'} {type}</h2>
+                  <div>
+                    <h2 className="text-xl font-bold uppercase tracking-tight">
+                      {editData ? 'Update' : (type === EntityType.PERSON && isBulkMode ? 'Bulk Create' : 'Create')} {type}
+                    </h2>
+                    {type === EntityType.PERSON && isBulkMode && !editData && (
+                      <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">
+                        Add up to 10 persons simultaneously
+                      </p>
+                    )}
+                  </div>
                 </div>
-                <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full text-gray-500">
+                <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full text-gray-500 cursor-pointer">
                   <X size={20} />
                 </button>
               </div>
 
-              <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+              {/* Single / Bulk Mode Switcher for Person */}
+              {type === EntityType.PERSON && !editData && (
+                <div className="flex items-center gap-2 p-1 bg-white/5 border border-white/10 rounded-2xl mb-5">
+                  <button
+                    type="button"
+                    onClick={() => setIsBulkMode(false)}
+                    className={`flex-1 flex items-center justify-center gap-2 py-2 px-4 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${
+                      !isBulkMode
+                        ? 'bg-[#D32F2F] text-white shadow-lg shadow-[#D32F2F]/20'
+                        : 'text-gray-400 hover:text-white hover:bg-white/5'
+                    }`}
+                  >
+                    <User size={15} />
+                    <span>Single Entry</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsBulkMode(true)}
+                    className={`flex-1 flex items-center justify-center gap-2 py-2 px-4 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${
+                      isBulkMode
+                        ? 'bg-[#FFD700] text-black font-black shadow-lg shadow-[#FFD700]/20'
+                        : 'text-gray-400 hover:text-white hover:bg-white/5'
+                    }`}
+                  >
+                    <Users size={15} />
+                    <span>Bulk Entry Mode</span>
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-tight font-mono ${
+                      isBulkMode ? 'bg-black/20 text-black' : 'bg-[#FFD700]/20 text-[#FFD700]'
+                    }`}>
+                      Max 10
+                    </span>
+                  </button>
+                </div>
+              )}
+
+              <form onSubmit={handleFormSubmit} className="space-y-6">
                 <div className="max-h-[60vh] overflow-y-auto px-1 custom-scrollbar">
                   {renderForm()}
                 </div>
-                <div className="flex items-center justify-end gap-3 mt-4">
-                  <button type="button" onClick={onClose} className="px-6 py-2 rounded-xl text-gray-400 hover:text-white transition-colors">Cancel</button>
-                  <button 
-                    type="submit" 
-                    disabled={type === EntityType.CONSTITUENCY && !activeAssembly && !editData}
-                    className="px-8 py-2 rounded-xl bg-[#D32F2F] text-white font-bold shadow-lg shadow-[#D32F2F]/20 hover:scale-[1.02] transition-transform disabled:opacity-50 disabled:hover:scale-100 disabled:cursor-not-allowed"
-                  >
-                    {editData ? 'Save Changes' : 'Create Entry'}
-                  </button>
+                <div className="flex items-center justify-between pt-2 border-t border-white/5">
+                  <div>
+                    {type === EntityType.PERSON && isBulkMode && !editData && (
+                      <span className="text-xs text-gray-400 font-medium">
+                        <strong className="text-white">{bulkPersons.length}</strong> of 10 persons ready
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <button type="button" onClick={onClose} className="px-6 py-2 rounded-xl text-gray-400 hover:text-white transition-colors cursor-pointer">
+                      Cancel
+                    </button>
+                    <button 
+                      type="submit" 
+                      disabled={(type === EntityType.CONSTITUENCY && !activeAssembly && !editData) || (type === EntityType.PERSON && isBulkMode && isSubmittingBulk)}
+                      className={`px-8 py-2.5 rounded-xl font-bold shadow-lg transition-transform flex items-center gap-2 cursor-pointer disabled:opacity-50 disabled:hover:scale-100 disabled:cursor-not-allowed ${
+                        type === EntityType.PERSON && isBulkMode && !editData
+                          ? 'bg-[#FFD700] text-black shadow-[#FFD700]/20 hover:scale-[1.02]'
+                          : 'bg-[#D32F2F] text-white shadow-[#D32F2F]/20 hover:scale-[1.02]'
+                      }`}
+                    >
+                      {type === EntityType.PERSON && isBulkMode && !editData ? (
+                        <>
+                          <Users size={18} />
+                          <span>{isSubmittingBulk ? 'Saving...' : `Add ${bulkPersons.length} Persons`}</span>
+                        </>
+                      ) : (
+                        <span>{editData ? 'Save Changes' : 'Create Entry'}</span>
+                      )}
+                    </button>
+                  </div>
                 </div>
               </form>
             </div>

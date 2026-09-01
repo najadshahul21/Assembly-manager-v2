@@ -201,7 +201,7 @@ export const CabinetPage: React.FC = () => {
       const rankB = getRank(bRolesStr);
       
       if (rankA !== rankB) return rankA - rankB;
-      return 0;
+      return (a.person.name || '').localeCompare(b.person.name || '', undefined, { sensitivity: 'base' });
     });
   }, [activeAssembly]);
 

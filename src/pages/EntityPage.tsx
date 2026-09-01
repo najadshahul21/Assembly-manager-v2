@@ -260,35 +260,43 @@ export const EntityPage: React.FC = () => {
   }, [type, id]);
 
   // Related data fetching
-  const relatedPersons = useLiveQuery(() => {
-    if (!id) return Promise.resolve([]);
-    if (entityType === EntityType.PARTY)
-      return db.persons.where("partyId").equals(id).toArray();
-    if (entityType === EntityType.ALLIANCE) {
-      return db.parties
-        .where("allianceId")
-        .equals(id)
-        .toArray()
-        .then(async (parties) => {
-          const pIds = parties.map((p) => p.id).filter(Boolean);
-          if (pIds.length === 0) return [];
-          return db.persons.where("partyId").anyOf(pIds).toArray();
-        });
+  const relatedPersons = useLiveQuery(async () => {
+    if (!id) return [];
+    let list: Person[] = [];
+    if (entityType === EntityType.PARTY) {
+      list = await db.persons.where("partyId").equals(id).toArray();
+    } else if (entityType === EntityType.ALLIANCE) {
+      const parties = await db.parties.where("allianceId").equals(id).toArray();
+      const pIds = parties.map((p) => p.id).filter(Boolean);
+      if (pIds.length > 0) {
+        list = await db.persons.where("partyId").anyOf(pIds).toArray();
+      }
     }
-    return Promise.resolve([]);
+    return list.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
   }, [type, id]);
 
-  const relatedParties = useLiveQuery(() => {
-    if (!id) return Promise.resolve([]);
-    if (entityType === EntityType.ALLIANCE)
-      return db.parties.where("allianceId").equals(id).toArray();
-    return Promise.resolve([]);
+  const relatedParties = useLiveQuery(async () => {
+    if (!id) return [];
+    if (entityType === EntityType.ALLIANCE) {
+      const list = await db.parties.where("allianceId").equals(id).toArray();
+      return list.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
+    }
+    return [];
   }, [type, id]);
 
-  const partiesList = useLiveQuery(() => db.parties.toArray()) || [];
-  const personsList = useLiveQuery(() => db.persons.toArray()) || [];
+  const partiesList = useLiveQuery(async () => {
+    const list = await db.parties.toArray();
+    return list.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
+  }) || [];
+  const personsList = useLiveQuery(async () => {
+    const list = await db.persons.toArray();
+    return list.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
+  }) || [];
   const assembliesList = useLiveQuery(() => db.assemblies.toArray()) || [];
-  const alliancesList = useLiveQuery(() => db.alliances.toArray()) || [];
+  const alliancesList = useLiveQuery(async () => {
+    const list = await db.alliances.toArray();
+    return list.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
+  }) || [];
   const constituenciesList =
     useLiveQuery(() => db.constituencies.toArray()) || [];
   const designationsList = useLiveQuery(() => db.designations.toArray()) || [];
@@ -531,7 +539,7 @@ export const EntityPage: React.FC = () => {
       });
     }
 
-    return validMembers;
+    return validMembers.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
   }, [entity, id, entityType]);
 
   const personsEligibleForHighCommand = useLiveQuery(async () => {
@@ -544,7 +552,9 @@ export const EntityPage: React.FC = () => {
     const persons = alliancePartyIds.length > 0
       ? await db.persons.where("partyId").anyOf(alliancePartyIds).toArray()
       : [];
-    return persons.filter((p) => !p.isSuspended);
+    return persons
+      .filter((p) => !p.isSuspended)
+      .sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
   }, [id, entityType]);
 
   const handleToggleHighCommand = async (personId: string) => {

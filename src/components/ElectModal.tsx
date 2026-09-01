@@ -1,7 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Person, Party, ElectionResult, CandidateResult } from '../types';
-import { Vote, Plus, Trash2, X, CheckCircle, Search, AlertCircle } from 'lucide-react';
-import { motion } from 'motion/react';
+import { 
+  Vote, Plus, Trash2, X, CheckCircle, Search, AlertCircle, 
+  ChevronDown, User, Check, Sparkles, UserPlus 
+} from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 
 interface ElectModalProps {
   constituencyName: string;
@@ -21,6 +24,269 @@ interface CandidateDraft {
   partyColor: string;
   votes: number | '';
 }
+
+interface SearchablePersonSelectProps {
+  tempId: string;
+  personId?: string;
+  candidateName: string;
+  partyAbbreviation: string;
+  partyColor: string;
+  personsList: Person[];
+  partiesList: Party[];
+  onSelect: (tempId: string, personId: string, customName?: string) => void;
+}
+
+const SearchablePersonSelect: React.FC<SearchablePersonSelectProps> = ({
+  tempId,
+  personId,
+  candidateName,
+  partyAbbreviation,
+  partyColor,
+  personsList,
+  partiesList,
+  onSelect,
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      // Auto-focus search input when opened
+      setTimeout(() => {
+        searchInputRef.current?.focus();
+      }, 50);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isOpen]);
+
+  const selectedPerson = useMemo(() => {
+    if (!personId || personId === 'nota') return null;
+    return personsList.find((p) => p.id === personId);
+  }, [personId, personsList]);
+
+  // Filter persons based on search query
+  const filteredPersons = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    const sorted = [...personsList].sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
+    if (!q) return sorted;
+
+    return sorted.filter((p) => {
+      const pParty = partiesList.find((prty) => prty.id === p.partyId);
+      const partyAbbr = (pParty?.abbreviation || p.partyId || '').toLowerCase();
+      const partyName = (pParty?.name || '').toLowerCase();
+      const name = (p.name || '').toLowerCase();
+      return name.includes(q) || partyAbbr.includes(q) || partyName.includes(q);
+    });
+  }, [personsList, partiesList, searchQuery]);
+
+  const handleSelectOption = (id: string, name?: string) => {
+    onSelect(tempId, id, name);
+    setIsOpen(false);
+    setSearchQuery('');
+  };
+
+  return (
+    <div className="relative flex-1" ref={dropdownRef}>
+      <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1 flex items-center justify-between">
+        <span>Registered Politician / Candidate</span>
+        {personId && (
+          <span className="text-[10px] text-[#FFD700] lowercase font-normal">
+            {personId === 'nota' ? 'NOTA selected' : 'linked'}
+          </span>
+        )}
+      </label>
+
+      {/* Trigger Button */}
+      <button
+        type="button"
+        onClick={() => setIsOpen((prev) => !prev)}
+        className={`w-full bg-zinc-800/90 hover:bg-zinc-800 border rounded-lg px-3 py-2 text-left flex items-center justify-between gap-2 transition-all cursor-pointer ${
+          isOpen ? 'border-[#FFD700] ring-1 ring-[#FFD700]/30' : 'border-zinc-700/80 hover:border-zinc-600'
+        }`}
+      >
+        <div className="flex items-center gap-2.5 min-w-0 overflow-hidden">
+          {personId === 'nota' ? (
+            <div className="flex items-center gap-2">
+              <span className="w-5 h-5 rounded bg-zinc-700 text-zinc-300 text-[10px] font-black flex items-center justify-center">
+                Ø
+              </span>
+              <span className="text-sm font-bold text-zinc-300 truncate">NOTA (None of the above)</span>
+            </div>
+          ) : selectedPerson ? (
+            <div className="flex items-center gap-2 min-w-0">
+              <img
+                src={selectedPerson.imageUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(selectedPerson.name)}`}
+                alt={selectedPerson.name}
+                referrerPolicy="no-referrer"
+                className="w-5 h-5 rounded-full object-cover bg-zinc-700 border border-zinc-600 shrink-0"
+              />
+              <span className="text-sm font-bold text-white truncate">{selectedPerson.name}</span>
+              <span
+                className="text-[10px] px-1.5 py-0.5 rounded font-black uppercase text-white shrink-0"
+                style={{ backgroundColor: partyColor || '#3B82F6' }}
+              >
+                {partyAbbreviation}
+              </span>
+            </div>
+          ) : candidateName ? (
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="w-5 h-5 rounded-full bg-zinc-700 flex items-center justify-center text-zinc-400 text-[10px] font-bold shrink-0">
+                <User size={12} />
+              </div>
+              <span className="text-sm text-zinc-300 truncate">{candidateName}</span>
+              <span className="text-[10px] text-zinc-500 uppercase tracking-tight shrink-0">(Custom)</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 text-zinc-400 text-sm">
+              <Search size={14} className="text-[#FFD700]" />
+              <span className="truncate">Search & select politician...</span>
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center gap-1 shrink-0 text-zinc-400">
+          <ChevronDown size={14} className={`transition-transform duration-200 ${isOpen ? 'rotate-180 text-[#FFD700]' : ''}`} />
+        </div>
+      </button>
+
+      {/* Dropdown Popover */}
+      {isOpen && (
+        <div className="absolute left-0 top-full mt-1.5 w-full min-w-[300px] sm:min-w-[380px] max-w-md bg-[#16161a] border border-zinc-700 rounded-xl shadow-2xl z-[150] overflow-hidden">
+          {/* Search Header */}
+          <div className="p-2.5 border-b border-zinc-800 bg-zinc-900/90 flex items-center gap-2">
+            <Search size={15} className="text-[#FFD700] shrink-0" />
+            <input
+              ref={searchInputRef}
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search by politician name or party..."
+              className="w-full bg-transparent text-xs text-white placeholder-zinc-500 focus:outline-none"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="p-1 hover:bg-zinc-800 text-zinc-400 hover:text-white rounded cursor-pointer"
+              >
+                <X size={13} />
+              </button>
+            )}
+          </div>
+
+          {/* Quick Actions */}
+          <div className="p-1.5 border-b border-zinc-800/80 bg-zinc-900/40 flex items-center gap-1 text-xs">
+            <button
+              type="button"
+              onClick={() => handleSelectOption('')}
+              className="flex-1 py-1.5 px-2 rounded-lg text-left text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors flex items-center justify-between cursor-pointer"
+            >
+              <span>Custom / Unlinked Candidate</span>
+              {!personId && <Check size={12} className="text-[#FFD700]" />}
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSelectOption('nota')}
+              className="flex-1 py-1.5 px-2 rounded-lg text-left text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors flex items-center justify-between cursor-pointer"
+            >
+              <span>NOTA</span>
+              {personId === 'nota' && <Check size={12} className="text-[#FFD700]" />}
+            </button>
+          </div>
+
+          {/* Persons List */}
+          <div className="max-h-60 overflow-y-auto custom-scrollbar p-1.5 space-y-1">
+            <div className="px-2 py-1 text-[10px] font-black uppercase tracking-wider text-zinc-500 flex items-center justify-between">
+              <span>Registered Politicians</span>
+              <span className="font-mono text-[9px] text-[#FFD700]">
+                {filteredPersons.length} found
+              </span>
+            </div>
+
+            {filteredPersons.length > 0 ? (
+              filteredPersons.map((person) => {
+                const prty = partiesList.find(
+                  (p) => p.id === person.partyId || p.abbreviation?.toLowerCase() === person.partyId?.toLowerCase()
+                );
+                const isCurrent = personId === person.id;
+                const partyColorStyle = prty?.colors?.[0] || '#6B7280';
+                const partyAbbr = prty?.abbreviation || person.partyId || 'IND';
+
+                return (
+                  <button
+                    key={person.id}
+                    type="button"
+                    onClick={() => handleSelectOption(person.id)}
+                    className={`w-full text-left p-2 rounded-lg flex items-center justify-between gap-2.5 transition-all cursor-pointer ${
+                      isCurrent
+                        ? 'bg-[#FFD700]/15 border border-[#FFD700]/40 text-white'
+                        : 'hover:bg-zinc-800/80 text-zinc-300 hover:text-white border border-transparent'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <img
+                        src={person.imageUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(person.name)}`}
+                        alt={person.name}
+                        referrerPolicy="no-referrer"
+                        className="w-7 h-7 rounded-lg object-cover bg-zinc-800 border border-zinc-700 shrink-0"
+                      />
+                      <div className="min-w-0">
+                        <div className="text-xs font-bold truncate text-white">
+                          {person.name}
+                        </div>
+                        <div className="text-[10px] text-zinc-400 flex items-center gap-1.5">
+                          <span
+                            className="inline-block w-2 h-2 rounded-full"
+                            style={{ backgroundColor: partyColorStyle }}
+                          />
+                          <span>{prty?.name || partyAbbr}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span
+                        className="text-[10px] font-black uppercase px-2 py-0.5 rounded text-white tracking-wider"
+                        style={{ backgroundColor: partyColorStyle }}
+                      >
+                        {partyAbbr}
+                      </span>
+                      {isCurrent && <Check size={14} className="text-[#FFD700]" />}
+                    </div>
+                  </button>
+                );
+              })
+            ) : (
+              <div className="p-4 text-center">
+                <p className="text-xs text-zinc-400 mb-2">
+                  No registered politicians matching <strong className="text-white">"{searchQuery}"</strong>
+                </p>
+                <button
+                  type="button"
+                  onClick={() => handleSelectOption('', searchQuery)}
+                  className="px-3 py-1.5 bg-[#FFD700]/10 hover:bg-[#FFD700]/20 text-[#FFD700] border border-[#FFD700]/30 rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                >
+                  Use "{searchQuery}" as Custom Name
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
 
 export const ElectModal: React.FC<ElectModalProps> = ({
   constituencyName,
@@ -86,6 +352,40 @@ export const ElectModal: React.FC<ElectModalProps> = ({
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  
+  // Quick Search & Add Candidate state
+  const [quickSearchQuery, setQuickSearchQuery] = useState('');
+  const [showQuickAddDropdown, setShowQuickAddDropdown] = useState(false);
+  const quickSearchRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (quickSearchRef.current && !quickSearchRef.current.contains(e.target as Node)) {
+        setShowQuickAddDropdown(false);
+      }
+    };
+    if (showQuickAddDropdown) {
+      document.addEventListener('mousedown', handleOutsideClick);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+    };
+  }, [showQuickAddDropdown]);
+
+  const quickFilteredPersons = useMemo(() => {
+    const q = quickSearchQuery.trim().toLowerCase();
+    if (!q) return [];
+    const sorted = [...personsList].sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
+    return sorted
+      .filter((p) => {
+        const prty = partiesList.find((pr) => pr.id === p.partyId);
+        const partyAbbr = (prty?.abbreviation || p.partyId || '').toLowerCase();
+        const partyName = (prty?.name || '').toLowerCase();
+        const name = (p.name || '').toLowerCase();
+        return name.includes(q) || partyAbbr.includes(q) || partyName.includes(q);
+      })
+      .slice(0, 8);
+  }, [personsList, partiesList, quickSearchQuery]);
 
   // Add new candidate row (defaults to Independent - IND)
   const handleAddCandidate = () => {
@@ -102,6 +402,31 @@ export const ElectModal: React.FC<ElectModalProps> = ({
     ]);
   };
 
+  const handleQuickAddPersonAsCandidate = (person: Person) => {
+    const personParty = partiesList.find(
+      (prty) => prty.id === person.partyId || prty.abbreviation?.toLowerCase() === person.partyId?.toLowerCase()
+    );
+    const partyAbbreviation = personParty?.abbreviation ? personParty.abbreviation : 'IND';
+    const partyColor = personParty?.colors?.[0] ? personParty.colors[0] : '#A1A1AA';
+    const partyId = personParty?.id ? personParty.id : 'independent';
+
+    setCandidates((prev) => [
+      ...prev,
+      {
+        tempId: `draft-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+        personId: person.id,
+        candidateName: person.name,
+        partyId,
+        partyAbbreviation,
+        partyColor,
+        votes: 0
+      }
+    ]);
+
+    setQuickSearchQuery('');
+    setShowQuickAddDropdown(false);
+  };
+
   const handleRemoveCandidate = (tempId: string) => {
     if (candidates.length <= 1) {
       setErrorMessage('Election must have at least one candidate.');
@@ -111,7 +436,7 @@ export const ElectModal: React.FC<ElectModalProps> = ({
     setErrorMessage('');
   };
 
-  const handlePersonSelect = (tempId: string, personId: string) => {
+  const handlePersonSelect = (tempId: string, personId: string, customName?: string) => {
     if (!personId) {
       // Unset/Custom
       setCandidates((prev) =>
@@ -120,7 +445,7 @@ export const ElectModal: React.FC<ElectModalProps> = ({
             return {
               ...c,
               personId: undefined,
-              candidateName: '',
+              candidateName: customName !== undefined ? customName : c.candidateName,
               partyId: 'independent',
               partyAbbreviation: 'IND',
               partyColor: '#A1A1AA'
@@ -275,7 +600,7 @@ export const ElectModal: React.FC<ElectModalProps> = ({
         initial={{ scale: 0.95, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         exit={{ scale: 0.95, opacity: 0 }}
-        className="w-full max-w-2xl bg-[#121214] border border-zinc-800 rounded-2xl p-6 sm:p-8 relative z-10 shadow-2xl max-h-[90vh] overflow-y-auto custom-scrollbar"
+        className="w-full max-w-3xl bg-[#121214] border border-zinc-800 rounded-2xl p-6 sm:p-8 relative z-10 shadow-2xl max-h-[90vh] overflow-y-auto custom-scrollbar"
       >
         {/* Header */}
         <div className="flex items-center justify-between pb-4 mb-6 border-b border-zinc-800">
@@ -307,6 +632,96 @@ export const ElectModal: React.FC<ElectModalProps> = ({
           </div>
         )}
 
+        {/* Quick Search & Add Candidate Bar */}
+        <div className="mb-6 p-3.5 bg-white/5 border border-white/10 rounded-xl relative" ref={quickSearchRef}>
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-zinc-300">
+              <Search size={14} className="text-[#FFD700]" />
+              <span>Search Database to Add Candidate:</span>
+            </div>
+          </div>
+          
+          <div className="relative mt-2">
+            <input
+              type="text"
+              value={quickSearchQuery}
+              onChange={(e) => {
+                setQuickSearchQuery(e.target.value);
+                setShowQuickAddDropdown(true);
+              }}
+              onFocus={() => {
+                if (quickSearchQuery.trim()) setShowQuickAddDropdown(true);
+              }}
+              placeholder="Type any politician or party name to instantly add..."
+              className="w-full bg-zinc-900/90 border border-zinc-700/80 rounded-lg pl-9 pr-4 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-[#FFD700]"
+            />
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
+            {quickSearchQuery && (
+              <button
+                type="button"
+                onClick={() => {
+                  setQuickSearchQuery('');
+                  setShowQuickAddDropdown(false);
+                }}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-white"
+              >
+                <X size={13} />
+              </button>
+            )}
+
+            {/* Quick Search Dropdown Menu */}
+            {showQuickAddDropdown && quickSearchQuery.trim() && (
+              <div className="absolute left-0 right-0 top-full mt-1.5 bg-[#18181c] border border-zinc-700 rounded-xl shadow-2xl z-[160] overflow-hidden max-h-56 overflow-y-auto custom-scrollbar p-1.5 space-y-1">
+                {quickFilteredPersons.length > 0 ? (
+                  quickFilteredPersons.map((p) => {
+                    const prty = partiesList.find(
+                      (party) => party.id === p.partyId || party.abbreviation?.toLowerCase() === p.partyId?.toLowerCase()
+                    );
+                    const partyColor = prty?.colors?.[0] || '#3B82F6';
+                    const partyAbbr = prty?.abbreviation || p.partyId || 'IND';
+
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => handleQuickAddPersonAsCandidate(p)}
+                        className="w-full text-left p-2 hover:bg-zinc-800 rounded-lg flex items-center justify-between gap-3 text-xs transition-colors cursor-pointer group"
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <img
+                            src={p.imageUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(p.name)}`}
+                            alt={p.name}
+                            referrerPolicy="no-referrer"
+                            className="w-6 h-6 rounded-full object-cover bg-zinc-700 shrink-0"
+                          />
+                          <span className="font-bold text-white group-hover:text-[#FFD700] truncate">
+                            {p.name}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span
+                            className="text-[10px] font-black uppercase px-2 py-0.5 rounded text-white"
+                            style={{ backgroundColor: partyColor }}
+                          >
+                            {partyAbbr}
+                          </span>
+                          <span className="text-[11px] font-bold text-[#FFD700] bg-[#FFD700]/10 px-2 py-0.5 rounded border border-[#FFD700]/20 flex items-center gap-1">
+                            <Plus size={11} /> Add
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })
+                ) : (
+                  <div className="p-3 text-center text-xs text-zinc-500">
+                    No matching persons found. Use the manual candidate fields below or add a new person in the database.
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* Candidate Entry Form List */}
         <div className="space-y-4 mb-6">
           <div className="flex items-center justify-between">
@@ -317,7 +732,7 @@ export const ElectModal: React.FC<ElectModalProps> = ({
               onClick={handleAddCandidate}
               className="text-xs gold-text hover:underline font-bold uppercase flex items-center gap-1 cursor-pointer"
             >
-              <Plus size={14} /> Add Candidate
+              <Plus size={14} /> Add Candidate Row
             </button>
           </div>
 
@@ -328,28 +743,17 @@ export const ElectModal: React.FC<ElectModalProps> = ({
                   key={cand.tempId}
                   className="p-4 rounded-xl bg-zinc-900/80 border border-zinc-800 flex flex-col md:flex-row items-stretch md:items-center gap-3 transition-all hover:border-zinc-700"
                 >
-                  {/* Select Person from Database */}
-                  <div className="flex-1">
-                    <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1">
-                      Candidate ({idx + 1})
-                    </label>
-                    <select
-                      value={cand.personId || ''}
-                      onChange={(e) => handlePersonSelect(cand.tempId, e.target.value)}
-                      className="w-full bg-zinc-800/90 border border-zinc-700/80 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[#FFD700] cursor-pointer"
-                    >
-                      <option value="">-- Custom / Select Registered Person --</option>
-                      <option value="nota">NOTA (None of the above)</option>
-                      {personsList.map((p) => {
-                        const prty = partiesList.find((pParty) => pParty.id === p.partyId);
-                        return (
-                          <option key={p.id} value={p.id}>
-                            {p.name} ({prty?.abbreviation || p.partyId})
-                          </option>
-                        );
-                      })}
-                    </select>
-                  </div>
+                  {/* Searchable Person Selector */}
+                  <SearchablePersonSelect
+                    tempId={cand.tempId}
+                    personId={cand.personId}
+                    candidateName={cand.candidateName}
+                    partyAbbreviation={cand.partyAbbreviation}
+                    partyColor={cand.partyColor}
+                    personsList={personsList}
+                    partiesList={partiesList}
+                    onSelect={handlePersonSelect}
+                  />
 
                   {/* Candidate Display Name */}
                   <div className="w-full md:w-44">
@@ -372,7 +776,7 @@ export const ElectModal: React.FC<ElectModalProps> = ({
                   </div>
 
                   {/* Party Abbreviation & Color */}
-                  <div className="w-full md:w-32">
+                  <div className="w-full md:w-28">
                     <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1">
                       Party Abbr.
                     </label>
@@ -394,7 +798,7 @@ export const ElectModal: React.FC<ElectModalProps> = ({
                   </div>
 
                   {/* Votes Input */}
-                  <div className="w-full md:w-36">
+                  <div className="w-full md:w-32">
                     <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1">
                       Votes Got
                     </label>
