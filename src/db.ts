@@ -281,8 +281,15 @@ export const freezeAssembly = async (assemblyId: string) => {
     }
   }
 
+  // Linked constituencies for this assembly
+  const targetCs = constituencies.filter(
+    (c) =>
+      c.currentAssemblyId === assemblyId ||
+      (Array.isArray(c.history) && c.history.some((h) => h.assemblyId === assemblyId)),
+  );
+
   const assemblyPerformance = {
-    totalSeats: Math.max(constituencies.length, 60),
+    totalSeats: targetCs.length,
     incumbentCount: incumbentPersons.length,
     distribution: sortedGroups,
     government: sortedGroups[0] || null,
@@ -292,11 +299,6 @@ export const freezeAssembly = async (assemblyId: string) => {
   };
 
   // Build seatingLayout
-  const targetCs = constituencies.filter(
-    (c) =>
-      c.currentAssemblyId === assemblyId ||
-      (Array.isArray(c.history) && c.history.some((h) => h.assemblyId === assemblyId)),
-  );
 
   const mappedSeats = targetCs.map((c) => {
     let politician: Person | undefined = undefined;

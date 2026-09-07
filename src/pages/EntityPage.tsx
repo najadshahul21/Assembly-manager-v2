@@ -39,6 +39,7 @@ import {
 import { EntityCard } from "../components/EntityCards";
 import { ElectionResultsTable } from "../components/ElectionResultsTable";
 import { ElectModal } from "../components/ElectModal";
+import { AssemblyMembersTable } from "../components/AssemblyMembersTable";
 
 import { CreateModals } from "../components/CreateModals";
 
@@ -1057,6 +1058,14 @@ export const EntityPage: React.FC = () => {
   const assemblyPerformance = useLiveQuery(async () => {
     if (entityType !== EntityType.ASSEMBLY) return null;
 
+    // Query all constituencies linked with the assembly
+    const allCs = await db.constituencies.toArray();
+    const linkedConstituencies = allCs.filter(
+      (c) =>
+        c.currentAssemblyId === id! ||
+        (Array.isArray(c.history) && c.history.some((h) => h.assemblyId === id!)),
+    );
+
     // Check for cached/frozen composition for dissolved assemblies
     const assemblyRecord = await db.assemblies.get(id!);
     if (
@@ -1066,7 +1075,10 @@ export const EntityPage: React.FC = () => {
     ) {
       const cached = assemblyRecord.composition;
       return {
-        totalSeats: cached.totalSeats || 0,
+        totalSeats:
+          linkedConstituencies.length > 0
+            ? linkedConstituencies.length
+            : (cached.seatingLayout?.length || cached.totalSeats || 0),
         incumbentCount: cached.incumbentCount || 0,
         distribution: cached.distribution || [],
         government: cached.government || null,
@@ -1079,10 +1091,7 @@ export const EntityPage: React.FC = () => {
 
     // ... continue as before but if it's dissolved and result is ready, save it
     const data = await (async () => {
-      const constituencies = await db.constituencies
-        .where("currentAssemblyId")
-        .equals(id!)
-        .toArray();
+      const constituencies = linkedConstituencies;
       const designations = await db.designations
         .where("assemblyId")
         .equals(id!)
@@ -1334,7 +1343,7 @@ export const EntityPage: React.FC = () => {
       }
 
       return {
-        totalSeats: Math.max(constituencies.length, 60),
+        totalSeats: constituencies.length,
         incumbentCount: incumbentPersons.length,
         distribution: sortedGroups,
         government: sortedGroups[0] || null,
@@ -3555,28 +3564,47 @@ export const EntityPage: React.FC = () => {
                           </div>
 
                           <div className="mt-8 flex h-4 rounded-full overflow-hidden bg-white/5 p-1 gap-1">
-                            {assemblyPerformance.distribution.map((a) => (
-                              <div
-                                key={a.id}
-                                style={{
-                                  width: `${(a.totalSeats / 60) * 100}%`,
-                                  backgroundColor: a.color,
-                                }}
-                                className="h-full rounded-full opacity-80 hover:opacity-100 transition-opacity cursor-pointer relative group"
-                              >
-                                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 p-2 bg-black rounded-lg text-[10px] font-black opacity-0 group-hover:opacity-100 whitespace-nowrap z-10 transition-opacity border border-white/10 pointer-events-none">
-                                  {a.name}: {a.totalSeats}
+                            {assemblyPerformance.distribution.map((a) => {
+                              const total = assemblyPerformance.totalSeats || 1;
+                              const pct = Math.min(100, Math.max(0, (a.totalSeats / total) * 100));
+                              return (
+                                <div
+                                  key={a.id}
+                                  style={{
+                                    width: `${pct}%`,
+                                    backgroundColor: a.color,
+                                  }}
+                                  className="h-full rounded-full opacity-80 hover:opacity-100 transition-opacity cursor-pointer relative group"
+                                >
+                                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 p-2 bg-black rounded-lg text-[10px] font-black opacity-0 group-hover:opacity-100 whitespace-nowrap z-10 transition-opacity border border-white/10 pointer-events-none">
+                                    {a.name}: {a.totalSeats}
+                                  </div>
                                 </div>
-                              </div>
-                            ))}
-                            {assemblyPerformance.totalSeats < 60 && (
-                              <div
-                                style={{
-                                  width: `${((60 - assemblyPerformance.totalSeats) / 60) * 100}%`,
-                                }}
-                                className="h-full bg-white/5 rounded-full"
-                              />
-                            )}
+                              );
+                            })}
+                            {(() => {
+                              const total = assemblyPerformance.totalSeats || 0;
+                              const occupied = (assemblyPerformance.distribution as any[]).reduce(
+                                (acc: number, cur: any) => acc + (cur.totalSeats || 0),
+                                0
+                              );
+                              const unallocated = Math.max(0, total - occupied);
+                              if (total > 0 && unallocated > 0) {
+                                return (
+                                  <div
+                                    style={{
+                                      width: `${(unallocated / total) * 100}%`,
+                                    }}
+                                    className="h-full bg-white/5 rounded-full relative group"
+                                  >
+                                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 p-2 bg-black rounded-lg text-[10px] font-black opacity-0 group-hover:opacity-100 whitespace-nowrap z-10 transition-opacity border border-white/10 pointer-events-none text-gray-400">
+                                      Vacant / Unallocated: {unallocated}
+                                    </div>
+                                  </div>
+                                );
+                              }
+                              return null;
+                            })()}
                           </div>
                         </section>
                       )}
@@ -4722,46 +4750,31 @@ export const EntityPage: React.FC = () => {
                           : "Elected Members (MLAs)"}
                       </h3>
                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-16">
-                      {assemblyMembers.map((m) => (
-                        <EntityCard
-                          key={m.uniqueKey || m.id}
-                          entity={m}
-                          type={EntityType.PERSON}
-                          currentAssemblyId={id}
-                          onPromote={
-                            !isDissolvedRecord &&
-                            !(
-                              personsList.find((p) => p.id === m.id)
-                                ?.assemblyRoles?.[id!]
-                                ?.split(", ")
-                                ?.some((r) => r.toLowerCase().includes("minister")) || false
-                            )
-                              ? () =>
-                                  setShowPromotePopup({
-                                    personId: m.id,
-                                    personName: m.name,
-                                  })
-                              : undefined
-                          }
-                          onSupportAlliance={
-                            !isDissolvedRecord && m.partyId === "independent"
-                              ? () =>
-                                  setShowSupportAlliancePopup({
-                                    personId: m.id,
-                                    personName: m.name,
-                                  })
-                              : undefined
-                          }
-                        />
-                      ))}
-                      {assemblyMembers.length === 0 && (
-                        <div className="col-span-full py-20 text-center border border-dashed border-white/10 rounded-2xl">
-                          <p className="text-gray-600 italic">
-                            No sitting members recorded for this assembly term.
-                          </p>
-                        </div>
-                      )}
+                    <div className="mb-16">
+                      <AssemblyMembersTable
+                        assembly={entity as Assembly}
+                        seats={assemblySeats || []}
+                        designationsList={designationsList}
+                        isDissolved={isDissolvedRecord}
+                        onPromote={
+                          !isDissolvedRecord
+                            ? (personId, personName) =>
+                                setShowPromotePopup({
+                                  personId,
+                                  personName,
+                                })
+                            : undefined
+                        }
+                        onSupportAlliance={
+                          !isDissolvedRecord
+                            ? (personId, personName) =>
+                                setShowSupportAlliancePopup({
+                                  personId,
+                                  personName,
+                                })
+                            : undefined
+                        }
+                      />
                     </div>
 
                     {/* Seats List - Vacant / Occupied separation */}
