@@ -7,9 +7,14 @@ import {
   AlertCircle, Layers, CheckCircle2 
 } from 'lucide-react';
 import { db, freezeAssembly } from '../db';
-import { EntityType } from '../types';
+import { EntityType, Assembly } from '../types';
 import { nanoid } from 'nanoid';
 import { useLiveQuery } from 'dexie-react-hooks';
+import { 
+  computeAssemblyGovernmentComposition, 
+  isSpeakerOrDeputySpeakerRole, 
+  isMinisterialRole 
+} from '../utils/governmentUtils';
 
 interface CreateModalsProps {
   type: EntityType | null;
@@ -35,7 +40,7 @@ const createDefaultBulkPerson = (partyId = 'independent'): BulkPersonItem => ({
 });
 
 export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClose, editData }) => {
-  const { register, handleSubmit, reset, setValue, control } = useForm();
+  const { register, handleSubmit, reset, setValue, control, watch } = useForm();
   
   // Bulk Person State
   const [isBulkMode, setIsBulkMode] = useState(false);
@@ -221,6 +226,73 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
       </>
     );
   }, [type, editData, persons, constituencies, personOptions]);
+
+  const governmentMlaPersonOptions = React.useMemo(() => {
+    if (type !== EntityType.ASSEMBLY) return personOptions;
+    
+    const assemblyId = editData?.id;
+    if (!assemblyId) return personOptions;
+
+    const govRes = computeAssemblyGovernmentComposition(
+      editData as Assembly,
+      constituencies,
+      parties,
+      alliances,
+      persons
+    );
+
+    const govMlaIds = govRes.governmentMlaIds;
+    const filtered = persons.filter(
+      p => govMlaIds.has(p.id) && (!p.isSuspended || (editData?.leaders && Object.values(editData.leaders).includes(p.id)))
+    );
+
+    return (
+      <>
+        <option value="">Select (Government MLA)...</option>
+        {[...filtered].sort((a, b) => a.name.localeCompare(b.name)).map(p => (
+          <option key={p.id} value={p.id}>{p.name}{p.isSuspended ? " (Suspended)" : ""}</option>
+        ))}
+      </>
+    );
+  }, [type, editData, persons, constituencies, parties, alliances, personOptions]);
+
+  const designationPersonOptions = React.useMemo(() => {
+    if (type !== EntityType.DESIGNATION) return personOptions;
+    const watchedName = watch('name') || editData?.name || '';
+    const watchedAssemblyId = watch('assemblyId') || editData?.assemblyId;
+
+    const isSpeaker = isSpeakerOrDeputySpeakerRole(watchedName);
+    const isMinister = isMinisterialRole(watchedName);
+
+    if (watchedAssemblyId && (isSpeaker || isMinister)) {
+      const targetAsm = assemblies.find(a => a.id === watchedAssemblyId);
+      const govRes = computeAssemblyGovernmentComposition(
+        targetAsm,
+        constituencies,
+        parties,
+        alliances,
+        persons
+      );
+
+      if (govRes.governmentMlaIds.size > 0) {
+        const filtered = persons.filter(
+          p => govRes.governmentMlaIds.has(p.id) && (!p.isSuspended || editData?.incumbentId === p.id)
+        );
+        return (
+          <>
+            <option value="vacant">Vacant</option>
+            {[...filtered].sort((a, b) => a.name.localeCompare(b.name)).map(p => (
+              <option key={p.id} value={p.id}>
+                {p.name} ({parties.find(pt => pt.id === p.partyId)?.abbreviation || 'IND'} - Govt MLA)
+              </option>
+            ))}
+          </>
+        );
+      }
+    }
+
+    return personOptions;
+  }, [type, watch('name'), watch('assemblyId'), editData, assemblies, constituencies, parties, alliances, persons, personOptions]);
 
   // Bulk Person Helper Functions
   const handleAddBulkRow = () => {
@@ -494,6 +566,29 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
 
         const isDissolving = isEdit && editData.isActive === true && isActive === false;
 
+        // Enforce rule: Only MLAs of the government composition can be appointed as Speaker or Deputy Speaker
+        if (data.speaker || data.deputySpeaker) {
+          const targetAsm = editData ? (editData as Assembly) : ({ id, ...data } as Assembly);
+          const govRes = computeAssemblyGovernmentComposition(
+            targetAsm,
+            constituencies,
+            parties,
+            alliances,
+            persons
+          );
+
+          if (govRes.allMlaIds.size > 0) {
+            if (data.speaker && data.speaker !== 'vacant' && !govRes.governmentMlaIds.has(data.speaker)) {
+              alert("Only MLAs of the government composition can be appointed as Speaker or Deputy Speaker.");
+              return;
+            }
+            if (data.deputySpeaker && data.deputySpeaker !== 'vacant' && !govRes.governmentMlaIds.has(data.deputySpeaker)) {
+              alert("Only MLAs of the government composition can be appointed as Speaker or Deputy Speaker.");
+              return;
+            }
+          }
+        }
+
         const payload = {
           id,
           name: data.name,
@@ -562,6 +657,32 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
           }
         }
       } else if (type === EntityType.DESIGNATION) {
+          // Enforce rule: Only MLAs of the government composition can be appointed as Speaker/Deputy Speaker or promoted to ministerial cabinet
+          if (data.assemblyId && data.incumbentId && data.incumbentId !== 'vacant') {
+            const isSpeaker = isSpeakerOrDeputySpeakerRole(data.name);
+            const isMinister = isMinisterialRole(data.name);
+
+            if (isSpeaker || isMinister) {
+              const targetAsm = assemblies.find(a => a.id === data.assemblyId);
+              const govRes = computeAssemblyGovernmentComposition(
+                targetAsm,
+                constituencies,
+                parties,
+                alliances,
+                persons
+              );
+
+              if (govRes.allMlaIds.size > 0 && !govRes.governmentMlaIds.has(data.incumbentId)) {
+                if (isSpeaker) {
+                  alert("Only MLAs of the government composition can be appointed as Speaker or Deputy Speaker.");
+                } else {
+                  alert("Only MLAs of the government composition can be promoted to the ministerial cabinet.");
+                }
+                return;
+              }
+            }
+          }
+
           // No changes needed for designation creation logic as it uses provided assemblyId
           const history = Array.isArray(data.history) ? data.history.map((h: any) => ({
             ...h,
@@ -607,12 +728,15 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
            throw new Error("A constituency can only be created if an assembly is active.");
         }
 
-        const payload = {
+        const payload: any = {
           id,
           slNo: isEdit ? (data.slNo || editData?.slNo) : (constituenciesCount + 1).toString().padStart(3, '0'),
           name: data.name,
           currentIncumbentId: isEdit ? (editData?.currentIncumbentId || 'vacant') : 'vacant',
           currentAssemblyId: isEdit ? (editData?.currentAssemblyId || activeAssembly?.id) : activeAssembly?.id,
+          createdInAssemblyId: isEdit
+            ? (editData?.createdInAssemblyId || editData?.currentAssemblyId || activeAssembly?.id)
+            : (activeAssembly?.id || undefined),
           history: isEdit ? (editData?.history || []) : [],
           lastElectionResult: isEdit ? editData?.lastElectionResult : undefined,
           updatedAt: now
@@ -1211,21 +1335,31 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
 
              <div className="pt-4 border-t border-white/10">
                 <h4 className="text-sm font-bold gold-text uppercase mb-4 tracking-widest">Leadership Council (Appoint Later or Now)</h4>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {[
                     'speaker', 'deputySpeaker', 'chiefMinister', 
                     'deputyChiefMinister', 'leaderOfOpposition', 
                     'deputyLeaderOfOpposition', 'chiefSecretary'
-                  ].map(role => (
-                    <div key={role}>
-                      <label className="text-[10px] text-gray-500 uppercase font-bold tracking-wider mb-1 block">
-                        {role.replace(/([A-Z])/g, ' $1')}
-                      </label>
-                      <select {...register(role)} className="w-full bg-white/5 border border-white/10 rounded-xl p-2 text-xs focus:outline-none focus:border-[#FFD700]/50 appearance-none">
-                        {assemblySpecificPersonOptions}
-                      </select>
-                    </div>
-                  ))}
+                  ].map(role => {
+                    const isSpeakerRole = role === 'speaker' || role === 'deputySpeaker';
+                    return (
+                      <div key={role}>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-[10px] text-gray-500 uppercase font-bold tracking-wider block">
+                            {role.replace(/([A-Z])/g, ' $1')}
+                          </label>
+                          {isSpeakerRole && (
+                            <span className="text-[8px] text-[#FFD700] uppercase font-bold tracking-wider">
+                              Govt MLA only
+                            </span>
+                          )}
+                        </div>
+                        <select {...register(role)} className="w-full bg-white/5 border border-white/10 rounded-xl p-2 text-xs focus:outline-none focus:border-[#FFD700]/50 appearance-none">
+                          {isSpeakerRole ? governmentMlaPersonOptions : assemblySpecificPersonOptions}
+                        </select>
+                      </div>
+                    );
+                  })}
                 </div>
              </div>
           </div>
@@ -1238,9 +1372,14 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
                 <input {...register('name')} className="w-full bg-white/5 border border-white/10 rounded-xl p-3 focus:outline-none focus:border-[#FFD700]/50" required />
              </div>
              <div>
-                <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Current Incumbent</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs text-gray-500 uppercase font-bold tracking-wider block">Current Incumbent</label>
+                  {(isSpeakerOrDeputySpeakerRole(watch('name') || editData?.name || '') || isMinisterialRole(watch('name') || editData?.name || '')) && (
+                    <span className="text-[9px] text-[#FFD700] uppercase font-bold tracking-wider">Govt MLA only</span>
+                  )}
+                </div>
                 <select {...register('incumbentId')} className="w-full bg-white/5 border border-white/10 rounded-xl p-3 focus:outline-none focus:border-[#FFD700]/50 appearance-none">
-                  {personOptions}
+                  {designationPersonOptions}
                 </select>
              </div>
              <div>

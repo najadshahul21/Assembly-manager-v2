@@ -26,6 +26,7 @@ interface AssemblyMembersTableProps {
   seats: AssemblySeatItem[];
   designationsList?: Designation[];
   isDissolved?: boolean;
+  government?: any;
   onPromote?: (personId: string, personName: string) => void;
   onSupportAlliance?: (personId: string, personName: string) => void;
 }
@@ -63,6 +64,7 @@ interface ProcessedRow {
   };
   remarks: string[];
   hasMinisterRole: boolean;
+  isGovernmentMember: boolean;
 }
 
 export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
@@ -70,6 +72,7 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
   seats,
   designationsList = [],
   isDissolved = false,
+  government,
   onPromote,
   onSupportAlliance,
 }) => {
@@ -209,6 +212,38 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
         }
       }
 
+      // Determine government composition membership
+      const gov = government || assembly.composition?.government;
+      let govAllianceId = gov?.id;
+      const govParties = new Set<string>((gov?.parties || []).map((pt: any) => pt.id));
+
+      if (!govAllianceId && seats && seats.length > 0) {
+        const groupCounts: Record<string, number> = {};
+        seats.forEach(s => {
+          if (s.politician) {
+            let aId = s.alliance ? s.alliance.id : (s.party?.allianceId || s.party?.id || 'independent');
+            if (s.politician.partyId === 'independent' && assembly.independentSupports?.[s.politician.id]) {
+              aId = assembly.independentSupports[s.politician.id];
+            }
+            groupCounts[aId] = (groupCounts[aId] || 0) + 1;
+          }
+        });
+        const topGroup = Object.entries(groupCounts).sort((a, b) => b[1] - a[1])[0];
+        if (topGroup) govAllianceId = topGroup[0];
+      }
+
+      let isGovernmentMember = false;
+      if (p && govAllianceId) {
+        if (isIndependent) {
+          const sup = assembly.independentSupports?.[p.id];
+          isGovernmentMember = sup === govAllianceId;
+        } else {
+          isGovernmentMember =
+            (seat.alliance && seat.alliance.id === govAllianceId) ||
+            (seat.party && (seat.party.allianceId === govAllianceId || govParties.has(seat.party.id) || seat.party.id === govAllianceId));
+        }
+      }
+
       return {
         index: idx,
         slNo,
@@ -231,9 +266,10 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
         alliance: allianceObj,
         remarks,
         hasMinisterRole,
+        isGovernmentMember,
       };
     });
-  }, [seats, assembly, designationsList]);
+  }, [seats, assembly, designationsList, government]);
 
   // Handle column sort toggle
   const handleSort = (column: SortColumn) => {
@@ -704,8 +740,8 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
                           <span className="text-transparent select-none">—</span>
                         )}
 
-                        {/* Promote to Cabinet / Add Portfolio action button */}
-                        {!isDissolved && row.politician && !row.hasMinisterRole && onPromote && (
+                        {/* Promote to Cabinet / Add Portfolio action button (Only for Government MLAs) */}
+                        {!isDissolved && row.politician && !row.hasMinisterRole && row.isGovernmentMember && onPromote && (
                           <button
                             type="button"
                             onClick={(e) => {

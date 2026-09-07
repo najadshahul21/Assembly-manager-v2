@@ -40,6 +40,12 @@ import { EntityCard } from "../components/EntityCards";
 import { ElectionResultsTable } from "../components/ElectionResultsTable";
 import { ElectModal } from "../components/ElectModal";
 import { AssemblyMembersTable } from "../components/AssemblyMembersTable";
+import {
+  computeAssemblyGovernmentComposition,
+  isSpeakerOrDeputySpeakerRole,
+  isMinisterialRole,
+  getConstituencyCreationAssembly,
+} from "../utils/governmentUtils";
 
 import { CreateModals } from "../components/CreateModals";
 
@@ -372,6 +378,13 @@ export const EntityPage: React.FC = () => {
     }
     return 'new constituency';
   }, [entityType, entity?.id]);
+
+  const constituencyCreationAssembly = useLiveQuery(async () => {
+    if (entityType !== EntityType.CONSTITUENCY || !entity) return null;
+    const con = entity as Constituency;
+    const allAssemblies = await db.assemblies.toArray();
+    return getConstituencyCreationAssembly(con, allAssemblies);
+  }, [entityType, entity]);
 
   const designationsFromConstituency = useLiveQuery(async () => {
     if (entityType === EntityType.CONSTITUENCY && entity) {
@@ -1613,6 +1626,7 @@ export const EntityPage: React.FC = () => {
       if (entityType === EntityType.DESIGNATION && entity) {
         const design = entity as Designation;
         if (design.assemblyId) {
+          const associatedAsm = assembliesList.find((a) => a.id === design.assemblyId);
           const assemblyMembers = constituenciesList
             .filter(
               (c) =>
@@ -1621,7 +1635,23 @@ export const EntityPage: React.FC = () => {
                 c.currentIncumbentId !== "vacant",
             )
             .map((c) => c.currentIncumbentId);
-          return assemblyMembers.includes(p.id);
+          
+          if (!assemblyMembers.includes(p.id)) return false;
+
+          const isSpeaker = isSpeakerOrDeputySpeakerRole(design.name);
+          const isMinister = isMinisterialRole(design.name);
+          if (isSpeaker || isMinister) {
+            const govRes = computeAssemblyGovernmentComposition(
+              associatedAsm,
+              constituenciesList,
+              partiesList,
+              alliancesList,
+              personsList,
+            );
+            return govRes.governmentMlaIds.has(p.id);
+          }
+
+          return true;
         }
       }
 
@@ -1632,6 +1662,8 @@ export const EntityPage: React.FC = () => {
     appointmentSearchQuery,
     constituenciesList,
     assembliesList,
+    partiesList,
+    alliancesList,
     entityType,
     entity,
   ]);
@@ -1784,6 +1816,21 @@ export const EntityPage: React.FC = () => {
     if (!isMLA) {
       alert(
         "Only elected members (MLAs) of this assembly can be promoted to the cabinet.",
+      );
+      return;
+    }
+
+    // Only MLAs of the government composition can be promoted to the ministerial cabinet
+    const govResult = computeAssemblyGovernmentComposition(
+      entity as Assembly,
+      constituenciesList,
+      partiesList,
+      alliancesList,
+      personsList,
+    );
+    if (!govResult.governmentMlaIds.has(showPromotePopup.personId)) {
+      alert(
+        "Only MLAs of the government composition can be promoted to the ministerial cabinet.",
       );
       return;
     }
@@ -2390,6 +2437,31 @@ export const EntityPage: React.FC = () => {
           );
           return;
         }
+
+        // Only MLAs of the government composition can be appointed as Speaker or Deputy Speaker, or promoted to ministerial cabinet
+        const isSpeaker = isSpeakerOrDeputySpeakerRole(design.name);
+        const isMinister = isMinisterialRole(design.name);
+        if (isSpeaker || isMinister) {
+          const govRes = computeAssemblyGovernmentComposition(
+            associatedAsm,
+            constituenciesList,
+            partiesList,
+            alliancesList,
+            personsList,
+          );
+          if (!govRes.governmentMlaIds.has(personId)) {
+            if (isSpeaker) {
+              alert(
+                "Only MLAs of the government composition can be appointed as Speaker or Deputy Speaker.",
+              );
+            } else {
+              alert(
+                "Only MLAs of the government composition can be promoted to the ministerial cabinet.",
+              );
+            }
+            return;
+          }
+        }
       }
     } else if (entityType === EntityType.CONSTITUENCY) {
       const con = entity as Constituency;
@@ -2823,7 +2895,9 @@ export const EntityPage: React.FC = () => {
                         ? "Political Alliance"
                         : entityType === EntityType.ASSEMBLY
                           ? "Legislative Body"
-                          : "Government Post"}
+                          : entityType === EntityType.CONSTITUENCY
+                            ? "Assembly Constituency"
+                            : "Government Post"}
                 </span>
               </div>
               <h1 className="text-4xl sm:text-5xl font-black uppercase tracking-tight mb-2">
@@ -2891,6 +2965,14 @@ export const EntityPage: React.FC = () => {
                 {entityType === EntityType.DESIGNATION && (
                   <span className="flex items-center gap-2">
                     <MapPin size={16} /> {(entity as Designation).constituency}
+                  </span>
+                )}
+                {entityType === EntityType.CONSTITUENCY && constituencyCreationAssembly && (
+                  <span
+                    onClick={() => navigate(`/assembly/${constituencyCreationAssembly.id}`)}
+                    className="flex items-center gap-2 text-[#FFD700] hover:underline cursor-pointer font-bold"
+                  >
+                    <Landmark size={16} /> Since {constituencyCreationAssembly.name}
                   </span>
                 )}
                 <span className="flex items-center gap-2">
@@ -3471,9 +3553,53 @@ export const EntityPage: React.FC = () => {
                       `The ${(entity as Alliance).name} is a strategic coordination of multiple parties to ensure legislative stability.`}
                     {entityType === EntityType.DESIGNATION &&
                       `Official designation of ${(entity as Designation).name} for the ${associatedConstituency?.name || (entity as Designation).constituency || "selected"} constituency.`}
-                    {entityType === EntityType.CONSTITUENCY &&
-                      `Assembly constituency record for the ${(entity as Constituency).name} constituency. This seat persists across multiple assembly terms and serves as a primary electoral division.`}
+                    {entityType === EntityType.CONSTITUENCY && (
+                      <div className="space-y-4">
+                        <p>
+                          Assembly constituency record for the {(entity as Constituency).name} constituency. This seat persists across multiple assembly terms and serves as a primary electoral division.
+                        </p>
+                        {constituencyCreationAssembly && (
+                          <p className="text-white text-base font-bold flex items-center gap-2 not-prose">
+                            <span className="text-gray-400 font-normal">Created:</span>{" "}
+                            <span
+                              onClick={() => navigate(`/assembly/${constituencyCreationAssembly.id}`)}
+                              className="text-[#FFD700] hover:underline cursor-pointer font-black inline-flex items-center gap-1.5"
+                            >
+                              <Landmark size={16} /> Since {constituencyCreationAssembly.name}
+                            </span>
+                          </p>
+                        )}
+                      </div>
+                    )}
                   </div>
+
+                  {entityType === EntityType.CONSTITUENCY && constituencyCreationAssembly && (
+                    <div className="mt-8 pt-6 border-t border-white/5 flex flex-wrap items-center justify-between gap-4">
+                      <div className="flex items-center gap-3.5">
+                        <div className="w-12 h-12 rounded-2xl bg-[#FFD700]/10 border border-[#FFD700]/20 flex items-center justify-center text-[#FFD700]">
+                          <Landmark size={22} />
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-gray-500 font-black uppercase tracking-[0.2em] mb-1">
+                            Legislative Creation
+                          </p>
+                          <h4
+                            onClick={() => navigate(`/assembly/${constituencyCreationAssembly.id}`)}
+                            className="text-base font-black text-white hover:text-[#FFD700] cursor-pointer transition-colors flex items-center gap-2 group"
+                          >
+                            <span>Since {constituencyCreationAssembly.name}</span>
+                            <ExternalLink size={14} className="text-gray-500 group-hover:text-[#FFD700] transition-colors" />
+                          </h4>
+                        </div>
+                      </div>
+                      {constituencyCreationAssembly.termLimits && (
+                        <div className="flex items-center gap-2 bg-white/5 border border-white/10 px-3.5 py-2 rounded-xl text-xs font-mono font-bold text-gray-300">
+                          <Calendar size={14} className="text-[#FFD700]" />
+                          <span>{constituencyCreationAssembly.termLimits}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {entityType === EntityType.ASSEMBLY && (
                     <div className="space-y-8">
@@ -3722,6 +3848,31 @@ export const EntityPage: React.FC = () => {
                             {(entity as Assembly).partyControlId}
                           </span>
                         </div>
+                      </>
+                    )}
+                    {entityType === EntityType.CONSTITUENCY && (
+                      <>
+                        <div className="flex justify-between py-2 border-b border-white/5">
+                          <span className="text-xs text-gray-400 uppercase">
+                            Serial Number
+                          </span>
+                          <span className="text-xs font-mono font-bold text-[#FFD700]">
+                            #{(entity as Constituency).slNo}
+                          </span>
+                        </div>
+                        {constituencyCreationAssembly && (
+                          <div className="flex justify-between py-2 border-b border-white/5">
+                            <span className="text-xs text-gray-400 uppercase">
+                              Legislative Inception
+                            </span>
+                            <span
+                              onClick={() => navigate(`/assembly/${constituencyCreationAssembly.id}`)}
+                              className="text-xs font-bold text-[#FFD700] hover:underline cursor-pointer"
+                            >
+                              Since {constituencyCreationAssembly.name}
+                            </span>
+                          </div>
+                        )}
                       </>
                     )}
                     <div className="flex justify-between py-2">
@@ -4756,6 +4907,7 @@ export const EntityPage: React.FC = () => {
                         seats={assemblySeats || []}
                         designationsList={designationsList}
                         isDissolved={isDissolvedRecord}
+                        government={assemblyPerformance?.government}
                         onPromote={
                           !isDissolvedRecord
                             ? (personId, personName) =>

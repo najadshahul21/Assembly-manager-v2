@@ -145,6 +145,7 @@ export interface Constituency {
   name: string;
   currentIncumbentId: string; // Reference to the person who is currently MLA
   currentAssemblyId?: string; // Current assembly this seat belongs to
+  createdInAssemblyId?: string; // Assembly in which this constituency was created
   lastElectionResult?: ElectionResult;
   history: {
     personId: string;
