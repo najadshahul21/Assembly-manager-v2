@@ -37,6 +37,8 @@ const prefixRole = (role: string): string => {
 
 export const CabinetPage: React.FC = () => {
   const navigate = useNavigate();
+  const [demoteConfirm, setDemoteConfirm] = React.useState<{ person: Person; role: string } | null>(null);
+  const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
 
   const activeAssembly = useLiveQuery(async () => {
     const all = await db.assemblies.toArray();
@@ -52,10 +54,8 @@ export const CabinetPage: React.FC = () => {
     const allAlliances = await db.alliances.toArray();
     const designations = await db.designations.where('assemblyId').equals(targetAssemblyId).toArray();
     
-    // Find holders of key constitutional designations
-    const specialDesignations = designations.filter(d => 
-      ['speaker', 'deputy speaker', 'chief secretary', 'chief minister', 'deputy chief minister'].some(role => d.name.toLowerCase().includes(role))
-    );
+    // Find holders of key constitutional designations and ministerial designations
+    const specialDesignations = designations.filter(d => isCabinetRole(d.name));
 
     const cabinetData: Map<string, { person: Person; roles: { name: string; canDemote: boolean }[] }> = new Map();
 
@@ -205,46 +205,58 @@ export const CabinetPage: React.FC = () => {
     });
   }, [activeAssembly]);
 
-  const handleDemote = async (person: Person, roleToRemove: string) => {
+  const handleDemote = (person: Person, roleToRemove: string) => {
     if (!activeAssembly || !activeAssembly.isActive) {
-      alert("This assembly has been dissolved. Cabinet changes are prohibited.");
+      setErrorMessage("This assembly has been dissolved. Cabinet changes are prohibited.");
+      return;
+    }
+    setDemoteConfirm({ person, role: roleToRemove });
+  };
+
+  const executeDemote = async () => {
+    if (!demoteConfirm || !activeAssembly || !activeAssembly.isActive) {
+      setDemoteConfirm(null);
       return;
     }
 
-    if (!window.confirm(`Are you sure you want to remove the role "${roleToRemove}" from ${person.name}?`)) {
-      return;
-    }
-
+    const { person, role: roleToRemove } = demoteConfirm;
     const now = Date.now();
     const assemblyId = activeAssembly.id;
 
-    // 1. Remove from assemblyRoles
-    const updatedRoles = { ...(person.assemblyRoles || {}) };
-    if (updatedRoles[assemblyId]) {
-      const rolesList = updatedRoles[assemblyId].split(', ').filter(r => r !== roleToRemove);
-      if (rolesList.length > 0) {
-        updatedRoles[assemblyId] = rolesList.join(', ');
-      } else {
-        delete updatedRoles[assemblyId];
+    try {
+      // 1. Remove from assemblyRoles
+      const updatedRoles = { ...(person.assemblyRoles || {}) };
+      if (updatedRoles[assemblyId]) {
+        const rolesList = updatedRoles[assemblyId].split(', ').filter(r => r !== roleToRemove);
+        if (rolesList.length > 0) {
+          updatedRoles[assemblyId] = rolesList.join(', ');
+        } else {
+          delete updatedRoles[assemblyId];
+        }
       }
-    }
 
-    await db.persons.update(person.id, {
-      assemblyRoles: updatedRoles,
-      updatedAt: now
-    });
-
-    // 2. Remove from Designations
-    const designations = await db.designations
-      .where('assemblyId').equals(assemblyId)
-      .and(d => d.name === roleToRemove && d.incumbentId === person.id)
-      .toArray();
-    
-    for (const d of designations) {
-      await db.designations.update(d.id, {
-        incumbentId: 'vacant',
+      await db.persons.update(person.id, {
+        assemblyRoles: updatedRoles,
         updatedAt: now
       });
+
+      // 2. Remove from Designations
+      const designations = await db.designations
+        .where('assemblyId').equals(assemblyId)
+        .and(d => d.name === roleToRemove && d.incumbentId === person.id)
+        .toArray();
+      
+      for (const d of designations) {
+        await db.designations.update(d.id, {
+          incumbentId: 'vacant',
+          updatedAt: now
+        });
+      }
+    } catch (err: any) {
+      console.error("Failed to remove role:", err);
+      setErrorMessage(err?.message || "Failed to remove portfolio role.");
+    } finally {
+      setDemoteConfirm(null);
     }
   };
 
@@ -372,6 +384,63 @@ export const CabinetPage: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Confirmation Dialog */}
+      {demoteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-[#181a20] border border-white/10 rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-4">
+            <div className="flex items-center gap-3 text-amber-400">
+              <div className="w-10 h-10 rounded-full bg-amber-400/10 flex items-center justify-center">
+                <UserMinus size={20} />
+              </div>
+              <h3 className="text-lg font-bold text-white">Remove Portfolio Role</h3>
+            </div>
+            <p className="text-gray-300 text-sm">
+              Are you sure you want to remove the role <span className="text-[#FFD700] font-semibold">"{demoteConfirm.role}"</span> from <span className="text-white font-semibold">{demoteConfirm.person.name}</span>?
+            </p>
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setDemoteConfirm(null)}
+                className="px-4 py-2 rounded-xl text-sm font-medium text-gray-400 hover:text-white hover:bg-white/5 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={executeDemote}
+                className="px-4 py-2 rounded-xl text-sm font-bold bg-red-600 hover:bg-red-500 text-white shadow-lg shadow-red-600/30 transition-all"
+              >
+                Confirm Remove
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Error Message Modal */}
+      {errorMessage && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-[#181a20] border border-white/10 rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-4">
+            <div className="flex items-center gap-3 text-red-400">
+              <div className="w-10 h-10 rounded-full bg-red-400/10 flex items-center justify-center">
+                <Shield size={20} />
+              </div>
+              <h3 className="text-lg font-bold text-white">Notice</h3>
+            </div>
+            <p className="text-gray-300 text-sm">{errorMessage}</p>
+            <div className="flex items-center justify-end pt-2">
+              <button
+                type="button"
+                onClick={() => setErrorMessage(null)}
+                className="px-4 py-2 rounded-xl text-sm font-bold bg-white/10 hover:bg-white/20 text-white transition-colors"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

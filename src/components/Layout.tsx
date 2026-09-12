@@ -40,7 +40,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSearch, onPlusClick 
           <img
             src="/logo.svg"
             alt="Assembly Manager Logo"
-            className="w-24 h-24 mx-auto animate-pulse filter drop-shadow-[0_0_15px_rgba(255,215,0,0.3)]"
+            className="w-24 h-24 mx-auto rounded-3xl border border-white/15 p-1 animate-pulse filter drop-shadow-[0_0_24px_rgba(255,255,255,0.18)] object-contain"
           />
           <div className="space-y-2">
             <h1 className="text-2xl font-black tracking-[0.15em] uppercase gold-text">ASSEMBLY MANAGER</h1>
@@ -87,7 +87,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSearch, onPlusClick 
             >
               <div className="flex items-center justify-between mb-8">
                 <div className="flex items-center gap-3">
-                  <img src="/logo.svg" alt="Assembly Logo" className="w-9 h-9 rounded-xl shadow-md" />
+                  <img src="/logo.svg" alt="Assembly Logo" className="w-9 h-9 rounded-xl border border-white/10 shadow-md object-contain" />
                   <h1 className="text-lg font-black gold-text tracking-wider uppercase">ASSEMBLY MANAGER</h1>
                 </div>
                 <button onClick={() => setSidebarOpen(false)} className="p-2 hover:bg-white/10 rounded-full">
@@ -118,8 +118,12 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSearch, onPlusClick 
 
       {/* Static Sidebar for Desktop */}
       <aside className="hidden lg:flex flex-col w-64 bg-[#0a0a0a]/50 backdrop-blur-xl border-r border-[#FFD700]/10 p-6">
-        <div className="mb-10 text-center">
-           <img src="/logo.svg" alt="Assembly Manager Logo" className="w-16 h-16 mx-auto mb-3 hover:scale-105 transition-transform drop-shadow-[0_4px_12px_rgba(0,0,0,0.5)]" />
+        <div
+          className="mb-10 text-center cursor-pointer group"
+          onClick={() => window.dispatchEvent(new CustomEvent('replay-logo-intro'))}
+          title="Replay Intro Animation"
+        >
+           <img src="/logo.svg" alt="Assembly Manager Logo" className="w-16 h-16 mx-auto mb-3 rounded-2xl border border-white/10 p-0.5 group-hover:scale-105 group-hover:border-white/30 transition-all drop-shadow-[0_4px_16px_rgba(0,0,0,0.8)] object-contain" />
            <h1 className="text-xl font-black gold-text tracking-wider uppercase">Assembly Manager</h1>
            <p className="text-[10px] text-gray-500 uppercase tracking-widest mt-1">Legislative System</p>
         </div>

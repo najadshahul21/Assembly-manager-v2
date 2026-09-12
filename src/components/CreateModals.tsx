@@ -13,7 +13,8 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { 
   computeAssemblyGovernmentComposition, 
   isSpeakerOrDeputySpeakerRole, 
-  isMinisterialRole 
+  isMinisterialRole,
+  getConstituencyCreationAssembly
 } from '../utils/governmentUtils';
 
 interface CreateModalsProps {
@@ -286,6 +287,12 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
                 {p.name} ({parties.find(pt => pt.id === p.partyId)?.abbreviation || 'IND'} - Govt MLA)
               </option>
             ))}
+          </>
+        );
+      } else {
+        return (
+          <>
+            <option value="vacant">Vacant (No Government MLAs available)</option>
           </>
         );
       }
@@ -577,15 +584,13 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
             persons
           );
 
-          if (govRes.allMlaIds.size > 0) {
-            if (data.speaker && data.speaker !== 'vacant' && !govRes.governmentMlaIds.has(data.speaker)) {
-              alert("Only MLAs of the government composition can be appointed as Speaker or Deputy Speaker.");
-              return;
-            }
-            if (data.deputySpeaker && data.deputySpeaker !== 'vacant' && !govRes.governmentMlaIds.has(data.deputySpeaker)) {
-              alert("Only MLAs of the government composition can be appointed as Speaker or Deputy Speaker.");
-              return;
-            }
+          if (data.speaker && data.speaker !== 'vacant' && !govRes.governmentMlaIds.has(data.speaker)) {
+            alert("Only MLAs of the government composition can be appointed as Speaker or Deputy Speaker.");
+            return;
+          }
+          if (data.deputySpeaker && data.deputySpeaker !== 'vacant' && !govRes.governmentMlaIds.has(data.deputySpeaker)) {
+            alert("Only MLAs of the government composition can be appointed as Speaker or Deputy Speaker.");
+            return;
           }
         }
 
@@ -672,7 +677,7 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
                 persons
               );
 
-              if (govRes.allMlaIds.size > 0 && !govRes.governmentMlaIds.has(data.incumbentId)) {
+              if (!govRes.governmentMlaIds.has(data.incumbentId)) {
                 if (isSpeaker) {
                   alert("Only MLAs of the government composition can be appointed as Speaker or Deputy Speaker.");
                 } else {
@@ -735,7 +740,7 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
           currentIncumbentId: isEdit ? (editData?.currentIncumbentId || 'vacant') : 'vacant',
           currentAssemblyId: isEdit ? (editData?.currentAssemblyId || activeAssembly?.id) : activeAssembly?.id,
           createdInAssemblyId: isEdit
-            ? (editData?.createdInAssemblyId || editData?.currentAssemblyId || activeAssembly?.id)
+            ? (editData?.createdInAssemblyId || getConstituencyCreationAssembly(editData, assemblies)?.id || editData?.currentAssemblyId || activeAssembly?.id)
             : (activeAssembly?.id || undefined),
           history: isEdit ? (editData?.history || []) : [],
           lastElectionResult: isEdit ? editData?.lastElectionResult : undefined,

@@ -48,11 +48,26 @@ export function computeAssemblyGovernmentComposition(
     const allMlaIds = new Set<string>();
     const governmentMlaIds = new Set<string>();
 
-    const targetCs = constituencies.filter(c => c.currentAssemblyId === assembly.id);
+    // Linked constituencies
+    const targetCs = constituencies.filter(
+      c => c.currentAssemblyId === assembly.id ||
+      (Array.isArray(c.history) && c.history.some(h => h.assemblyId === assembly.id))
+    );
+
     targetCs.forEach(c => {
-      if (c.currentIncumbentId && c.currentIncumbentId !== 'vacant') {
-        allMlaIds.add(c.currentIncumbentId);
-        const person = persons.find(p => p.id === c.currentIncumbentId);
+      let pId = 'vacant';
+      if (c.currentAssemblyId === assembly.id) {
+        pId = c.currentIncumbentId;
+      } else {
+        const hist = (c.history || [])
+          .sort((a, b) => b.date - a.date)
+          .find(h => h.assemblyId === assembly.id);
+        if (hist && hist.personId) pId = hist.personId;
+      }
+
+      if (pId && pId !== 'vacant') {
+        allMlaIds.add(pId);
+        const person = persons.find(p => p.id === pId);
         if (person) {
           const party = parties.find(p => p.id === person.partyId);
           const supAllianceId = assembly.independentSupports?.[person.id];
@@ -65,6 +80,25 @@ export function computeAssemblyGovernmentComposition(
         }
       }
     });
+
+    if (Array.isArray(assembly.composition.members)) {
+      assembly.composition.members.forEach((m: any) => {
+        if (m.id && m.id !== 'vacant') {
+          allMlaIds.add(m.id);
+          const person = persons.find(p => p.id === m.id);
+          if (person) {
+            const party = parties.find(p => p.id === person.partyId);
+            const supAllianceId = assembly.independentSupports?.[person.id];
+            const isGov =
+              (person.partyId === 'independent' && supAllianceId === govAllianceId) ||
+              (party && (party.allianceId === govAllianceId || govParties.has(party.id) || party.id === govAllianceId));
+            if (isGov) {
+              governmentMlaIds.add(person.id);
+            }
+          }
+        }
+      });
+    }
 
     return { government: gov, governmentMlaIds, allMlaIds };
   }

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { Dashboard } from './pages/Dashboard';
@@ -7,6 +7,7 @@ import { EntityListPage } from './pages/EntityListPage';
 import { CabinetPage } from './pages/CabinetPage';
 import { CreateModals } from './components/CreateModals';
 import { LoginScreen } from './components/LoginScreen';
+import { LogoIntro } from './components/LogoIntro';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { EntityType } from './types';
 import { motion, AnimatePresence } from 'motion/react';
@@ -104,9 +105,27 @@ function AppContent() {
 }
 
 export default function App() {
+  const [showIntro, setShowIntro] = useState(true);
+  const [replayCount, setReplayCount] = useState(0);
+
+  useEffect(() => {
+    const handleReplay = () => {
+      setShowIntro(true);
+      setReplayCount((c) => c + 1);
+    };
+    window.addEventListener('replay-logo-intro', handleReplay);
+    return () => window.removeEventListener('replay-logo-intro', handleReplay);
+  }, []);
+
   return (
     <DbLookupProvider>
       <AuthProvider>
+        {showIntro && (
+          <LogoIntro
+            replayTrigger={replayCount}
+            onComplete={() => setShowIntro(false)}
+          />
+        )}
         <AppContent />
       </AuthProvider>
     </DbLookupProvider>

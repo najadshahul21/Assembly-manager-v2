@@ -371,6 +371,7 @@ export const getConstituenciesData = (): Constituency[] => {
       name: mla.constituency,
       currentIncumbentId: mlaId,
       currentAssemblyId: '15th-assembly',
+      createdInAssemblyId: '15th-assembly',
       history: [],
       updatedAt: Date.now()
     });

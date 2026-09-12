@@ -1111,7 +1111,15 @@ export const EntityPage: React.FC = () => {
         .toArray();
 
       const pIds = [
-        ...constituencies.map((c) => c.currentIncumbentId),
+        ...constituencies.map((c) => {
+          if (c.currentAssemblyId === id!) {
+            return c.currentIncumbentId;
+          }
+          const hist = (c.history || [])
+            .sort((a, b) => b.date - a.date)
+            .find((h) => h.assemblyId === id!);
+          return hist && hist.personId ? hist.personId : "vacant";
+        }),
         ...designations.map((d) => d.incumbentId),
       ].filter((pid) => pid !== "vacant");
 
@@ -1122,8 +1130,17 @@ export const EntityPage: React.FC = () => {
 
       const personConstituencyMap: Record<string, string> = {};
       constituencies.forEach((c) => {
-        if (c.currentIncumbentId && c.currentIncumbentId !== "vacant") {
-          personConstituencyMap[c.currentIncumbentId] = c.name;
+        let pId = "vacant";
+        if (c.currentAssemblyId === id!) {
+          pId = c.currentIncumbentId;
+        } else {
+          const hist = (c.history || [])
+            .sort((a, b) => b.date - a.date)
+            .find((h) => h.assemblyId === id!);
+          if (hist && hist.personId) pId = hist.personId;
+        }
+        if (pId && pId !== "vacant") {
+          personConstituencyMap[pId] = c.name;
         }
       });
       designations.forEach((d) => {
