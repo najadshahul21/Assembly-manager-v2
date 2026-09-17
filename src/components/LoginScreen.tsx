@@ -105,19 +105,17 @@ export const LoginScreen: React.FC = () => {
       >
         {/* Emblem & Header */}
         <div className="text-center space-y-2.5 mb-6">
-          <div
-            className="relative inline-block cursor-pointer group"
-            onClick={() => window.dispatchEvent(new CustomEvent('replay-logo-intro'))}
-            title="Replay Intro Animation"
-          >
-            <div className="w-20 h-20 mx-auto rounded-2xl bg-black border border-white/20 p-1 shadow-2xl shadow-black/80 flex items-center justify-center overflow-hidden group-hover:border-white/40 group-hover:scale-105 transition-all">
-              <img
-                src="/logo.svg"
-                alt="Assembly Manager Logo"
-                className="w-full h-full object-contain"
-              />
+          <div className="relative inline-block">
+            <div className="w-16 h-16 mx-auto rounded-2xl bg-gradient-to-tr from-[#D32F2F] to-[#FFD700] p-[2px] shadow-xl shadow-[#FFD700]/10">
+              <div className="w-full h-full rounded-2xl bg-black flex items-center justify-center overflow-hidden">
+                <img
+                  src="/logo.svg"
+                  alt="Assembly Manager Logo"
+                  className="w-full h-full object-cover"
+                />
+              </div>
             </div>
-            <div className="absolute -bottom-1 -right-1 bg-white text-black p-1 rounded-full shadow-md border border-black/20">
+            <div className="absolute -bottom-1 -right-1 bg-[#FFD700] text-black p-1 rounded-full shadow-md">
               <ShieldCheck size={12} />
             </div>
           </div>
