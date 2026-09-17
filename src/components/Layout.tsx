@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, Plus, Home, Users, Flag, Landmark, Shield, Menu, X, Award, MapPin, LogOut } from 'lucide-react';
+import { Search, Plus, Home, Users, Flag, Landmark, Shield, Menu, X, Award, MapPin, LogOut, Stamp } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useNavigate, useLocation } from 'react-router';
 import { useDbLookup } from '../context/DbLookupContext';
@@ -20,6 +20,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSearch, onPlusClick 
 
   const navItems = [
     { title: 'Dashboard', icon: Home, path: '/' },
+    { title: 'Orders', icon: Stamp, path: '/orders' },
     { title: 'Persons', icon: Users, path: '/persons' },
     { title: 'Parties', icon: Flag, path: '/parties' },
     { title: 'Alliances', icon: Shield, path: '/alliances' },

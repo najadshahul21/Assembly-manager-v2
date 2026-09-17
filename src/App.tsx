@@ -5,12 +5,14 @@ import { Dashboard } from './pages/Dashboard';
 import { EntityPage } from './pages/EntityPage';
 import { EntityListPage } from './pages/EntityListPage';
 import { CabinetPage } from './pages/CabinetPage';
+import { OrdersPage } from './pages/OrdersPage';
 import { CreateModals } from './components/CreateModals';
+import { ReleaseOrderModal } from './components/ReleaseOrderModal';
 import { LoginScreen } from './components/LoginScreen';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { EntityType } from './types';
 import { motion, AnimatePresence } from 'motion/react';
-import { User, Flag, Shield, Landmark, X, MapPin } from 'lucide-react';
+import { User, Flag, Shield, Landmark, X, MapPin, Stamp } from 'lucide-react';
 import { DbLookupProvider } from './context/DbLookupContext';
 
 function AppContent() {
@@ -24,6 +26,7 @@ function AppContent() {
   }
 
   const createOptions = [
+    { type: EntityType.ORDER, label: 'Release Order', icon: Stamp, color: 'hover:bg-[#FFD700]/10' },
     { type: EntityType.PERSON, label: 'Create Person', icon: User, color: 'hover:bg-blue-500/10' },
     { type: EntityType.PARTY, label: 'Create Party', icon: Flag, color: 'hover:bg-[#D32F2F]/10' },
     { type: EntityType.ALLIANCE, label: 'Create Alliance', icon: Shield, color: 'hover:bg-purple-500/10' },
@@ -36,6 +39,7 @@ function AppContent() {
       <Layout onSearch={setSearchQuery} onPlusClick={() => setCreateMenuOpen(true)}>
         <Routes>
           <Route path="/" element={<Dashboard />} />
+          <Route path="/orders" element={<OrdersPage searchQuery={searchQuery} />} />
           <Route path="/persons" element={<EntityListPage type={EntityType.PERSON} searchQuery={searchQuery} />} />
           <Route path="/parties" element={<EntityListPage type={EntityType.PARTY} searchQuery={searchQuery} />} />
           <Route path="/alliances" element={<EntityListPage type={EntityType.ALLIANCE} searchQuery={searchQuery} />} />
@@ -66,7 +70,7 @@ function AppContent() {
             >
               <div className="p-6">
                 <div className="flex items-center justify-between mb-6">
-                  <h3 className="font-black uppercase tracking-widest text-[#FFD700]">Database Entry</h3>
+                  <h3 className="font-black uppercase tracking-widest text-[#FFD700]">Legislative Actions</h3>
                   <button onClick={() => setCreateMenuOpen(false)} className="p-2 hover:bg-white/10 rounded-full">
                     <X size={20} />
                   </button>
@@ -94,11 +98,18 @@ function AppContent() {
         )}
       </AnimatePresence>
 
-      <CreateModals
-        type={activeCreateType}
-        isOpen={activeCreateType !== null}
-        onClose={() => setActiveCreateType(null)}
-      />
+      {activeCreateType === EntityType.ORDER ? (
+        <ReleaseOrderModal
+          isOpen={true}
+          onClose={() => setActiveCreateType(null)}
+        />
+      ) : (
+        <CreateModals
+          type={activeCreateType}
+          isOpen={activeCreateType !== null}
+          onClose={() => setActiveCreateType(null)}
+        />
+      )}
     </BrowserRouter>
   );
 }

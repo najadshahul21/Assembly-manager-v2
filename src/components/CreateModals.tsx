@@ -301,6 +301,57 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
     return personOptions;
   }, [type, watch('name'), watch('assemblyId'), editData, assemblies, constituencies, parties, alliances, persons, personOptions]);
 
+  const allianceMemberPersonOptions = React.useMemo(() => {
+    if (type !== EntityType.ALLIANCE) return personOptions;
+    
+    const allianceId = editData?.id;
+    if (!allianceId) {
+      return (
+        <option value="">No members in alliance yet (Add constituent parties to alliance first)</option>
+      );
+    }
+
+    const alliancePartyIds = new Set(parties.filter(p => p.allianceId === allianceId).map(p => p.id));
+    
+    // Only persons whose party belongs to this respective alliance
+    const filteredPersons = persons.filter(p => {
+      const isMember = alliancePartyIds.has(p.partyId);
+      if (!isMember) {
+        // Keep current incumbent option if editing so existing assignment doesn't silently drop
+        if (editData) {
+          const isCurrentLeader = editData.leaderId === p.id;
+          const isCurrentChairman = editData.chairmanId === p.id;
+          const isCurrentFounder = editData.founderId === p.id;
+          if (isCurrentLeader || isCurrentChairman || isCurrentFounder) {
+            return true;
+          }
+        }
+        return false;
+      }
+      return !p.isSuspended;
+    });
+
+    if (filteredPersons.length === 0) {
+      return (
+        <option value="">No members found in constituent parties</option>
+      );
+    }
+
+    return (
+      <>
+        <option value="">Select Alliance Member...</option>
+        {[...filteredPersons].sort((a, b) => a.name.localeCompare(b.name)).map(p => {
+          const party = parties.find(pt => pt.id === p.partyId);
+          return (
+            <option key={p.id} value={p.id}>
+              {p.name} {party ? `(${party.abbreviation})` : ''}{p.isSuspended ? " (Suspended)" : ""}
+            </option>
+          );
+        })}
+      </>
+    );
+  }, [type, editData, persons, parties, personOptions]);
+
   // Bulk Person Helper Functions
   const handleAddBulkRow = () => {
     if (bulkPersons.length >= 10) return;
@@ -538,6 +589,7 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
           leadingPartyId: data.leadingPartyId,
           foundedDate: data.foundedDate,
           colors: [data.color || '#D32F2F'],
+          highCommandIds: editData?.highCommandIds || [],
           updatedAt: now
         };
         isEdit ? await db.alliances.update(id, payload) : await db.alliances.add(payload);
@@ -1170,19 +1222,19 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
                <div>
                   <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Leader</label>
                   <select {...register('leaderId')} className="w-full bg-white/5 border border-white/10 rounded-xl p-3 focus:outline-none focus:border-[#FFD700]/50 appearance-none">
-                    {personOptions}
+                    {allianceMemberPersonOptions}
                   </select>
                </div>
                <div>
                   <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Chairman</label>
                   <select {...register('chairmanId')} className="w-full bg-white/5 border border-white/10 rounded-xl p-3 focus:outline-none focus:border-[#FFD700]/50 appearance-none">
-                    {personOptions}
+                    {allianceMemberPersonOptions}
                   </select>
                </div>
                <div>
                   <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Founder</label>
                   <select {...register('founderId')} className="w-full bg-white/5 border border-white/10 rounded-xl p-3 focus:outline-none focus:border-[#FFD700]/50 appearance-none">
-                    {personOptions}
+                    {allianceMemberPersonOptions}
                   </select>
                </div>
             </div>

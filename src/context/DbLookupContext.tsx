@@ -1,6 +1,6 @@
-import React, { createContext, useContext } from 'react';
+import React, { createContext, useContext, useEffect } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '../db';
+import { db, ensureConstitutionalDesignations } from '../db';
 import { Person, Party, Alliance, Assembly, Designation, Constituency } from '../types';
 
 interface DbLookupContextType {
@@ -21,6 +21,10 @@ interface DbLookupContextType {
 const DbLookupContext = createContext<DbLookupContextType | null>(null);
 
 export const DbLookupProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  useEffect(() => {
+    ensureConstitutionalDesignations();
+  }, []);
+
   const data = useLiveQuery(async () => {
     const [rawParties, rawAlliances, assemblies, rawDesignations, rawPersons, constituencies] = await Promise.all([
       db.parties.toArray(),

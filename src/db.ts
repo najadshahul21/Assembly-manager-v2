@@ -1,5 +1,5 @@
 import Dexie, { type Table } from 'dexie';
-import { Person, Party, Alliance, Assembly, Designation, Constituency } from './types';
+import { Person, Party, Alliance, Assembly, Designation, Constituency, LegislativeOrder } from './types';
 
 export class LegislativeDB extends Dexie {
   persons!: Table<Person>;
@@ -8,6 +8,7 @@ export class LegislativeDB extends Dexie {
   assemblies!: Table<Assembly>;
   designations!: Table<Designation>;
   constituencies!: Table<Constituency>;
+  orders!: Table<LegislativeOrder>;
 
   constructor() {
     super('KhansaarDB');
@@ -18,6 +19,12 @@ export class LegislativeDB extends Dexie {
       assemblies: 'id, name, partyControlId, precededById, updatedAt',
       designations: 'id, name, incumbentId, constituency, assemblyId, constituencyId, updatedAt',
       constituencies: 'id, slNo, name, currentIncumbentId, currentAssemblyId, updatedAt'
+    });
+    this.version(5).stores({
+      orders: 'id, orderName, date, timestamp, byDesignationId, signerPersonId, *taggedPersonIds, updatedAt'
+    });
+    this.version(6).stores({
+      orders: 'id, slNo, orderName, date, timestamp, byDesignationId, signerPersonId, *taggedPersonIds, updatedAt'
     });
   }
 }
@@ -31,6 +38,64 @@ export const clearAllData = async () => {
   await db.assemblies.clear();
   await db.designations.clear();
   await db.constituencies.clear();
+  await db.orders.clear();
+};
+
+export const ensureConstitutionalDesignations = async () => {
+  try {
+    const defaults = [
+      {
+        id: 'governor',
+        name: "Hon'ble Governor",
+        incumbentId: 'vacant',
+        dateOfSigning: new Date().toISOString().split('T')[0],
+        constituency: 'Kerala State',
+        history: [],
+        updatedAt: Date.now()
+      },
+      {
+        id: 'high-court',
+        name: 'High Court',
+        incumbentId: 'vacant',
+        dateOfSigning: new Date().toISOString().split('T')[0],
+        constituency: 'Judiciary',
+        history: [],
+        updatedAt: Date.now()
+      },
+      {
+        id: 'supreme-court',
+        name: 'Supreme Court',
+        incumbentId: 'vacant',
+        dateOfSigning: new Date().toISOString().split('T')[0],
+        constituency: 'Judiciary',
+        history: [],
+        updatedAt: Date.now()
+      }
+    ];
+
+    for (const d of defaults) {
+      const existing = await db.designations.get(d.id);
+      if (!existing) {
+        await db.designations.put(d);
+      } else if (d.id === 'high-court' && existing.name !== 'High Court') {
+        await db.designations.update('high-court', { name: 'High Court' });
+      } else if (d.id === 'supreme-court' && existing.name !== 'Supreme Court') {
+        await db.designations.update('supreme-court', { name: 'Supreme Court' });
+      }
+    }
+
+    // Clean up any place names from all High Court and Supreme Court designations
+    const allDesigs = await db.designations.toArray();
+    for (const desig of allDesigs) {
+      if (desig.name.toLowerCase().includes('high court') && desig.name !== 'High Court') {
+        await db.designations.update(desig.id, { name: 'High Court' });
+      } else if (desig.name.toLowerCase().includes('supreme court') && desig.name !== 'Supreme Court') {
+        await db.designations.update(desig.id, { name: 'Supreme Court' });
+      }
+    }
+  } catch (err) {
+    console.error('Failed to ensure constitutional designations in db:', err);
+  }
 };
 
 export const reindexConstituencies = async () => {

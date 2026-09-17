@@ -4,7 +4,8 @@ export enum EntityType {
   ALLIANCE = 'alliance',
   ASSEMBLY = 'assembly',
   DESIGNATION = 'designation',
-  CONSTITUENCY = 'constituency'
+  CONSTITUENCY = 'constituency',
+  ORDER = 'order'
 }
 
 export interface Person {
@@ -154,4 +155,46 @@ export interface Constituency {
     reason: string;
   }[];
   updatedAt: number;
+}
+
+export interface OrderMention {
+  personId: string;
+  personName: string;
+}
+
+export interface LegislativeOrder {
+  id: string;
+  slNo?: string;
+  orderNumber?: string;
+  orderName: string;
+  date: string; // YYYY-MM-DD
+  timestamp: number;
+  byDesignationId: string;
+  byDesignationName: string;
+  byOfficeTitle?: string; // Frozen snapshot: "By Office of Hon'ble ..."
+  byCategory?: 'cabinet' | 'mla' | 'governor' | 'speaker' | 'judiciary' | 'secretary' | 'designation';
+  signerPersonId?: string; // Person who is in charge of this designation at issuance
+  signerPersonName?: string; // Frozen snapshot of incumbent's name at issuance
+  signerPartyAbbr?: string; // Frozen snapshot of party abbreviation
+  signerImageUrl?: string; // Frozen snapshot of signer avatar
+  content: string; // Raw or markdown order text
+  taggedPersonIds: string[]; // List of person IDs linked via @
+  createdAt: number;
+  updatedAt: number;
+}
+
+export function formatOfficeOfHonble(rawOfficeName?: string): string {
+  if (!rawOfficeName) return "By Office of Hon'ble Authority";
+  let clean = rawOfficeName.trim();
+  // Strip existing "By Office of" if any
+  clean = clean.replace(/^By\s+Office\s+of\s+/i, '');
+  // Strip leading "Hon'ble", "Hon.", or "The"
+  clean = clean.replace(/^(Hon['’]?ble|Hon\.|The)\s+/i, '').trim();
+  // Ensure Supreme Court and High Court have no place names or suffixes
+  if (/^Supreme\s+Court/i.test(clean)) {
+    clean = 'Supreme Court';
+  } else if (/^High\s+Court/i.test(clean)) {
+    clean = 'High Court';
+  }
+  return `By Office of Hon'ble ${clean}`;
 }

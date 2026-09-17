@@ -11,6 +11,8 @@ import {
   Designation,
   Constituency,
   ElectionResult,
+  formatOfficeOfHonble,
+  LegislativeOrder,
 } from "../types";
 import { motion, AnimatePresence } from "motion/react";
 import {
@@ -35,11 +37,13 @@ import {
   Plus,
   X,
   Vote,
+  Stamp,
 } from "lucide-react";
 import { EntityCard } from "../components/EntityCards";
 import { ElectionResultsTable } from "../components/ElectionResultsTable";
 import { ElectModal } from "../components/ElectModal";
 import { AssemblyMembersTable } from "../components/AssemblyMembersTable";
+import { ReleaseOrderModal } from "../components/ReleaseOrderModal";
 import {
   computeAssemblyGovernmentComposition,
   isSpeakerOrDeputySpeakerRole,
@@ -170,6 +174,10 @@ export const EntityPage: React.FC = () => {
   const [showAppointPopup, setShowAppointPopup] = useState(false);
   const [showElectModal, setShowElectModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [appointingCouncilRole, setAppointingCouncilRole] = useState<
+    "leader" | "chairman" | "founder" | null
+  >(null);
+  const [councilSearchQuery, setCouncilSearchQuery] = useState("");
 
   const handleConfirmElection = async (
     winnerPersonId: string | undefined,
@@ -234,12 +242,13 @@ export const EntityPage: React.FC = () => {
     personName: string;
   } | null>(null);
   const [departmentInput, setDepartmentInput] = useState("");
+  const [isReleaseOrderModalOpen, setIsReleaseOrderModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<
-    "details" | "related" | "history" | "cabinet"
+    "details" | "related" | "history" | "cabinet" | "orders"
   >(
     initialTab &&
-      ["details", "related", "history", "cabinet"].includes(initialTab)
-      ? initialTab
+      ["details", "related", "history", "cabinet", "orders"].includes(initialTab)
+      ? (initialTab as any)
       : "details",
   );
 
@@ -265,6 +274,19 @@ export const EntityPage: React.FC = () => {
         return null;
     }
   }, [type, id]);
+
+  // Orders referencing or issued by this entity
+  const entityOrders = useLiveQuery(async () => {
+    if (!id) return [];
+    const all = await db.orders.toArray();
+    let matching: LegislativeOrder[] = [];
+    if (entityType === EntityType.PERSON) {
+      matching = all.filter((o) => o.signerPersonId === id || o.taggedPersonIds?.includes(id));
+    } else if (entityType === EntityType.DESIGNATION) {
+      matching = all.filter((o) => o.byDesignationId === id || (entity && o.byDesignationName === (entity as Designation).name));
+    }
+    return matching.sort((a, b) => ((b.timestamp || 0) - (a.timestamp || 0)) || ((b.createdAt || 0) - (a.createdAt || 0)));
+  }, [id, entityType, entity]);
 
   // Related data fetching
   const relatedPersons = useLiveQuery(async () => {
@@ -556,20 +578,52 @@ export const EntityPage: React.FC = () => {
     return validMembers.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
   }, [entity, id, entityType]);
 
-  const personsEligibleForHighCommand = useLiveQuery(async () => {
+  const allianceMemberPartyIds = React.useMemo(() => {
+    if (entityType !== EntityType.ALLIANCE || !id) return new Set<string>();
+    return new Set(partiesList.filter((p) => p.allianceId === id).map((p) => p.id));
+  }, [entityType, id, partiesList]);
+
+  const personsEligibleForHighCommand = React.useMemo(() => {
     if (entityType !== EntityType.ALLIANCE || !id) return [];
-    const allianceParties = await db.parties
-      .where("allianceId")
-      .equals(id)
-      .toArray();
-    const alliancePartyIds = allianceParties.map((p) => p.id);
-    const persons = alliancePartyIds.length > 0
-      ? await db.persons.where("partyId").anyOf(alliancePartyIds).toArray()
-      : [];
-    return persons
-      .filter((p) => !p.isSuspended)
+    if (allianceMemberPartyIds.size === 0) return [];
+    return personsList
+      .filter((p) => allianceMemberPartyIds.has(p.partyId) && !p.isSuspended)
       .sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
-  }, [id, entityType]);
+  }, [id, entityType, allianceMemberPartyIds, personsList]);
+
+  const handleAppointCouncilMember = async (personId: string) => {
+    if (entityType !== EntityType.ALLIANCE || !id || !appointingCouncilRole) return;
+    const updates: Partial<Alliance> = {
+      updatedAt: Date.now(),
+    };
+    if (appointingCouncilRole === "leader") {
+      updates.leaderId = personId;
+    } else if (appointingCouncilRole === "chairman") {
+      updates.chairmanId = personId;
+    } else if (appointingCouncilRole === "founder") {
+      updates.founderId = personId;
+    }
+    await db.alliances.update(id, updates);
+    setAppointingCouncilRole(null);
+    setCouncilSearchQuery("");
+  };
+
+  const handleRemoveCouncilMember = async (
+    role: "leader" | "chairman" | "founder",
+  ) => {
+    if (entityType !== EntityType.ALLIANCE || !id) return;
+    const updates: Partial<Alliance> = {
+      updatedAt: Date.now(),
+    };
+    if (role === "leader") {
+      updates.leaderId = "";
+    } else if (role === "chairman") {
+      updates.chairmanId = "";
+    } else if (role === "founder") {
+      updates.founderId = "";
+    }
+    await db.alliances.update(id, updates);
+  };
 
   const handleToggleHighCommand = async (personId: string) => {
     if (entityType !== EntityType.ALLIANCE || !id) return;
@@ -1605,11 +1659,32 @@ export const EntityPage: React.FC = () => {
 
   const filteredHighCommandEligible = React.useMemo(
     () =>
-      (Array.isArray(personsEligibleForHighCommand)
-        ? personsEligibleForHighCommand
-        : []
-      ).filter((p) => p.name.toLowerCase().includes(searchQuery.toLowerCase())),
-    [personsEligibleForHighCommand, searchQuery],
+      personsEligibleForHighCommand.filter((p) => {
+        const query = searchQuery.trim().toLowerCase();
+        if (!query) return true;
+        const party = partiesList.find((pt) => pt.id === p.partyId);
+        return (
+          p.name.toLowerCase().includes(query) ||
+          party?.name.toLowerCase().includes(query) ||
+          party?.abbreviation.toLowerCase().includes(query)
+        );
+      }),
+    [personsEligibleForHighCommand, searchQuery, partiesList],
+  );
+
+  const filteredCouncilEligible = React.useMemo(
+    () =>
+      personsEligibleForHighCommand.filter((p) => {
+        const query = councilSearchQuery.trim().toLowerCase();
+        if (!query) return true;
+        const party = partiesList.find((pt) => pt.id === p.partyId);
+        return (
+          p.name.toLowerCase().includes(query) ||
+          party?.name.toLowerCase().includes(query) ||
+          party?.abbreviation.toLowerCase().includes(query)
+        );
+      }),
+    [personsEligibleForHighCommand, councilSearchQuery, partiesList],
   );
 
   const filteredAppointmentPersons = React.useMemo(() => {
@@ -2832,6 +2907,15 @@ export const EntityPage: React.FC = () => {
               <span>Suspend</span>
             </button>
           )}
+          {(entityType === EntityType.PERSON || entityType === EntityType.DESIGNATION) && (
+            <button
+              onClick={() => setIsReleaseOrderModalOpen(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-[#FFD700] via-[#FFC000] to-[#E6B800] hover:scale-[1.02] active:scale-[0.98] rounded-xl text-black shadow-lg shadow-[#FFD700]/20 transition-all font-black text-xs uppercase tracking-wider cursor-pointer"
+            >
+              <Stamp size={15} />
+              <span>Release Order</span>
+            </button>
+          )}
           {!isDissolvedRecord && (
             <button
               onClick={() => setShowEditModal(true)}
@@ -3183,6 +3267,20 @@ export const EntityPage: React.FC = () => {
             className={`px-6 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === "history" ? "bg-[#FFD700] text-black shadow-lg shadow-[#FFD700]/20" : "text-gray-400 hover:text-white"}`}
           >
             HISTORY
+          </button>
+        )}
+        {(entityType === EntityType.PERSON || entityType === EntityType.DESIGNATION) && (
+          <button
+            onClick={() => setActiveTab("orders")}
+            className={`px-6 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${activeTab === "orders" ? "bg-[#FFD700] text-black shadow-lg shadow-[#FFD700]/20" : "text-gray-400 hover:text-white"}`}
+          >
+            <Stamp size={13} />
+            <span>ORDERS</span>
+            {entityOrders && entityOrders.length > 0 && (
+              <span className={`px-1.5 py-0.2 text-[10px] rounded-full font-mono ${activeTab === "orders" ? "bg-black text-[#FFD700]" : "bg-white/10 text-gray-300"}`}>
+                {entityOrders.length}
+              </span>
+            )}
           </button>
         )}
       </div>
@@ -4184,16 +4282,45 @@ export const EntityPage: React.FC = () => {
                             <p className="text-xl font-black text-white uppercase tracking-tight">
                               {allianceLeadership?.leader?.name || "Vacant"}
                             </p>
-                            {allianceLeadership?.leader && (
+                            {allianceLeadership?.leader ? (
+                              <div className="flex items-center justify-center gap-3 mt-2">
+                                <button
+                                  onClick={() =>
+                                    navigate(
+                                      `/person/${allianceLeadership.leader!.id}`,
+                                    )
+                                  }
+                                  className="text-[10px] text-gray-500 hover:text-[#FFD700] transition-colors uppercase font-black tracking-widest"
+                                >
+                                  View Profile
+                                </button>
+                                <span className="text-white/20">•</span>
+                                <button
+                                  onClick={() => {
+                                    setCouncilSearchQuery("");
+                                    setAppointingCouncilRole("leader");
+                                  }}
+                                  className="text-[10px] text-[#FFD700]/70 hover:text-[#FFD700] transition-colors uppercase font-black tracking-widest"
+                                >
+                                  Change
+                                </button>
+                                <span className="text-white/20">•</span>
+                                <button
+                                  onClick={() => handleRemoveCouncilMember("leader")}
+                                  className="text-[10px] text-red-500/70 hover:text-red-400 transition-colors uppercase font-black tracking-widest"
+                                >
+                                  Remove
+                                </button>
+                              </div>
+                            ) : (
                               <button
-                                onClick={() =>
-                                  navigate(
-                                    `/person/${allianceLeadership.leader!.id}`,
-                                  )
-                                }
-                                className="text-[10px] text-gray-500 hover:text-[#FFD700] transition-colors mt-2 uppercase font-black tracking-widest"
+                                onClick={() => {
+                                  setCouncilSearchQuery("");
+                                  setAppointingCouncilRole("leader");
+                                }}
+                                className="mt-3 px-4 py-1.5 bg-[#FFD700]/10 hover:bg-[#FFD700]/20 text-[#FFD700] rounded-xl text-[10px] font-black uppercase tracking-widest border border-[#FFD700]/20 transition-all flex items-center gap-1.5 mx-auto"
                               >
-                                View Profile
+                                <UserPlus size={12} /> Appoint Leader
                               </button>
                             )}
                           </div>
@@ -4225,16 +4352,45 @@ export const EntityPage: React.FC = () => {
                             <p className="text-xl font-black text-white uppercase tracking-tight">
                               {allianceLeadership?.chairman?.name || "Vacant"}
                             </p>
-                            {allianceLeadership?.chairman && (
+                            {allianceLeadership?.chairman ? (
+                              <div className="flex items-center justify-center gap-3 mt-2">
+                                <button
+                                  onClick={() =>
+                                    navigate(
+                                      `/person/${allianceLeadership.chairman!.id}`,
+                                    )
+                                  }
+                                  className="text-[10px] text-gray-500 hover:text-blue-400 transition-colors uppercase font-black tracking-widest"
+                                >
+                                  View Profile
+                                </button>
+                                <span className="text-white/20">•</span>
+                                <button
+                                  onClick={() => {
+                                    setCouncilSearchQuery("");
+                                    setAppointingCouncilRole("chairman");
+                                  }}
+                                  className="text-[10px] text-blue-400/70 hover:text-blue-400 transition-colors uppercase font-black tracking-widest"
+                                >
+                                  Change
+                                </button>
+                                <span className="text-white/20">•</span>
+                                <button
+                                  onClick={() => handleRemoveCouncilMember("chairman")}
+                                  className="text-[10px] text-red-500/70 hover:text-red-400 transition-colors uppercase font-black tracking-widest"
+                                >
+                                  Remove
+                                </button>
+                              </div>
+                            ) : (
                               <button
-                                onClick={() =>
-                                  navigate(
-                                    `/person/${allianceLeadership.chairman!.id}`,
-                                  )
-                                }
-                                className="text-[10px] text-gray-500 hover:text-blue-400 transition-colors mt-2 uppercase font-black tracking-widest"
+                                onClick={() => {
+                                  setCouncilSearchQuery("");
+                                  setAppointingCouncilRole("chairman");
+                                }}
+                                className="mt-3 px-4 py-1.5 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 rounded-xl text-[10px] font-black uppercase tracking-widest border border-blue-500/20 transition-all flex items-center gap-1.5 mx-auto"
                               >
-                                View Profile
+                                <UserPlus size={12} /> Appoint Chairman
                               </button>
                             )}
                           </div>
@@ -4266,16 +4422,45 @@ export const EntityPage: React.FC = () => {
                             <p className="text-xl font-black text-white uppercase tracking-tight">
                               {allianceLeadership?.founder?.name || "Vacant"}
                             </p>
-                            {allianceLeadership?.founder && (
+                            {allianceLeadership?.founder ? (
+                              <div className="flex items-center justify-center gap-3 mt-2">
+                                <button
+                                  onClick={() =>
+                                    navigate(
+                                      `/person/${allianceLeadership.founder!.id}`,
+                                    )
+                                  }
+                                  className="text-[10px] text-gray-500 hover:text-[#D32F2F] transition-colors mt-2 uppercase font-black tracking-widest"
+                                >
+                                  View Profile
+                                </button>
+                                <span className="text-white/20">•</span>
+                                <button
+                                  onClick={() => {
+                                    setCouncilSearchQuery("");
+                                    setAppointingCouncilRole("founder");
+                                  }}
+                                  className="text-[10px] text-[#D32F2F]/70 hover:text-[#D32F2F] transition-colors uppercase font-black tracking-widest"
+                                >
+                                  Change
+                                </button>
+                                <span className="text-white/20">•</span>
+                                <button
+                                  onClick={() => handleRemoveCouncilMember("founder")}
+                                  className="text-[10px] text-red-500/70 hover:text-red-400 transition-colors uppercase font-black tracking-widest"
+                                >
+                                  Remove
+                                </button>
+                              </div>
+                            ) : (
                               <button
-                                onClick={() =>
-                                  navigate(
-                                    `/person/${allianceLeadership.founder!.id}`,
-                                  )
-                                }
-                                className="text-[10px] text-gray-500 hover:text-[#D32F2F] transition-colors mt-2 uppercase font-black tracking-widest"
+                                onClick={() => {
+                                  setCouncilSearchQuery("");
+                                  setAppointingCouncilRole("founder");
+                                }}
+                                className="mt-3 px-4 py-1.5 bg-[#D32F2F]/10 hover:bg-[#D32F2F]/20 text-[#D32F2F] rounded-xl text-[10px] font-black uppercase tracking-widest border border-[#D32F2F]/20 transition-all flex items-center gap-1.5 mx-auto"
                               >
-                                View Profile
+                                <UserPlus size={12} /> Appoint Founder
                               </button>
                             )}
                           </div>
@@ -4300,7 +4485,10 @@ export const EntityPage: React.FC = () => {
                           </div>
                         </div>
                         <button
-                          onClick={() => setShowManageHighCommandModal(true)}
+                          onClick={() => {
+                            setSearchQuery("");
+                            setShowManageHighCommandModal(true);
+                          }}
                           className="flex items-center gap-2 px-4 py-2 bg-[#D32F2F]/10 hover:bg-[#D32F2F]/20 rounded-xl text-[#D32F2F] text-[10px] font-black uppercase tracking-widest border border-[#D32F2F]/20 transition-all"
                         >
                           <Plus size={14} /> Assign Commanders
@@ -5502,6 +5690,92 @@ export const EntityPage: React.FC = () => {
               </div>
             </section>
           )}
+
+          {activeTab === "orders" && (
+            <div className="space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white/5 border border-white/10 rounded-2xl p-6">
+                <div>
+                  <h3 className="text-xl font-black uppercase tracking-tight text-white flex items-center gap-2.5">
+                    <Stamp className="text-[#FFD700]" size={22} />
+                    <span>Official Orders & Gazettes</span>
+                  </h3>
+                  <p className="text-xs text-gray-400 mt-1">
+                    Orders issued by or referencing {entity?.name || "this official"}.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setIsReleaseOrderModalOpen(true)}
+                  className="inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-gradient-to-r from-[#FFD700] via-[#FFC000] to-[#E6B800] hover:scale-[1.02] active:scale-[0.98] rounded-xl text-black shadow-lg shadow-[#FFD700]/20 transition-all font-black text-xs uppercase tracking-wider cursor-pointer shrink-0"
+                >
+                  <Plus size={16} />
+                  <span>Release Order</span>
+                </button>
+              </div>
+
+              {(!entityOrders || entityOrders.length === 0) ? (
+                <div className="glass-card p-12 border border-dashed border-white/10 rounded-3xl text-center">
+                  <div className="w-14 h-14 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center mx-auto mb-4 text-gray-500">
+                    <Stamp size={26} />
+                  </div>
+                  <p className="text-sm font-bold text-gray-300 uppercase tracking-wider">
+                    No Orders Recorded
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1 max-w-sm mx-auto">
+                    There are currently no gazettes or decrees issued by or mentioning this profile.
+                  </p>
+                  <button
+                    onClick={() => setIsReleaseOrderModalOpen(true)}
+                    className="mt-5 inline-flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-xs font-bold text-[#FFD700] uppercase tracking-wider transition-all"
+                  >
+                    <Plus size={14} />
+                    Issue First Order
+                  </button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {entityOrders.map((order) => (
+                    <div
+                      key={order.id}
+                      onClick={() => navigate("/orders")}
+                      className="glass-card p-5 border border-white/10 hover:border-[#FFD700]/30 transition-all rounded-2xl cursor-pointer group flex flex-col justify-between"
+                    >
+                      <div>
+                        <div className="flex items-center justify-between mb-3">
+                          <span className="text-[10px] font-black uppercase tracking-widest text-[#FFD700] bg-[#FFD700]/10 border border-[#FFD700]/20 px-2.5 py-1 rounded-lg">
+                            {order.slNo ? `Sl. No. ${order.slNo}` : order.orderNumber}
+                          </span>
+                          <span className="text-[11px] font-mono text-gray-400">
+                            {order.date}
+                          </span>
+                        </div>
+                        <h4 className="text-base font-black text-white group-hover:text-[#FFD700] transition-colors line-clamp-2">
+                          {order.orderName}
+                        </h4>
+                        <div className="text-xs text-gray-300 mt-2 font-medium">
+                          <div className="font-bold text-gray-200">
+                            {order.byOfficeTitle || formatOfficeOfHonble(order.byDesignationName)}
+                          </div>
+                          {order.signerPersonName && (
+                            <div className="text-xs text-gray-400 font-semibold mt-0.5">
+                              ({order.signerPersonName})
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <div className="mt-4 pt-3 border-t border-white/5 flex items-center justify-between text-xs">
+                        <span className="text-[11px] text-gray-500 font-medium">
+                          {order.taggedPersonIds?.length || 0} person(s) referenced
+                        </span>
+                        <span className="text-[11px] font-bold text-[#FFD700] group-hover:underline flex items-center gap-1">
+                          View in Registry &rarr;
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </motion.div>
       </AnimatePresence>
 
@@ -6353,6 +6627,130 @@ export const EntityPage: React.FC = () => {
           </div>
         )}
 
+        {appointingCouncilRole && (
+          <div
+            key="appoint-council-popup-wrapper"
+            className="fixed inset-0 z-[120] flex items-center justify-center p-4"
+          >
+            <motion.div
+              key="appoint-council-popup-overlay"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => {
+                setAppointingCouncilRole(null);
+                setCouncilSearchQuery("");
+              }}
+              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+            />
+            <motion.div
+              key="appoint-council-popup-content"
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="w-full max-w-lg glass-card p-8 relative flex flex-col max-h-[80vh]"
+            >
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-xl font-bold flex items-center gap-2 text-[#FFD700]">
+                  <Shield size={24} /> Appoint Alliance{" "}
+                  {appointingCouncilRole === "leader"
+                    ? "Leader"
+                    : appointingCouncilRole === "chairman"
+                      ? "Chairman"
+                      : "Founder"}
+                </h3>
+                <button
+                  onClick={() => {
+                    setAppointingCouncilRole(null);
+                    setCouncilSearchQuery("");
+                  }}
+                  className="p-2 hover:bg-white/5 rounded-full text-gray-500"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <p className="text-[10px] text-gray-500 uppercase tracking-[0.2em] mb-4">
+                Only members belonging to alliance constituent parties are eligible.
+              </p>
+
+              <div className="relative mb-6">
+                <Search
+                  className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500"
+                  size={18}
+                />
+                <input
+                  type="text"
+                  placeholder="Search alliance members..."
+                  className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-12 pr-4 focus:outline-none focus:border-[#FFD700]/50"
+                  value={councilSearchQuery}
+                  onChange={(e) => setCouncilSearchQuery(e.target.value)}
+                />
+              </div>
+
+              <div className="flex-1 overflow-y-auto space-y-2 custom-scrollbar pr-2">
+                {filteredCouncilEligible.map((p) => {
+                  const party = partiesList.find((pt) => pt.id === p.partyId);
+                  const isCurrent =
+                    appointingCouncilRole === "leader"
+                      ? (entity as Alliance).leaderId === p.id
+                      : appointingCouncilRole === "chairman"
+                        ? (entity as Alliance).chairmanId === p.id
+                        : (entity as Alliance).founderId === p.id;
+                  return (
+                    <div
+                      key={p.id}
+                      onClick={() => handleAppointCouncilMember(p.id)}
+                      className={`p-4 border rounded-2xl flex items-center gap-4 cursor-pointer transition-all group ${isCurrent ? "bg-[#FFD700]/10 border-[#FFD700]/50" : "bg-white/5 border-white/5 hover:border-[#FFD700]/30"}`}
+                    >
+                      <div className="w-12 h-12 rounded-xl bg-black flex items-center justify-center border border-white/5 overflow-hidden">
+                        {p.imageUrl ? (
+                          <img
+                            src={p.imageUrl}
+                            alt={p.name}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <User className="text-[#FFD700]" size={24} />
+                        )}
+                      </div>
+                      <div className="flex-1">
+                        <p
+                          className={`font-bold transition-colors ${isCurrent ? "text-white" : "group-hover:text-white"}`}
+                        >
+                          {p.name}
+                        </p>
+                        <p className="text-[10px] text-gray-500 uppercase tracking-widest font-black">
+                          {party
+                            ? `${party.name} (${party.abbreviation})`
+                            : "Alliance Member"}
+                        </p>
+                      </div>
+                      <div
+                        className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest border transition-all ${isCurrent ? "bg-[#FFD700] text-black border-[#FFD700]" : "border-white/10 group-hover:border-[#FFD700]/50 text-gray-400 group-hover:text-white"}`}
+                      >
+                        {isCurrent ? "Appointed" : "Appoint"}
+                      </div>
+                    </div>
+                  );
+                })}
+                {filteredCouncilEligible.length === 0 && (
+                  <div className="text-center py-10 px-6">
+                    <p className="text-gray-600 italic mb-2">
+                      No eligible alliance members found
+                    </p>
+                    <p className="text-[10px] text-gray-700 uppercase tracking-widest leading-relaxed">
+                      Only members of constituent parties can be appointed to the High
+                      Council. Ensure constituent parties have joined this alliance
+                      first.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          </div>
+        )}
+
         {showManageHighCommandModal && (
           <div
             key="manage-high-command-popup-wrapper"
@@ -6363,7 +6761,10 @@ export const EntityPage: React.FC = () => {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              onClick={() => setShowManageHighCommandModal(false)}
+              onClick={() => {
+                setShowManageHighCommandModal(false);
+                setSearchQuery("");
+              }}
               className="absolute inset-0 bg-black/80 backdrop-blur-sm"
             />
             <motion.div
@@ -6378,7 +6779,10 @@ export const EntityPage: React.FC = () => {
                   <Shield size={24} /> Manage High Command
                 </h3>
                 <button
-                  onClick={() => setShowManageHighCommandModal(false)}
+                  onClick={() => {
+                    setShowManageHighCommandModal(false);
+                    setSearchQuery("");
+                  }}
                   className="p-2 hover:bg-white/5 rounded-full text-gray-500"
                 >
                   <X size={20} />
@@ -6465,6 +6869,13 @@ export const EntityPage: React.FC = () => {
         isOpen={showEditModal}
         onClose={() => setShowEditModal(false)}
         editData={entity}
+      />
+
+      <ReleaseOrderModal
+        isOpen={isReleaseOrderModalOpen}
+        onClose={() => setIsReleaseOrderModalOpen(false)}
+        initialDesignationId={entityType === EntityType.DESIGNATION ? id : undefined}
+        initialPersonId={entityType === EntityType.PERSON ? id : undefined}
       />
     </div>
   );
