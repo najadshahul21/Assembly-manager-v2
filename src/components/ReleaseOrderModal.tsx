@@ -91,17 +91,25 @@ export const ReleaseOrderModal: React.FC<ReleaseOrderModalProps> = ({
     const options: DesignationOption[] = [];
     const addedKeys = new Set<string>();
 
+    const isJudicialCourt = (id: string, name: string) => {
+      const lower = name.toLowerCase();
+      return id === 'supreme-court' || id === 'high-court' || lower.includes('supreme court') || lower.includes('high court');
+    };
+
     const addOption = (opt: DesignationOption) => {
-      // Strictly prevent vacant offices from producing orders
-      if (
-        !opt.incumbentId || 
-        opt.incumbentId === 'vacant' || 
-        !opt.incumbentName || 
-        opt.incumbentName.trim().toLowerCase() === 'vacant' || 
-        opt.incumbentName.trim().toLowerCase() === 'vacant seat' ||
-        opt.incumbentName.trim().toLowerCase() === 'executive authority'
-      ) {
-        return;
+      const isJudicialExempt = isJudicialCourt(opt.id, opt.name);
+      // Strictly prevent vacant offices from producing orders, EXCEPT for inbuilt judicial court offices
+      if (!isJudicialExempt) {
+        if (
+          !opt.incumbentId || 
+          opt.incumbentId === 'vacant' || 
+          !opt.incumbentName || 
+          opt.incumbentName.trim().toLowerCase() === 'vacant' || 
+          opt.incumbentName.trim().toLowerCase() === 'vacant seat' ||
+          opt.incumbentName.trim().toLowerCase() === 'executive authority'
+        ) {
+          return;
+        }
       }
       const key = `${opt.id}::${opt.name}`;
       if (!addedKeys.has(key)) {
@@ -110,35 +118,31 @@ export const ReleaseOrderModal: React.FC<ReleaseOrderModalProps> = ({
       }
     };
 
-    // 1. Supreme Court
+    // 1. Supreme Court (Inbuilt Signer Office - Exception: Can sign without an incumbent)
     const supremeDesig = designations.find(d => d.id === 'supreme-court' || d.name.toLowerCase().includes('supreme court'));
-    if (supremeDesig?.incumbentId && supremeDesig.incumbentId !== 'vacant' && personsMap.has(supremeDesig.incumbentId)) {
-      const scPerson = personsMap.get(supremeDesig.incumbentId)!;
-      addOption({
-        id: supremeDesig.id,
-        name: 'Supreme Court',
-        category: 'Judicial Authorities',
-        incumbentId: scPerson.id,
-        incumbentName: scPerson.name,
-        partyAbbr: partiesMap.get(scPerson.partyId)?.abbreviation,
-        roleDescription: 'Judiciary'
-      });
-    }
+    const scPerson = (supremeDesig?.incumbentId && supremeDesig.incumbentId !== 'vacant') ? personsMap.get(supremeDesig.incumbentId) : undefined;
+    addOption({
+      id: supremeDesig?.id || 'supreme-court',
+      name: 'Supreme Court',
+      category: 'Judicial Authorities',
+      incumbentId: scPerson?.id || undefined,
+      incumbentName: scPerson?.name || '',
+      partyAbbr: scPerson ? partiesMap.get(scPerson.partyId)?.abbreviation : undefined,
+      roleDescription: scPerson ? 'Chief Justice / Judge' : 'Inbuilt Judicial Authority'
+    });
 
-    // 2. High Court
+    // 2. High Court (Inbuilt Signer Office - Exception: Can sign without an incumbent)
     const highCourtDesig = designations.find(d => d.id === 'high-court' || d.name.toLowerCase().includes('high court'));
-    if (highCourtDesig?.incumbentId && highCourtDesig.incumbentId !== 'vacant' && personsMap.has(highCourtDesig.incumbentId)) {
-      const hcPerson = personsMap.get(highCourtDesig.incumbentId)!;
-      addOption({
-        id: highCourtDesig.id,
-        name: 'High Court',
-        category: 'Judicial Authorities',
-        incumbentId: hcPerson.id,
-        incumbentName: hcPerson.name,
-        partyAbbr: partiesMap.get(hcPerson.partyId)?.abbreviation,
-        roleDescription: 'Judiciary'
-      });
-    }
+    const hcPerson = (highCourtDesig?.incumbentId && highCourtDesig.incumbentId !== 'vacant') ? personsMap.get(highCourtDesig.incumbentId) : undefined;
+    addOption({
+      id: highCourtDesig?.id || 'high-court',
+      name: 'High Court',
+      category: 'Judicial Authorities',
+      incumbentId: hcPerson?.id || undefined,
+      incumbentName: hcPerson?.name || '',
+      partyAbbr: hcPerson ? partiesMap.get(hcPerson.partyId)?.abbreviation : undefined,
+      roleDescription: hcPerson ? 'Chief Justice / Judge' : 'Inbuilt Judicial Authority'
+    });
 
     // 3. Governor
     const govDesig = designations.find(d => d.id === 'governor' || d.name.toLowerCase().includes('governor'));
@@ -366,7 +370,10 @@ export const ReleaseOrderModal: React.FC<ReleaseOrderModalProps> = ({
         setSlNo(String((ordersList?.length || 0) + 1));
       }
       if (initialDesignationId) {
-        const match = designationOptions.find(d => d.id === initialDesignationId);
+        const match = designationOptions.find(d => d.id === initialDesignationId || (
+          (initialDesignationId === 'supreme-court' && d.name === 'Supreme Court') ||
+          (initialDesignationId === 'high-court' && d.name === 'High Court')
+        ));
         if (match) {
           setSelectedDesignationKey(`${match.id}::${match.name}`);
           return;
@@ -551,17 +558,33 @@ export const ReleaseOrderModal: React.FC<ReleaseOrderModalProps> = ({
     }
 
     const selectedOption = designationOptions.find(d => `${d.id}::${d.name}` === selectedDesignationKey);
-    // REQUIREMENT 2: An order can only be produced by an office that currently has an incumbent; a vacant office cannot produce order.
-    if (
-      !selectedOption || 
-      !selectedOption.incumbentId || 
-      selectedOption.incumbentId === 'vacant' || 
-      !selectedOption.incumbentName || 
-      selectedOption.incumbentName.trim().toLowerCase() === 'vacant' ||
-      selectedOption.incumbentName.trim().toLowerCase() === 'vacant seat'
-    ) {
-      setFormError('An order can only be produced by an office that currently has an incumbent. A vacant office cannot produce an order.');
+    if (!selectedOption) {
+      setFormError('Please select the issuing office');
       return;
+    }
+
+    const isJudicialCourtExempt = (
+      selectedOption.id === 'supreme-court' ||
+      selectedOption.id === 'high-court' ||
+      selectedOption.name === 'Supreme Court' ||
+      selectedOption.name === 'High Court' ||
+      selectedOption.name.toLowerCase().includes('supreme court') ||
+      selectedOption.name.toLowerCase().includes('high court')
+    );
+
+    // REQUIREMENT 2: An order can only be produced by an office that currently has an incumbent; a vacant office cannot produce order.
+    // EXCEPTION: High Court and Supreme Court are inbuilt signer offices that can sign orders without an incumbent!
+    if (!isJudicialCourtExempt) {
+      if (
+        !selectedOption.incumbentId || 
+        selectedOption.incumbentId === 'vacant' || 
+        !selectedOption.incumbentName || 
+        selectedOption.incumbentName.trim().toLowerCase() === 'vacant' || 
+        selectedOption.incumbentName.trim().toLowerCase() === 'vacant seat'
+      ) {
+        setFormError('An order can only be produced by an office that currently has an incumbent. A vacant office cannot produce an order.');
+        return;
+      }
     }
 
     setIsSubmitting(true);
@@ -572,9 +595,16 @@ export const ReleaseOrderModal: React.FC<ReleaseOrderModalProps> = ({
       
       // REQUIREMENT 3: Freeze the office title, incumbent name, party, and image so that future changes to the office do not alter this order!
       const frozenOfficeTitle = formatOfficeOfHonble(selectedOption.name);
-      const frozenIncumbentName = selectedOption.incumbentName.trim();
-      const frozenPartyAbbr = selectedOption.partyAbbr;
-      const signerPersonObj = personsMap.get(selectedOption.incumbentId);
+      const hasIncumbent = Boolean(
+        selectedOption.incumbentId && 
+        selectedOption.incumbentId !== 'vacant' && 
+        selectedOption.incumbentName && 
+        selectedOption.incumbentName.trim() &&
+        selectedOption.incumbentName.toLowerCase() !== 'vacant'
+      );
+      const frozenIncumbentName = hasIncumbent ? selectedOption.incumbentName.trim() : undefined;
+      const signerPersonObj = (hasIncumbent && selectedOption.incumbentId) ? personsMap.get(selectedOption.incumbentId) : undefined;
+      const frozenPartyAbbr = hasIncumbent ? (selectedOption.partyAbbr || (signerPersonObj ? partiesMap.get(signerPersonObj.partyId)?.abbreviation : undefined)) : undefined;
       const frozenImageUrl = signerPersonObj?.imageUrl;
 
       // Extract all tagged person IDs from content as well (to ensure perfect sync)
@@ -598,18 +628,20 @@ export const ReleaseOrderModal: React.FC<ReleaseOrderModalProps> = ({
         byDesignationId: selectedOption.id,
         byDesignationName: selectedOption.name,
         byOfficeTitle: frozenOfficeTitle,
-        byCategory: selectedOption.category.toLowerCase().includes('cabinet') 
-          ? 'cabinet' 
-          : selectedOption.category.toLowerCase().includes('mla') 
-            ? 'mla' 
-            : selectedOption.category.toLowerCase().includes('judicial') 
-              ? 'judiciary' 
-              : selectedOption.category.toLowerCase().includes('gubernatorial') 
-                ? 'governor' 
-                : selectedOption.category.toLowerCase().includes('speaker') 
-                  ? 'speaker' 
-                  : 'designation',
-        signerPersonId: selectedOption.incumbentId,
+        byCategory: isJudicialCourtExempt ? 'judiciary' : (
+          selectedOption.category.toLowerCase().includes('cabinet') 
+            ? 'cabinet' 
+            : selectedOption.category.toLowerCase().includes('mla') 
+              ? 'mla' 
+              : selectedOption.category.toLowerCase().includes('judicial') 
+                ? 'judiciary' 
+                : selectedOption.category.toLowerCase().includes('gubernatorial') 
+                  ? 'governor' 
+                  : selectedOption.category.toLowerCase().includes('speaker') 
+                    ? 'speaker' 
+                    : 'designation'
+        ),
+        signerPersonId: hasIncumbent ? selectedOption.incumbentId : undefined,
         signerPersonName: frozenIncumbentName,
         signerPartyAbbr: frozenPartyAbbr,
         signerImageUrl: frozenImageUrl,
@@ -636,9 +668,15 @@ export const ReleaseOrderModal: React.FC<ReleaseOrderModalProps> = ({
   const selectedOption = designationOptions.find(d => `${d.id}::${d.name}` === selectedDesignationKey);
 
   const initialDesignationObj = designations.find(d => d.id === initialDesignationId);
+  const isInitialCourtExempt = initialDesignationId === 'high-court' || 
+    initialDesignationId === 'supreme-court' || 
+    initialDesignationObj?.name.toLowerCase().includes('supreme court') ||
+    initialDesignationObj?.name.toLowerCase().includes('high court');
+
   const isInitialDesignationVacant = Boolean(
     initialDesignationId && 
     initialDesignationObj && 
+    !isInitialCourtExempt &&
     (!initialDesignationObj.incumbentId || initialDesignationObj.incumbentId === 'vacant')
   );
 
@@ -957,8 +995,16 @@ export const ReleaseOrderModal: React.FC<ReleaseOrderModalProps> = ({
                             {opt.name}
                           </div>
                           <div className="text-[11px] text-gray-400 truncate flex items-center gap-1">
-                            <span className="text-gray-300 font-medium truncate">{opt.incumbentName}</span>
-                            {opt.partyAbbr && <span className="text-gray-500 shrink-0">({opt.partyAbbr})</span>}
+                            {opt.incumbentName ? (
+                              <>
+                                <span className="text-gray-300 font-medium truncate">{opt.incumbentName}</span>
+                                {opt.partyAbbr && <span className="text-gray-500 shrink-0">({opt.partyAbbr})</span>}
+                              </>
+                            ) : (
+                              <span className="text-amber-400/90 font-medium truncate flex items-center gap-1">
+                                <Scale size={11} className="shrink-0" /> Inbuilt Judicial Authority
+                              </span>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -997,9 +1043,26 @@ export const ReleaseOrderModal: React.FC<ReleaseOrderModalProps> = ({
 
               {/* Confirmed Snapshot Preview Banner */}
               {selectedOption ? (
-                <div className="p-3.5 bg-gradient-to-r from-[#FFD700]/10 via-black/40 to-black/60 border border-[#FFD700]/30 rounded-xl flex items-center justify-between">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-10 h-10 rounded-lg bg-black/60 border border-[#FFD700]/40 flex items-center justify-center text-[#FFD700] overflow-hidden shrink-0 shadow-md">
+                <div className="p-3.5 sm:p-4 bg-gradient-to-br from-[#FFD700]/10 via-[#161616] to-black border border-[#FFD700]/30 rounded-xl space-y-2.5 shadow-lg">
+                  {/* Top metadata status header */}
+                  <div className="flex items-center justify-between gap-2 border-b border-white/5 pb-2">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span className="text-[10px] uppercase font-black text-[#FFD700] tracking-wider whitespace-nowrap shrink-0">
+                        Issuing Authority
+                      </span>
+                      <span className="text-gray-500 text-[10px] shrink-0">•</span>
+                      <span className="text-[10px] font-semibold text-gray-400 truncate">
+                        {selectedOption.category}
+                      </span>
+                    </div>
+                    <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 rounded-md flex items-center gap-1 shrink-0 whitespace-nowrap">
+                      <CheckCircle2 size={12} className="text-emerald-400" /> {selectedOption.incumbentName ? 'Active' : 'Inbuilt Signer'}
+                    </span>
+                  </div>
+
+                  {/* Main profile and office display */}
+                  <div className="flex items-start gap-3">
+                    <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-xl bg-black/60 border border-[#FFD700]/40 flex items-center justify-center text-[#FFD700] overflow-hidden shrink-0 shadow-md">
                       {selectedOption.incumbentId && personsMap.get(selectedOption.incumbentId)?.imageUrl ? (
                         <img 
                           src={personsMap.get(selectedOption.incumbentId)!.imageUrl} 
@@ -1007,44 +1070,40 @@ export const ReleaseOrderModal: React.FC<ReleaseOrderModalProps> = ({
                           className="w-full h-full object-cover" 
                         />
                       ) : selectedOption.category.includes('Judicial') ? (
-                        <Scale size={20} className="text-[#FFD700]" />
+                        <Scale size={22} className="text-[#FFD700]" />
                       ) : selectedOption.category.includes('Gubernatorial') ? (
-                        <Shield size={20} className="text-emerald-400" />
+                        <Shield size={22} className="text-emerald-400" />
                       ) : (
-                        <Landmark size={20} className="text-[#FFD700]" />
+                        <Landmark size={22} className="text-[#FFD700]" />
                       )}
                     </div>
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] uppercase font-extrabold text-[#FFD700] tracking-wider">
-                          Issuing Authority
-                        </span>
-                        <span className="text-[10px] px-2 py-0.2 rounded-full bg-black/40 text-gray-400 border border-white/10">
-                          {selectedOption.category}
-                        </span>
-                      </div>
-                      <div className="text-xs font-bold text-white tracking-wide truncate">
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-bold text-white tracking-wide leading-snug break-words">
                         {formatOfficeOfHonble(selectedOption.name)}
                       </div>
-                      <div className="text-xs text-gray-300 font-semibold mt-0.5 flex items-center gap-1.5 truncate">
-                        <span>({selectedOption.incumbentName})</span>
-                        {selectedOption.partyAbbr && (
-                          <span className="text-[#FFD700] font-normal">
-                            • {selectedOption.partyAbbr}
+                      <div className="text-xs text-gray-300 font-medium mt-1 flex items-center flex-wrap gap-1.5">
+                        {selectedOption.incumbentName ? (
+                          <>
+                            <span className="text-gray-100 font-semibold">({selectedOption.incumbentName})</span>
+                            {selectedOption.partyAbbr && (
+                              <span className="text-[#FFD700] font-bold">
+                                • {selectedOption.partyAbbr}
+                              </span>
+                            )}
+                          </>
+                        ) : (
+                          <span className="text-amber-400 font-medium flex items-center gap-1">
+                            <Scale size={13} className="text-amber-400 shrink-0" />
+                            <span>(Judicial Bench / Direct Institutional Order)</span>
                           </span>
                         )}
                       </div>
                     </div>
                   </div>
-                  <div className="shrink-0 pl-2">
-                    <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 rounded-md flex items-center gap-1">
-                      <CheckCircle2 size={12} /> Active
-                    </span>
-                  </div>
                 </div>
               ) : (
                 <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-amber-300 text-xs flex items-center gap-2">
-                  <AlertCircle size={15} />
+                  <AlertCircle size={15} className="shrink-0" />
                   <span>Please choose an active issuing authority from the apps grid above.</span>
                 </div>
               )}

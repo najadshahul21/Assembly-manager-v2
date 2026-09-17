@@ -429,15 +429,24 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({ searchQuery = '' }) => {
                           <CatIcon size={18} />
                         )}
                       </div>
-                      <div className="text-xs">
-                        <div className="font-bold text-gray-200 tracking-wide">
+                      <div className="text-xs min-w-0 flex-1">
+                        <div className="font-bold text-gray-200 tracking-wide break-words">
                           {order.byOfficeTitle || formatOfficeOfHonble(order.byDesignationName)}
                         </div>
-                        <div className="text-xs text-gray-300 font-semibold mt-0.5">
-                          ({order.signerPersonName || 'Incumbent'})
-                          {(order.signerPartyAbbr || signerParty?.abbreviation) && (
-                            <span className="text-gray-500 font-normal ml-1">
-                              • {order.signerPartyAbbr || signerParty?.abbreviation}
+                        <div className="text-xs text-gray-300 font-semibold mt-0.5 flex items-center flex-wrap gap-1">
+                          {order.signerPersonName ? (
+                            <>
+                              <span>({order.signerPersonName})</span>
+                              {(order.signerPartyAbbr || signerParty?.abbreviation) && (
+                                <span className="text-gray-500 font-normal">
+                                  • {order.signerPartyAbbr || signerParty?.abbreviation}
+                                </span>
+                              )}
+                            </>
+                          ) : (
+                            <span className="text-amber-400 font-medium flex items-center gap-1">
+                              <Scale size={12} className="shrink-0" />
+                              <span>(Judicial Bench)</span>
                             </span>
                           )}
                         </div>
@@ -601,18 +610,27 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({ searchQuery = '' }) => {
                       <Landmark size={22} />
                     )}
                   </div>
-                  <div>
+                  <div className="min-w-0 flex-1">
                     <div className="text-[11px] uppercase text-[#FFD700] font-bold tracking-wider">
                       Issuing Authority
                     </div>
-                    <div className="text-base font-bold text-white tracking-wide">
+                    <div className="text-base font-bold text-white tracking-wide break-words">
                       {viewingOrder.byOfficeTitle || formatOfficeOfHonble(viewingOrder.byDesignationName)}
                     </div>
-                    <div className="text-xs text-gray-300 font-semibold mt-0.5">
-                      ({viewingOrder.signerPersonName || 'Incumbent'})
-                      {(viewingOrder.signerPartyAbbr || partiesMap.get(personsMap.get(viewingOrder.signerPersonId || '')?.partyId || '')?.abbreviation) && (
-                        <span className="text-gray-400 font-normal ml-1">
-                          • {viewingOrder.signerPartyAbbr || partiesMap.get(personsMap.get(viewingOrder.signerPersonId || '')?.partyId || '')?.abbreviation}
+                    <div className="text-xs text-gray-300 font-semibold mt-0.5 flex items-center flex-wrap gap-1">
+                      {viewingOrder.signerPersonName ? (
+                        <>
+                          <span>({viewingOrder.signerPersonName})</span>
+                          {(viewingOrder.signerPartyAbbr || partiesMap.get(personsMap.get(viewingOrder.signerPersonId || '')?.partyId || '')?.abbreviation) && (
+                            <span className="text-gray-400 font-normal">
+                              • {viewingOrder.signerPartyAbbr || partiesMap.get(personsMap.get(viewingOrder.signerPersonId || '')?.partyId || '')?.abbreviation}
+                            </span>
+                          )}
+                        </>
+                      ) : (
+                        <span className="text-amber-400 font-medium flex items-center gap-1">
+                          <Scale size={13} className="shrink-0" />
+                          <span>(Judicial Bench / Direct Institutional Order)</span>
                         </span>
                       )}
                     </div>

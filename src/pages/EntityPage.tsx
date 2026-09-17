@@ -38,6 +38,7 @@ import {
   X,
   Vote,
   Stamp,
+  Scale,
 } from "lucide-react";
 import { EntityCard } from "../components/EntityCards";
 import { ElectionResultsTable } from "../components/ElectionResultsTable";
@@ -5755,9 +5756,13 @@ export const EntityPage: React.FC = () => {
                           <div className="font-bold text-gray-200">
                             {order.byOfficeTitle || formatOfficeOfHonble(order.byDesignationName)}
                           </div>
-                          {order.signerPersonName && (
+                          {order.signerPersonName ? (
                             <div className="text-xs text-gray-400 font-semibold mt-0.5">
                               ({order.signerPersonName})
+                            </div>
+                          ) : (
+                            <div className="text-[11px] text-amber-400 font-medium mt-0.5 flex items-center gap-1">
+                              <Scale size={12} className="shrink-0" /> Judicial Bench
                             </div>
                           )}
                         </div>
