@@ -39,6 +39,7 @@ import {
   Vote,
   Stamp,
   Scale,
+  Crown,
 } from "lucide-react";
 import { EntityCard } from "../components/EntityCards";
 import { ElectionResultsTable } from "../components/ElectionResultsTable";
@@ -53,6 +54,7 @@ import {
 } from "../utils/governmentUtils";
 
 import { CreateModals } from "../components/CreateModals";
+import { LeadershipCouncilModal } from "../components/LeadershipCouncilModal";
 
 const getAssemblyChronologicalScore = (assembly?: Assembly | null) => {
   if (!assembly) return 0;
@@ -243,6 +245,7 @@ export const EntityPage: React.FC = () => {
     personName: string;
   } | null>(null);
   const [departmentInput, setDepartmentInput] = useState("");
+  const [isLeadershipModalOpen, setIsLeadershipModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<
     "details" | "related" | "history" | "cabinet" | "orders"
   >(
@@ -2747,18 +2750,41 @@ export const EntityPage: React.FC = () => {
 
       const now = Date.now();
       if (con.currentIncumbentId !== "vacant" && con.currentAssemblyId) {
-        // Discard independent support mapping when MLA is removed from seat
+        // Discard independent support mapping and leadership roles when MLA is removed from seat
         const assembly = await db.assemblies.get(con.currentAssemblyId);
-        if (
-          assembly &&
-          assembly.independentSupports &&
-          assembly.independentSupports[con.currentIncumbentId]
-        ) {
-          const supports = { ...assembly.independentSupports };
-          delete supports[con.currentIncumbentId];
-          await db.assemblies.update(con.currentAssemblyId, {
-            independentSupports: supports,
-          });
+        if (assembly) {
+          const asmUpdates: any = {};
+          let shouldUpdateAsm = false;
+
+          if (
+            assembly.independentSupports &&
+            assembly.independentSupports[con.currentIncumbentId]
+          ) {
+            const supports = { ...assembly.independentSupports };
+            delete supports[con.currentIncumbentId];
+            asmUpdates.independentSupports = supports;
+            shouldUpdateAsm = true;
+          }
+
+          // Rule 2: Only active MLAs can hold leadership roles (except chiefSecretary)
+          if (assembly.leaders) {
+            const leaders = { ...assembly.leaders };
+            let hadLeaderRole = false;
+            for (const [rKey, pId] of Object.entries(leaders)) {
+              if (pId === con.currentIncumbentId && rKey !== "chiefSecretary") {
+                delete (leaders as any)[rKey];
+                hadLeaderRole = true;
+              }
+            }
+            if (hadLeaderRole) {
+              asmUpdates.leaders = leaders;
+              shouldUpdateAsm = true;
+            }
+          }
+
+          if (shouldUpdateAsm) {
+            await db.assemblies.update(con.currentAssemblyId, asmUpdates);
+          }
         }
 
         const person = await db.persons.get(con.currentIncumbentId);
@@ -5002,95 +5028,259 @@ export const EntityPage: React.FC = () => {
                     </div>
                   )}
 
+                  {/* Leadership Council Section Header */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-2xl bg-[#FFD700]/10 border border-[#FFD700]/25 flex items-center justify-center text-[#FFD700]">
+                        <Crown size={20} />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[9px] font-black text-[#FFD700] uppercase tracking-widest bg-[#FFD700]/10 px-2 py-0.5 rounded border border-[#FFD700]/20">
+                            Constitutional Council
+                          </span>
+                        </div>
+                        <h4 className="text-xl font-black uppercase tracking-tight text-white mt-0.5">
+                          Leadership Council
+                        </h4>
+                      </div>
+                    </div>
+
+                    {!isDissolvedRecord && (
+                      <button
+                        onClick={() => setIsLeadershipModalOpen(true)}
+                        className="inline-flex items-center gap-2 px-4 py-2.5 bg-[#FFD700] hover:bg-[#FFD700]/90 text-black rounded-xl font-bold text-xs uppercase tracking-wider shadow-lg shadow-[#FFD700]/20 transition-all cursor-pointer shrink-0"
+                      >
+                        <Crown size={14} />
+                        <span>Appoint Leadership Council</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Leadership Council Cards Grid */}
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {Object.entries((entity as Assembly).leaders || {})
-                      .filter(
-                        ([role]) =>
-                          role !== "leaderOfHouse" &&
-                          role !== "deputyLeaderOfHouse",
-                      )
-                      .map(([role, pId]) => {
-                        if (!pId) return null;
-                        const isSilver = role === "leaderOfOpposition" || role === "deputyLeaderOfOpposition";
-                        const borderClasses = isSilver
-                          ? "border-slate-400/20 hover:border-slate-400/50"
-                          : "border-[#FFD700]/20 hover:border-[#FFD700]/50";
-                        const bgBlurClasses = isSilver
-                          ? "bg-slate-400/5 group-hover:bg-slate-400/10"
-                          : "bg-[#FFD700]/5 group-hover:bg-[#FFD700]/10";
-                        const imageBorderClasses = isSilver
-                          ? "border-slate-400/20 shadow-slate-400/10"
-                          : "border-[#FFD700]/20 shadow-[#FFD700]/10";
+                    {[
+                      {
+                        key: "chiefMinister",
+                        title: "Chief Minister",
+                        badge: "Govt MLA • Rule 1",
+                        theme: "gold",
+                      },
+                      {
+                        key: "deputyChiefMinister",
+                        title: "Deputy Chief Minister",
+                        badge: "Govt MLA • Rule 1",
+                        theme: "gold",
+                      },
+                      {
+                        key: "speaker",
+                        title: "Speaker of the House",
+                        badge: "Govt MLA • Rule 1",
+                        theme: "amber",
+                      },
+                      {
+                        key: "deputySpeaker",
+                        title: "Deputy Speaker",
+                        badge: "Govt MLA • Rule 1",
+                        theme: "amber",
+                      },
+                      {
+                        key: "leaderOfOpposition",
+                        title: "Leader of Opposition",
+                        badge: "Assembly MLA • Rule 2",
+                        theme: "silver",
+                      },
+                      {
+                        key: "deputyLeaderOfOpposition",
+                        title: "Deputy Leader of Opposition",
+                        badge: "Assembly MLA • Rule 2",
+                        theme: "silver",
+                      },
+                      {
+                        key: "chiefSecretary",
+                        title: "Chief Secretary",
+                        badge: "Executive • Rule 2 Exception",
+                        theme: "blue",
+                      },
+                    ].map((role) => {
+                      const pId = (entity as Assembly).leaders?.[role.key as keyof Assembly["leaders"]];
+                      const person = pId && pId !== "vacant" ? personsList.find((p) => p.id === pId) : null;
+                      const isSilver = role.theme === "silver";
+                      const isBlue = role.theme === "blue";
+                      const isAmber = role.theme === "amber";
+
+                      const borderClasses = isSilver
+                        ? "border-slate-400/20 hover:border-slate-400/50"
+                        : isBlue
+                        ? "border-cyan-500/20 hover:border-cyan-500/50"
+                        : isAmber
+                        ? "border-amber-500/20 hover:border-amber-500/50"
+                        : "border-[#FFD700]/20 hover:border-[#FFD700]/50";
+
+                      const bgBlurClasses = isSilver
+                        ? "bg-slate-400/5 group-hover:bg-slate-400/10"
+                        : isBlue
+                        ? "bg-cyan-500/5 group-hover:bg-cyan-500/10"
+                        : isAmber
+                        ? "bg-amber-500/5 group-hover:bg-amber-500/10"
+                        : "bg-[#FFD700]/5 group-hover:bg-[#FFD700]/10";
+
+                      const imageBorderClasses = isSilver
+                        ? "border-slate-400/20 shadow-slate-400/10"
+                        : isBlue
+                        ? "border-cyan-500/20 shadow-cyan-500/10"
+                        : isAmber
+                        ? "border-amber-500/20 shadow-amber-500/10"
+                        : "border-[#FFD700]/20 shadow-[#FFD700]/10";
+
+                      const badgeClasses = isSilver
+                        ? "bg-slate-400/10 text-slate-300 border-slate-400/20"
+                        : isBlue
+                        ? "bg-cyan-500/10 text-cyan-400 border-cyan-500/20"
+                        : isAmber
+                        ? "bg-amber-500/10 text-amber-400 border-amber-500/20"
+                        : "bg-[#FFD700]/10 text-[#FFD700] border-[#FFD700]/20";
+
+                      if (person) {
+                        const party = partiesList.find((pt) => pt.id === person.partyId);
+                        const seat = assemblySeats?.find((s) => s.incumbent?.id === person.id);
 
                         return (
                           <motion.div
-                            key={role}
-                            whileHover={{ y: -5, scale: 1.02 }}
-                            onClick={() => navigate(`/person/${pId}`)}
-                            className={`glass-card p-6 flex flex-col gap-4 ${borderClasses} cursor-pointer transition-all border group relative overflow-hidden`}
+                            key={role.key}
+                            whileHover={{ y: -4, scale: 1.01 }}
+                            className={`glass-card p-6 flex flex-col justify-between gap-4 ${borderClasses} transition-all border group relative overflow-hidden`}
                           >
                             <div className={`absolute top-0 right-0 p-8 ${bgBlurClasses} blur-3xl -z-10 transition-colors`} />
-                            <div className="flex items-center justify-between">
-                              <div className={`w-12 h-12 rounded-xl bg-black overflow-hidden border ${imageBorderClasses} shadow-lg`}>
-                                {personsList.find((p) => p.id === pId)
-                                  ?.imageUrl ? (
-                                  <img
-                                    src={
-                                      personsList.find((p) => p.id === pId)!
-                                        .imageUrl
-                                    }
-                                    className="w-full h-full object-cover"
-                                  />
+                            
+                            <div>
+                              <div className="flex items-start justify-between gap-2 mb-3">
+                                <div
+                                  onClick={() => navigate(`/person/${person.id}`)}
+                                  className={`w-14 h-14 rounded-2xl bg-black overflow-hidden border ${imageBorderClasses} shadow-lg cursor-pointer shrink-0`}
+                                >
+                                  {person.imageUrl ? (
+                                    <img
+                                      src={person.imageUrl}
+                                      alt={person.name}
+                                      referrerPolicy="no-referrer"
+                                      className="w-full h-full object-cover"
+                                    />
+                                  ) : (
+                                    <div className="w-full h-full flex items-center justify-center text-zinc-500">
+                                      <User size={22} />
+                                    </div>
+                                  )}
+                                </div>
+
+                                <span className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded border ${badgeClasses}`}>
+                                  {role.badge}
+                                </span>
+                              </div>
+
+                              <p className="text-[10px] uppercase text-gray-500 font-bold tracking-widest leading-none mb-1">
+                                {role.title}
+                              </p>
+                              
+                              <p
+                                onClick={() => navigate(`/person/${person.id}`)}
+                                className={`font-bold text-lg cursor-pointer hover:underline ${
+                                  isSilver ? "silver-text" : "gold-text"
+                                }`}
+                              >
+                                {person.name}
+                              </p>
+
+                              <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                                {party && (
+                                  <span
+                                    className="text-[9px] px-1.5 py-0.5 rounded font-black uppercase text-white shadow-sm"
+                                    style={{ backgroundColor: party.colors?.[0] || "#3B82F6" }}
+                                  >
+                                    {party.abbreviation || party.name}
+                                  </span>
+                                )}
+                                {seat ? (
+                                  <span className="text-xs text-gray-400 font-medium">
+                                    MLA • {seat.constituency.name}
+                                  </span>
                                 ) : (
-                                  <div className="w-full h-full flex items-center justify-center text-[#D32F2F]">
-                                    <Shield size={24} />
-                                  </div>
+                                  <span className="text-xs text-cyan-400/80 font-medium">
+                                    Civil Administration
+                                  </span>
                                 )}
                               </div>
-                              <Calendar size={16} className="text-gray-700" />
                             </div>
-                            <div>
-                              <p className="text-[10px] uppercase text-gray-500 font-bold tracking-widest leading-none mb-1">
-                                {prefixRole(role.replace(/([A-Z])/g, " $1"))}
-                              </p>
-                              <p className={`font-bold text-lg ${isSilver ? "silver-text" : "gold-text"}`}>
-                                {personsList.find((p) => p.id === pId)?.name ||
-                                  "Elected Representative"}
-                              </p>
-                              {(() => {
-                                const p = personsList.find(
-                                  (pl) => pl.id === pId,
-                                );
-                                if (p) {
-                                  const party = partiesList.find(
-                                    (pt) => pt.id === p.partyId,
-                                  );
-                                  const partyText =
-                                    p.partyId === "independent"
-                                      ? "Independent"
-                                      : party?.name || p.partyId;
-                                  return (
-                                    <p className="text-xs text-gray-400 font-bold uppercase tracking-wider mt-1">
-                                      {partyText}
-                                    </p>
-                                  );
-                                }
-                                return (
-                                  <p className="text-[10px] text-gray-600 font-mono mt-1 opacity-50">
-                                    Unknown Affiliation
-                                  </p>
-                                );
-                              })()}
-                            </div>
-                            <div className="pt-4 border-t border-white/5 flex items-center justify-between text-[10px] font-bold text-gray-500">
-                              <span className="flex items-center gap-1 uppercase tracking-tighter">
-                                <MapPin size={10} /> Verification Pass
-                              </span>
-                              <ExternalLink size={12} />
+
+                            <div className="pt-3 border-t border-white/5 flex items-center justify-between text-xs">
+                              <button
+                                onClick={() => navigate(`/person/${person.id}`)}
+                                className="text-gray-400 hover:text-white flex items-center gap-1 font-bold text-[11px] transition-colors cursor-pointer"
+                              >
+                                <span>Inspect Profile</span>
+                                <ExternalLink size={12} />
+                              </button>
+
+                              {!isDissolvedRecord && (
+                                <button
+                                  onClick={() => setIsLeadershipModalOpen(true)}
+                                  className="text-[#FFD700] hover:underline font-bold text-[11px] transition-all cursor-pointer"
+                                >
+                                  Change
+                                </button>
+                              )}
                             </div>
                           </motion.div>
                         );
-                      })}
+                      }
+
+                      // Vacant Role Card
+                      return (
+                        <div
+                          key={role.key}
+                          className="glass-card p-6 flex flex-col justify-between gap-4 border border-dashed border-white/10 hover:border-white/20 transition-all relative overflow-hidden"
+                        >
+                          <div>
+                            <div className="flex items-start justify-between gap-2 mb-3">
+                              <div className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center text-zinc-600">
+                                <User size={20} />
+                              </div>
+                              <span className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded border ${badgeClasses}`}>
+                                {role.badge}
+                              </span>
+                            </div>
+
+                            <p className="text-[10px] uppercase text-gray-500 font-bold tracking-widest leading-none mb-1">
+                              {role.title}
+                            </p>
+                            <p className="font-bold text-base text-zinc-500 italic">
+                              Position Vacant
+                            </p>
+                            <p className="text-[11px] text-zinc-600 mt-1">
+                              {role.badge.includes("Govt")
+                                ? "Requires an elected MLA from the government composition."
+                                : role.badge.includes("Assembly")
+                                ? "Requires an active MLA of this legislative assembly."
+                                : "Administrative head appointment."}
+                            </p>
+                          </div>
+
+                          {!isDissolvedRecord ? (
+                            <button
+                              onClick={() => setIsLeadershipModalOpen(true)}
+                              className="w-full py-2.5 bg-white/5 hover:bg-[#FFD700]/10 hover:text-[#FFD700] border border-white/10 hover:border-[#FFD700]/30 rounded-xl text-xs font-bold uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                            >
+                              <Plus size={14} />
+                              <span>Appoint {role.title}</span>
+                            </button>
+                          ) : (
+                            <span className="text-[10px] text-zinc-600 font-mono italic">
+                              Vacant during dissolution
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
 
                   <div className="mt-20">
@@ -6857,6 +7047,17 @@ export const EntityPage: React.FC = () => {
           </div>
         )}
       </AnimatePresence>
+
+      {isLeadershipModalOpen && entityType === EntityType.ASSEMBLY && entity && (
+        <LeadershipCouncilModal
+          assembly={entity as Assembly}
+          constituencies={constituenciesList || []}
+          parties={partiesList || []}
+          alliances={alliancesList || []}
+          persons={personsList || []}
+          onClose={() => setIsLeadershipModalOpen(false)}
+        />
+      )}
 
       <CreateModals
         type={entityType}

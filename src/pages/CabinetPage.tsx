@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db';
 import { Person, Assembly } from '../types';
-import { Landmark, UserMinus, ShieldCheck, Award, Users, Shield, Calendar, MapPin, ExternalLink } from 'lucide-react';
+import { Landmark, UserMinus, ShieldCheck, Award, Users, Shield, Calendar, MapPin, ExternalLink, Crown } from 'lucide-react';
+import { LeadershipCouncilModal } from '../components/LeadershipCouncilModal';
 
 const prefixRole = (role: string): string => {
   const trimmed = role.trim();
@@ -39,6 +40,12 @@ export const CabinetPage: React.FC = () => {
   const navigate = useNavigate();
   const [demoteConfirm, setDemoteConfirm] = React.useState<{ person: Person; role: string } | null>(null);
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
+  const [isLeadershipModalOpen, setIsLeadershipModalOpen] = React.useState(false);
+
+  const constituencies = useLiveQuery(() => db.constituencies.toArray()) || [];
+  const parties = useLiveQuery(() => db.parties.toArray()) || [];
+  const alliances = useLiveQuery(() => db.alliances.toArray()) || [];
+  const persons = useLiveQuery(() => db.persons.toArray()) || [];
 
   const activeAssembly = useLiveQuery(async () => {
     const all = await db.assemblies.toArray();
@@ -292,10 +299,19 @@ export const CabinetPage: React.FC = () => {
           </div>
         </div>
 
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-3">
+          {activeAssembly.isActive && (
+            <button 
+              onClick={() => setIsLeadershipModalOpen(true)}
+              className="px-5 py-3 bg-[#FFD700] hover:bg-[#FFD700]/90 text-black rounded-2xl text-xs font-black uppercase tracking-widest transition-all flex items-center gap-2 shadow-lg shadow-[#FFD700]/20 cursor-pointer"
+            >
+              <Crown size={14} />
+              Appoint Leadership Council
+            </button>
+          )}
           <button 
             onClick={() => navigate(`/assembly/${activeAssembly.id}`)}
-            className="px-6 py-3 bg-white/5 hover:bg-white/10 rounded-2xl text-xs font-bold uppercase tracking-widest transition-all flex items-center gap-2"
+            className="px-6 py-3 bg-white/5 hover:bg-white/10 rounded-2xl text-xs font-bold uppercase tracking-widest transition-all flex items-center gap-2 cursor-pointer"
           >
             <Landmark size={14} />
             Assembly View
@@ -440,6 +456,17 @@ export const CabinetPage: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+      {/* Leadership Council Modal */}
+      {isLeadershipModalOpen && activeAssembly && (
+        <LeadershipCouncilModal
+          assembly={activeAssembly}
+          constituencies={constituencies}
+          parties={parties}
+          alliances={alliances}
+          persons={persons}
+          onClose={() => setIsLeadershipModalOpen(false)}
+        />
       )}
     </div>
   );

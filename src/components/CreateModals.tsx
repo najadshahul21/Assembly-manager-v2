@@ -7,7 +7,7 @@ import {
   AlertCircle, Layers, CheckCircle2 
 } from 'lucide-react';
 import { db, freezeAssembly } from '../db';
-import { EntityType, Assembly } from '../types';
+import { EntityType, Assembly, Person } from '../types';
 import { nanoid } from 'nanoid';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { 
@@ -16,6 +16,7 @@ import {
   isMinisterialRole,
   getConstituencyCreationAssembly
 } from '../utils/governmentUtils';
+import { SearchableLeaderSelect } from './SearchableLeaderSelect';
 
 interface CreateModalsProps {
   type: EntityType | null;
@@ -256,6 +257,33 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
       </>
     );
   }, [type, editData, persons, constituencies, parties, alliances, personOptions]);
+
+  const assemblyGovComposition = React.useMemo(() => {
+    if (type !== EntityType.ASSEMBLY) {
+      return { government: null, governmentMlaIds: new Set<string>(), allMlaIds: new Set<string>() };
+    }
+    const targetAsm = editData || { id: 'temp' };
+    return computeAssemblyGovernmentComposition(
+      targetAsm as Assembly,
+      constituencies,
+      parties,
+      alliances,
+      persons
+    );
+  }, [type, editData, constituencies, parties, alliances, persons]);
+
+  const assemblyPersonConstituencyMap = React.useMemo(() => {
+    const map = new Map<string, string>();
+    const asmId = editData?.id;
+    if (!asmId) return map;
+    const relevantCs = constituencies.filter(c => c.currentAssemblyId === asmId);
+    relevantCs.forEach(c => {
+      if (c.currentIncumbentId && c.currentIncumbentId !== 'vacant') {
+        map.set(c.currentIncumbentId, c.name);
+      }
+    });
+    return map;
+  }, [editData?.id, constituencies]);
 
   const designationPersonOptions = React.useMemo(() => {
     if (type !== EntityType.DESIGNATION) return personOptions;
@@ -636,13 +664,38 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
             persons
           );
 
-          if (data.speaker && data.speaker !== 'vacant' && !govRes.governmentMlaIds.has(data.speaker)) {
-            alert("Only MLAs of the government composition can be appointed as Speaker or Deputy Speaker.");
-            return;
+          // Rule 1: Only MLAs from government composition can be CM, Deputy CM, Speaker, Deputy Speaker
+          const rule1Fields: { key: string; name: string }[] = [
+            { key: 'chiefMinister', name: 'Chief Minister' },
+            { key: 'deputyChiefMinister', name: 'Deputy Chief Minister' },
+            { key: 'speaker', name: 'Speaker' },
+            { key: 'deputySpeaker', name: 'Deputy Speaker' }
+          ];
+
+          for (const f of rule1Fields) {
+            const val = data[f.key];
+            if (val && val !== 'vacant' && !govRes.governmentMlaIds.has(val)) {
+              alert(`Rule 1 Violation: Only MLAs from the government composition can be appointed as ${f.name}.`);
+              return;
+            }
           }
-          if (data.deputySpeaker && data.deputySpeaker !== 'vacant' && !govRes.governmentMlaIds.has(data.deputySpeaker)) {
-            alert("Only MLAs of the government composition can be appointed as Speaker or Deputy Speaker.");
-            return;
+
+          // Rule 2: Only current members of respective assembly can be appointed into leadership council except Chief Secretary
+          const rule2Fields: { key: string; name: string }[] = [
+            { key: 'chiefMinister', name: 'Chief Minister' },
+            { key: 'deputyChiefMinister', name: 'Deputy Chief Minister' },
+            { key: 'speaker', name: 'Speaker' },
+            { key: 'deputySpeaker', name: 'Deputy Speaker' },
+            { key: 'leaderOfOpposition', name: 'Leader of Opposition' },
+            { key: 'deputyLeaderOfOpposition', name: 'Deputy Leader of Opposition' },
+          ];
+
+          for (const f of rule2Fields) {
+            const val = data[f.key];
+            if (val && val !== 'vacant' && !govRes.allMlaIds.has(val)) {
+              alert(`Rule 2 Violation: Only current members (MLAs) of this respective assembly can be appointed as ${f.name}.`);
+              return;
+            }
           }
         }
 
@@ -1390,35 +1443,143 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
                 </div>
              </div>
 
-             <div className="pt-4 border-t border-white/10">
-                <h4 className="text-sm font-bold gold-text uppercase mb-4 tracking-widest">Leadership Council (Appoint Later or Now)</h4>
-                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="pt-4 border-t border-white/10 space-y-4">
+                <div>
+                  <h4 className="text-sm font-bold gold-text uppercase tracking-widest">Leadership Council Appointments</h4>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    Organized appointment slots with candidate search and eligibility verification.
+                  </p>
+                </div>
+
+                {/* Rules Banner */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 p-3 rounded-xl bg-white/[0.02] border border-white/10 text-[10px]">
+                  <div className="flex items-start gap-2">
+                    <span className="text-[#FFD700] font-black shrink-0">Rule 1:</span>
+                    <span className="text-gray-300">
+                      Only MLAs from government composition can be Chief Minister, Deputy CM, Speaker, or Deputy Speaker.
+                    </span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <span className="text-cyan-400 font-black shrink-0">Rule 2:</span>
+                    <span className="text-gray-300">
+                      Only current members of respective assembly, except Chief Secretary (civil executive designation).
+                    </span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {[
-                    'speaker', 'deputySpeaker', 'chiefMinister', 
-                    'deputyChiefMinister', 'leaderOfOpposition', 
-                    'deputyLeaderOfOpposition', 'chiefSecretary'
-                  ].map(role => {
-                    const isSpeakerRole = role === 'speaker' || role === 'deputySpeaker';
+                    {
+                      key: 'chiefMinister',
+                      title: 'Chief Minister',
+                      isGovMlaOnly: true,
+                      isAssemblyMemberOnly: true,
+                      badgeText: 'Govt MLA Only • Rule 1',
+                      badgeType: 'gold' as const,
+                    },
+                    {
+                      key: 'deputyChiefMinister',
+                      title: 'Deputy Chief Minister',
+                      isGovMlaOnly: true,
+                      isAssemblyMemberOnly: true,
+                      badgeText: 'Govt MLA Only • Rule 1',
+                      badgeType: 'gold' as const,
+                    },
+                    {
+                      key: 'speaker',
+                      title: 'Speaker of the House',
+                      isGovMlaOnly: true,
+                      isAssemblyMemberOnly: true,
+                      badgeText: 'Govt MLA Only • Rule 1',
+                      badgeType: 'amber' as const,
+                    },
+                    {
+                      key: 'deputySpeaker',
+                      title: 'Deputy Speaker',
+                      isGovMlaOnly: true,
+                      isAssemblyMemberOnly: true,
+                      badgeText: 'Govt MLA Only • Rule 1',
+                      badgeType: 'amber' as const,
+                    },
+                    {
+                      key: 'leaderOfOpposition',
+                      title: 'Leader of Opposition',
+                      isGovMlaOnly: false,
+                      isAssemblyMemberOnly: true,
+                      badgeText: 'Assembly MLA • Rule 2',
+                      badgeType: 'silver' as const,
+                    },
+                    {
+                      key: 'deputyLeaderOfOpposition',
+                      title: 'Deputy Leader of Opposition',
+                      isGovMlaOnly: false,
+                      isAssemblyMemberOnly: true,
+                      badgeText: 'Assembly MLA • Rule 2',
+                      badgeType: 'silver' as const,
+                    },
+                    {
+                      key: 'chiefSecretary',
+                      title: 'Chief Secretary',
+                      isGovMlaOnly: false,
+                      isAssemblyMemberOnly: false,
+                      badgeText: 'Executive Head • Rule 2 Exception',
+                      badgeType: 'blue' as const,
+                    },
+                  ].map((role) => {
+                    let eligiblePool: Person[] = [];
+                    if (role.isGovMlaOnly) {
+                      eligiblePool = persons.filter(
+                        p => assemblyGovComposition.governmentMlaIds.has(p.id) && !p.isSuspended
+                      );
+                    } else if (role.isAssemblyMemberOnly) {
+                      eligiblePool = persons.filter(
+                        p => assemblyGovComposition.allMlaIds.has(p.id) && !p.isSuspended
+                      );
+                    } else {
+                      eligiblePool = persons.filter(p => !p.isSuspended);
+                    }
+
+                    // Keep current selection visible in dropdown
+                    const currentVal = watch(role.key);
+                    if (currentVal && currentVal !== 'vacant') {
+                      const cur = persons.find(p => p.id === currentVal);
+                      if (cur && !eligiblePool.some(p => p.id === cur.id)) {
+                        eligiblePool = [cur, ...eligiblePool];
+                      }
+                    }
+
                     return (
-                      <div key={role}>
-                        <div className="flex items-center justify-between mb-1">
-                          <label className="text-[10px] text-gray-500 uppercase font-bold tracking-wider block">
-                            {role.replace(/([A-Z])/g, ' $1')}
-                          </label>
-                          {isSpeakerRole && (
-                            <span className="text-[8px] text-[#FFD700] uppercase font-bold tracking-wider">
-                              Govt MLA only
-                            </span>
-                          )}
-                        </div>
-                        <select {...register(role)} className="w-full bg-white/5 border border-white/10 rounded-xl p-2 text-xs focus:outline-none focus:border-[#FFD700]/50 appearance-none">
-                          {isSpeakerRole ? governmentMlaPersonOptions : assemblySpecificPersonOptions}
-                        </select>
-                      </div>
+                      <SearchableLeaderSelect
+                        key={role.key}
+                        roleKey={role.key}
+                        roleTitle={role.title}
+                        isGovMlaOnly={role.isGovMlaOnly}
+                        isAssemblyMemberOnly={role.isAssemblyMemberOnly}
+                        badgeText={role.badgeText}
+                        badgeType={role.badgeType}
+                        value={watch(role.key) || ''}
+                        onChange={(newVal) => setValue(role.key, newVal, { shouldDirty: true })}
+                        eligiblePersons={eligiblePool}
+                        allPersons={persons}
+                        parties={parties}
+                        alliances={alliances}
+                        personConstituencyMap={assemblyPersonConstituencyMap}
+                        governmentMlaIds={assemblyGovComposition.governmentMlaIds}
+                        allMlaIds={assemblyGovComposition.allMlaIds}
+                        currentLeadersMap={{
+                          speaker: watch('speaker'),
+                          deputySpeaker: watch('deputySpeaker'),
+                          chiefMinister: watch('chiefMinister'),
+                          deputyChiefMinister: watch('deputyChiefMinister'),
+                          leaderOfOpposition: watch('leaderOfOpposition'),
+                          deputyLeaderOfOpposition: watch('deputyLeaderOfOpposition'),
+                          chiefSecretary: watch('chiefSecretary'),
+                        }}
+                      />
                     );
                   })}
                 </div>
-             </div>
+              </div>
           </div>
         );
       case EntityType.DESIGNATION:
