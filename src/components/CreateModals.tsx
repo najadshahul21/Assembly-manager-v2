@@ -217,14 +217,17 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
     });
 
     const filtered = persons.filter(p => mlaIds.has(p.id) && (!p.isSuspended || (editData && editData.leaders && Object.values(editData.leaders).includes(p.id))));
-    const displayList = filtered.length > 0 ? filtered : persons.filter(p => !p.isSuspended);
 
     return (
       <>
-        <option value="">Select...</option>
-        {[...displayList].sort((a, b) => a.name.localeCompare(b.name)).map(p => (
-          <option key={p.id} value={p.id}>{p.name}{p.isSuspended ? " (Suspended)" : ""}</option>
-        ))}
+        <option value="">Select (Assembly MLA)...</option>
+        {filtered.length === 0 ? (
+          <option value="" disabled>No elected MLAs in this assembly yet</option>
+        ) : (
+          [...filtered].sort((a, b) => a.name.localeCompare(b.name)).map(p => (
+            <option key={p.id} value={p.id}>{p.name}{p.isSuspended ? " (Suspended)" : ""}</option>
+          ))
+        )}
       </>
     );
   }, [type, editData, persons, constituencies, personOptions]);
@@ -251,9 +254,13 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
     return (
       <>
         <option value="">Select (Government MLA)...</option>
-        {[...filtered].sort((a, b) => a.name.localeCompare(b.name)).map(p => (
-          <option key={p.id} value={p.id}>{p.name}{p.isSuspended ? " (Suspended)" : ""}</option>
-        ))}
+        {filtered.length === 0 ? (
+          <option value="" disabled>No government MLAs found in this assembly</option>
+        ) : (
+          [...filtered].sort((a, b) => a.name.localeCompare(b.name)).map(p => (
+            <option key={p.id} value={p.id}>{p.name}{p.isSuspended ? " (Suspended)" : ""}</option>
+          ))
+        )}
       </>
     );
   }, [type, editData, persons, constituencies, parties, alliances, personOptions]);
@@ -653,8 +660,15 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
 
         const isDissolving = isEdit && editData.isActive === true && isActive === false;
 
-        // Enforce rule: Only MLAs of the government composition can be appointed as Speaker or Deputy Speaker
-        if (data.speaker || data.deputySpeaker) {
+        // Enforce Rule 1 & Rule 2: Leadership Council appointments validation
+        if (
+          data.speaker ||
+          data.deputySpeaker ||
+          data.chiefMinister ||
+          data.deputyChiefMinister ||
+          data.leaderOfOpposition ||
+          data.deputyLeaderOfOpposition
+        ) {
           const targetAsm = editData ? (editData as Assembly) : ({ id, ...data } as Assembly);
           const govRes = computeAssemblyGovernmentComposition(
             targetAsm,

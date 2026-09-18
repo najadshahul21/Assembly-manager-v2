@@ -40,6 +40,7 @@ import {
   Stamp,
   Scale,
   Crown,
+  CheckCircle2,
 } from "lucide-react";
 import { EntityCard } from "../components/EntityCards";
 import { ElectionResultsTable } from "../components/ElectionResultsTable";
@@ -5322,19 +5323,18 @@ export const EntityPage: React.FC = () => {
                       />
                     </div>
 
-                    {/* Seats List - Vacant / Occupied separation */}
-                    <div className="space-y-12">
-                      <div className="flex items-center gap-4 mb-8">
+                    {/* Seats List - Vacant Seats */}
+                    <div className="space-y-8">
+                      <div className="flex items-center gap-4 mb-6">
                         <div className="w-12 h-12 rounded-2xl bg-white/5 flex items-center justify-center text-[#FFD700]">
                           <MapPin size={24} />
                         </div>
                         <div>
                           <h3 className="text-2xl font-black uppercase tracking-tight">
-                            Constituency Status
+                            Vacant Seats
                           </h3>
                           <p className="text-gray-500 text-xs">
-                            Analysis of active and vacant seats in this
-                            assembly.
+                            Overview of unrepresented and vacant constituencies requiring by-election or appointment.
                           </p>
                         </div>
                       </div>
@@ -5345,91 +5345,63 @@ export const EntityPage: React.FC = () => {
                           const slB = parseInt(b.constituency.slNo) || 9999;
                           return slA - slB;
                         });
-                        const occupied = seats.filter((s) => s.politician);
                         const vacant = seats.filter((s) => !s.politician);
 
-                        return (
-                          <div className="space-y-12">
-                            {vacant.length > 0 && (
+                        if (vacant.length === 0) {
+                          return (
+                            <div className="p-6 bg-white/[0.02] border border-white/5 rounded-2xl flex items-center gap-3.5">
+                              <div className="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center shrink-0">
+                                <CheckCircle2 size={18} />
+                              </div>
                               <div>
-                                <div className="flex items-center gap-3 mb-6">
-                                  <h4 className="text-sm font-black text-red-500 uppercase tracking-[0.2em] bg-red-500/5 px-4 py-2 rounded-xl border border-red-500/10">
-                                    Vacant Seats ({vacant.length})
-                                  </h4>
-                                  <div className="flex-1 h-px bg-gradient-to-r from-red-500/20 to-transparent" />
-                                </div>
-                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                                  {vacant.map((s) => (
-                                    <div
-                                      key={s.constituency.id}
-                                      onClick={() =>
-                                        navigate(`/constituency/${s.constituency.id}`)
-                                      }
-                                      className="p-4 bg-red-500/[0.02] border border-red-500/10 rounded-2xl hover:bg-red-500/[0.04] transition-all cursor-pointer group"
-                                    >
-                                      <div className="flex items-center justify-between mb-2">
-                                        <span className="text-[10px] text-red-500/50 font-black uppercase tracking-widest">
-                                          #{s.constituency.slNo}
-                                        </span>
-                                        <AlertCircle
-                                          size={14}
-                                          className="text-red-500/30 group-hover:text-red-500 transition-colors"
-                                        />
-                                      </div>
-                                      <p className="font-bold text-white uppercase tracking-tight">
-                                        {s.constituency.name}
-                                      </p>
-                                      <div className="mt-4 flex items-center justify-between">
-                                        <span className="text-[10px] font-black text-red-500/40 uppercase">
-                                          Unrepresented
-                                        </span>
-                                        <div className="w-6 h-px bg-red-500/20" />
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
+                                <p className="text-xs font-bold text-white uppercase tracking-wider">
+                                  All Seats Occupied
+                                </p>
+                                <p className="text-[11px] text-gray-500">
+                                  There are currently no vacant seats in this assembly. All {seats.length} constituencies have an active representative in the table above.
+                                </p>
                               </div>
-                            )}
+                            </div>
+                          );
+                        }
 
-                            <div>
-                              <div className="flex items-center gap-3 mb-6">
-                                <h4 className="text-sm font-black text-emerald-500 uppercase tracking-[0.2em] bg-emerald-500/5 px-4 py-2 rounded-xl border border-emerald-500/10">
-                                  Occupied Seats ({occupied.length})
-                                </h4>
-                                <div className="flex-1 h-px bg-gradient-to-r from-emerald-500/20 to-transparent" />
-                              </div>
-                              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                                {occupied.map((s) => {
-                                  return (
-                                    <div
-                                      key={s.constituency.id}
-                                      onClick={() =>
-                                        navigate(`/constituency/${s.constituency.id}`)
-                                      }
-                                      className="p-4 bg-white/[0.02] border border-white/5 rounded-2xl hover:border-[#FFD700]/30 transition-all cursor-pointer group"
-                                    >
-                                      <div className="flex items-center justify-between mb-2">
-                                        <span className="text-[10px] text-gray-500 font-black uppercase tracking-widest">
-                                          #{s.constituency.slNo}
-                                        </span>
-                                        <div
-                                          className="w-2 h-2 rounded-full"
-                                          style={{
-                                            backgroundColor:
-                                              s.party?.colors?.[0] || "#ccc",
-                                          }}
-                                        />
-                                      </div>
-                                      <p className="font-bold text-white uppercase tracking-tight mb-1">
-                                        {s.constituency.name}
-                                      </p>
-                                      <p className="text-[10px] text-[#FFD700] font-black uppercase tracking-widest truncate">
-                                        {s.politician?.name || "Loading..."}
-                                      </p>
-                                    </div>
-                                  );
-                                })}
-                              </div>
+                        return (
+                          <div>
+                            <div className="flex items-center gap-3 mb-6">
+                              <h4 className="text-sm font-black text-red-500 uppercase tracking-[0.2em] bg-red-500/5 px-4 py-2 rounded-xl border border-red-500/10">
+                                Vacant Seats ({vacant.length})
+                              </h4>
+                              <div className="flex-1 h-px bg-gradient-to-r from-red-500/20 to-transparent" />
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                              {vacant.map((s) => (
+                                <div
+                                  key={s.constituency.id}
+                                  onClick={() =>
+                                    navigate(`/constituency/${s.constituency.id}`)
+                                  }
+                                  className="p-4 bg-red-500/[0.02] border border-red-500/10 rounded-2xl hover:bg-red-500/[0.04] transition-all cursor-pointer group"
+                                >
+                                  <div className="flex items-center justify-between mb-2">
+                                    <span className="text-[10px] text-red-500/50 font-black uppercase tracking-widest">
+                                      #{s.constituency.slNo}
+                                    </span>
+                                    <AlertCircle
+                                      size={14}
+                                      className="text-red-500/30 group-hover:text-red-500 transition-colors"
+                                    />
+                                  </div>
+                                  <p className="font-bold text-white uppercase tracking-tight">
+                                    {s.constituency.name}
+                                  </p>
+                                  <div className="mt-4 flex items-center justify-between">
+                                    <span className="text-[10px] font-black text-red-500/40 uppercase">
+                                      Unrepresented
+                                    </span>
+                                    <div className="w-6 h-px bg-red-500/20" />
+                                  </div>
+                                </div>
+                              ))}
                             </div>
                           </div>
                         );
