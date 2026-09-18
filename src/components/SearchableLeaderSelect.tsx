@@ -1,10 +1,9 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Person, Party, Alliance } from '../types';
 import { 
-  Search, X, Check, ChevronDown, User, Shield, 
-  Crown, Scale, ShieldAlert, Sparkles, Building2, UserX 
+  Search, X, Check, User, Shield, 
+  Crown, Scale, ShieldAlert, Building2, UserX 
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
 
 export interface SearchableLeaderSelectProps {
   roleKey: string;
@@ -50,44 +49,44 @@ export const SearchableLeaderSelect: React.FC<SearchableLeaderSelectProps> = ({
   const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedPartyFilter, setSelectedPartyFilter] = useState<string>('all');
-  const dropdownRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  // Close dropdown on outside click or escape
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
-      }
-    };
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setIsOpen(false);
-      }
-    };
+  // Pre-index parties for O(1) instant lookup
+  const partyMap = useMemo(() => {
+    const map = new Map<string, Party>();
+    parties.forEach((p) => map.set(p.id, p));
+    return map;
+  }, [parties]);
 
-    if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-      document.addEventListener('keydown', handleKeyDown);
-      setTimeout(() => {
-        searchInputRef.current?.focus();
-      }, 60);
+  // Pre-index all persons for O(1) instant lookup
+  const personMap = useMemo(() => {
+    const map = new Map<string, Person>();
+    allPersons.forEach((p) => map.set(p.id, p));
+    return map;
+  }, [allPersons]);
+
+  // Pre-index existing leadership roles
+  const otherRolesMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const [key, pId] of Object.entries(currentLeadersMap)) {
+      if (key !== roleKey && typeof pId === 'string' && pId && pId !== 'vacant') {
+        const readable = key.replace(/([A-Z])/g, ' $1').trim();
+        map.set(pId, readable.charAt(0).toUpperCase() + readable.slice(1));
+      }
     }
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [isOpen]);
+    return map;
+  }, [currentLeadersMap, roleKey]);
 
+  // Currently selected person
   const selectedPerson = useMemo(() => {
     if (!value || value === 'vacant') return null;
-    return allPersons.find((p) => p.id === value) || null;
-  }, [value, allPersons]);
+    return personMap.get(value) || null;
+  }, [value, personMap]);
 
   const selectedPersonParty = useMemo(() => {
-    if (!selectedPerson) return null;
-    return parties.find((p) => p.id === selectedPerson.partyId) || null;
-  }, [selectedPerson, parties]);
+    if (!selectedPerson || !selectedPerson.partyId) return null;
+    return partyMap.get(selectedPerson.partyId) || null;
+  }, [selectedPerson, partyMap]);
 
   const selectedPersonConstituency = useMemo(() => {
     if (!selectedPerson) return null;
@@ -103,7 +102,7 @@ export const SearchableLeaderSelect: React.FC<SearchableLeaderSelectProps> = ({
     return parties.filter((pt) => partyIds.has(pt.id));
   }, [eligiblePersons, parties]);
 
-  // Filtered persons based on search query and party filter
+  // Filtered candidate list based on search and party
   const filteredPersons = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
 
@@ -115,7 +114,7 @@ export const SearchableLeaderSelect: React.FC<SearchableLeaderSelectProps> = ({
 
       if (!q) return true;
 
-      const pParty = parties.find((pt) => pt.id === p.partyId);
+      const pParty = partyMap.get(p.partyId);
       const partyAbbr = (pParty?.abbreviation || p.partyId || '').toLowerCase();
       const partyName = (pParty?.name || '').toLowerCase();
       const name = (p.name || '').toLowerCase();
@@ -128,28 +127,40 @@ export const SearchableLeaderSelect: React.FC<SearchableLeaderSelectProps> = ({
         partyName.includes(q)
       );
     });
-  }, [eligiblePersons, parties, personConstituencyMap, searchQuery, selectedPartyFilter]);
+  }, [eligiblePersons, partyMap, personConstituencyMap, searchQuery, selectedPartyFilter]);
 
-  // Look up what other role this person might already have in the council
-  const getOtherRole = (personId: string): string | null => {
-    for (const [key, pId] of Object.entries(currentLeadersMap)) {
-      if (key !== roleKey && pId === personId) {
-        return key.replace(/([A-Z])/g, ' $1').trim();
+  // Close modal on Escape key & handle focus
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && isOpen) {
+        setIsOpen(false);
       }
+    };
+
+    if (isOpen) {
+      document.addEventListener('keydown', handleKeyDown);
+      const timer = setTimeout(() => {
+        searchInputRef.current?.focus();
+      }, 50);
+      return () => {
+        document.removeEventListener('keydown', handleKeyDown);
+        clearTimeout(timer);
+      };
     }
-    return null;
-  };
+  }, [isOpen]);
 
   const handleSelect = (personId: string) => {
     onChange(personId);
     setIsOpen(false);
     setSearchQuery('');
+    setSelectedPartyFilter('all');
   };
 
   const handleVacate = (e: React.MouseEvent) => {
     e.stopPropagation();
     onChange('');
     setIsOpen(false);
+    setSearchQuery('');
   };
 
   // Badge styles
@@ -160,7 +171,7 @@ export const SearchableLeaderSelect: React.FC<SearchableLeaderSelectProps> = ({
       text: 'text-[#FFD700]',
       icon: Crown,
       cardBorder: 'hover:border-[#FFD700]/40',
-      cardGlow: 'from-[#FFD700]/10',
+      activeBorder: 'border-[#FFD700]/40',
     },
     amber: {
       border: 'border-amber-500/30',
@@ -168,7 +179,7 @@ export const SearchableLeaderSelect: React.FC<SearchableLeaderSelectProps> = ({
       text: 'text-amber-400',
       icon: Scale,
       cardBorder: 'hover:border-amber-500/40',
-      cardGlow: 'from-amber-500/10',
+      activeBorder: 'border-amber-500/40',
     },
     silver: {
       border: 'border-slate-400/30',
@@ -176,7 +187,7 @@ export const SearchableLeaderSelect: React.FC<SearchableLeaderSelectProps> = ({
       text: 'text-slate-300',
       icon: Shield,
       cardBorder: 'hover:border-slate-400/40',
-      cardGlow: 'from-slate-400/10',
+      activeBorder: 'border-slate-400/40',
     },
     blue: {
       border: 'border-cyan-500/30',
@@ -184,33 +195,33 @@ export const SearchableLeaderSelect: React.FC<SearchableLeaderSelectProps> = ({
       text: 'text-cyan-400',
       icon: Building2,
       cardBorder: 'hover:border-cyan-500/40',
-      cardGlow: 'from-cyan-500/10',
+      activeBorder: 'border-cyan-500/40',
     },
   }[badgeType];
 
   const BadgeIcon = badgeConfig.icon;
 
   return (
-    <div className="relative w-full" ref={dropdownRef}>
-      {/* Role Card / Slot Container */}
+    <div className="w-full">
+      {/* Role Card Slot */}
       <div
         className={`rounded-2xl border bg-zinc-950/80 transition-all overflow-hidden ${
           selectedPerson
-            ? `${badgeConfig.border} shadow-lg shadow-black/40`
+            ? `${badgeConfig.activeBorder} shadow-lg shadow-black/40`
             : 'border-white/10 hover:border-white/20'
         } ${disabled ? 'opacity-50 pointer-events-none' : ''}`}
       >
         {/* Slot Header */}
         <div className="flex items-center justify-between px-3.5 py-2.5 bg-white/[0.03] border-b border-white/5">
-          <div className="flex items-center gap-2">
-            <BadgeIcon size={14} className={badgeConfig.text} />
-            <span className="text-xs font-black uppercase tracking-wider text-white">
+          <div className="flex items-center gap-2 min-w-0">
+            <BadgeIcon size={14} className={`${badgeConfig.text} shrink-0`} />
+            <span className="text-xs font-black uppercase tracking-wider text-white truncate">
               {roleTitle}
             </span>
           </div>
 
           <div
-            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider border ${badgeConfig.bg} ${badgeConfig.border} ${badgeConfig.text}`}
+            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider border shrink-0 ${badgeConfig.bg} ${badgeConfig.border} ${badgeConfig.text}`}
           >
             <span>{badgeText}</span>
           </div>
@@ -240,7 +251,7 @@ export const SearchableLeaderSelect: React.FC<SearchableLeaderSelectProps> = ({
                 </div>
 
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <p className="text-sm font-bold text-white truncate group-hover/card:text-[#FFD700] transition-colors">
                       {selectedPerson.name}
                     </p>
@@ -271,8 +282,8 @@ export const SearchableLeaderSelect: React.FC<SearchableLeaderSelectProps> = ({
                     )}
 
                     {isGovMlaOnly && governmentMlaIds.has(selectedPerson.id) && (
-                      <span className="text-[9px] text-[#FFD700] font-black uppercase tracking-tighter shrink-0">
-                        • Govt Bloc
+                      <span className="text-[9px] text-[#FFD700] font-black uppercase tracking-tighter shrink-0 bg-[#FFD700]/10 px-1 py-0.2 rounded border border-[#FFD700]/20">
+                        Govt Bloc
                       </span>
                     )}
                   </div>
@@ -283,7 +294,7 @@ export const SearchableLeaderSelect: React.FC<SearchableLeaderSelectProps> = ({
               <div className="flex items-center gap-1.5 shrink-0">
                 <button
                   type="button"
-                  onClick={() => setIsOpen((prev) => !prev)}
+                  onClick={() => setIsOpen(true)}
                   className="px-2.5 py-1.5 bg-white/5 hover:bg-white/10 hover:text-[#FFD700] border border-white/10 rounded-lg text-xs font-bold text-zinc-300 transition-all flex items-center gap-1 cursor-pointer"
                   title="Change Member"
                 >
@@ -329,31 +340,43 @@ export const SearchableLeaderSelect: React.FC<SearchableLeaderSelectProps> = ({
         </div>
       </div>
 
-      {/* App's Organized Search & Select Popover */}
-      <AnimatePresence>
-        {isOpen && (
-          <motion.div
-            initial={{ opacity: 0, y: 6, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 6, scale: 0.98 }}
-            transition={{ duration: 0.15 }}
-            className="absolute left-0 right-0 top-full mt-2 bg-[#121216] border border-zinc-700/80 rounded-2xl shadow-2xl shadow-black z-[120] overflow-hidden flex flex-col max-h-[420px]"
+      {/* High-Performance Centered Candidate Selection Dialog */}
+      {isOpen && (
+        <div
+          className="fixed inset-0 z-[200] bg-black/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-hidden"
+          onClick={() => setIsOpen(false)}
+        >
+          <div
+            className="bg-[#121217] border border-white/15 rounded-3xl w-full max-w-xl max-h-[85vh] flex flex-col shadow-2xl shadow-black overflow-hidden animate-in fade-in zoom-in-95 duration-150"
+            onClick={(e) => e.stopPropagation()}
           >
-            {/* Search Header */}
-            <div className="p-3 bg-zinc-900/90 border-b border-zinc-800 space-y-2.5">
+            {/* Modal Header */}
+            <div className="p-4 sm:p-5 bg-zinc-900/90 border-b border-zinc-800 space-y-3">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <BadgeIcon size={14} className={badgeConfig.text} />
-                  <span className="text-xs font-black uppercase tracking-wider text-white">
-                    Appoint {roleTitle}
-                  </span>
+                <div className="flex items-center gap-2.5">
+                  <div className={`p-2 rounded-xl ${badgeConfig.bg} border ${badgeConfig.border} ${badgeConfig.text}`}>
+                    <BadgeIcon size={16} />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-black uppercase tracking-tight text-white">
+                      Appoint {roleTitle}
+                    </h3>
+                    <p className="text-xs text-zinc-400">
+                      {isGovMlaOnly
+                        ? 'Rule 1: Select an MLA from the ruling government composition'
+                        : isAssemblyMemberOnly
+                        ? 'Rule 2: Select an elected member of this assembly'
+                        : 'Administrative designation: Any qualified individual can be appointed'}
+                    </p>
+                  </div>
                 </div>
+
                 <button
                   type="button"
                   onClick={() => setIsOpen(false)}
-                  className="text-zinc-400 hover:text-white p-1 rounded-md transition-colors"
+                  className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-zinc-400 hover:text-white border border-white/10 transition-colors cursor-pointer"
                 >
-                  <X size={15} />
+                  <X size={16} />
                 </button>
               </div>
 
@@ -361,62 +384,56 @@ export const SearchableLeaderSelect: React.FC<SearchableLeaderSelectProps> = ({
               <div className="relative">
                 <Search
                   size={15}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 text-[#FFD700]"
+                  className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#FFD700]"
                 />
                 <input
                   ref={searchInputRef}
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search by name, constituency, or party..."
-                  className="w-full bg-zinc-950 border border-zinc-700 focus:border-[#FFD700] rounded-xl pl-9 pr-8 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-[#FFD700]/30 transition-all"
+                  placeholder="Search by candidate name, constituency, or party..."
+                  className="w-full bg-zinc-950 border border-zinc-700/80 focus:border-[#FFD700] rounded-xl pl-10 pr-9 py-2.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-[#FFD700]/30 transition-all"
                 />
                 {searchQuery && (
                   <button
                     type="button"
                     onClick={() => setSearchQuery('')}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 p-1"
                   >
-                    <X size={13} />
+                    <X size={14} />
                   </button>
                 )}
               </div>
 
-              {/* Quick Party Filters if more than 1 party */}
+              {/* Quick Party Filters */}
               {availableParties.length > 1 && (
-                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar">
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 no-scrollbar">
                   <button
                     type="button"
                     onClick={() => setSelectedPartyFilter('all')}
-                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase transition-all shrink-0 ${
+                    className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase transition-all shrink-0 cursor-pointer ${
                       selectedPartyFilter === 'all'
-                        ? 'bg-[#FFD700] text-black'
-                        : 'bg-zinc-800 text-zinc-400 hover:text-white'
+                        ? 'bg-[#FFD700] text-black shadow-md shadow-[#FFD700]/20'
+                        : 'bg-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-700'
                     }`}
                   >
                     All ({eligiblePersons.length})
                   </button>
                   {availableParties.map((pt) => {
                     const count = eligiblePersons.filter((p) => p.partyId === pt.id).length;
+                    const isSelected = selectedPartyFilter === pt.id;
                     return (
                       <button
                         key={pt.id}
                         type="button"
                         onClick={() => setSelectedPartyFilter(pt.id)}
-                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase transition-all shrink-0 ${
-                          selectedPartyFilter === pt.id
-                            ? 'text-white border'
-                            : 'bg-zinc-800/80 text-zinc-400 hover:text-white'
+                        className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase transition-all shrink-0 cursor-pointer border ${
+                          isSelected
+                            ? 'text-white border-white/60 shadow-sm'
+                            : 'bg-zinc-800/80 text-zinc-400 border-transparent hover:text-white hover:bg-zinc-700'
                         }`}
                         style={{
-                          backgroundColor:
-                            selectedPartyFilter === pt.id
-                              ? pt.colors?.[0] || '#3B82F6'
-                              : undefined,
-                          borderColor:
-                            selectedPartyFilter === pt.id
-                              ? 'rgba(255,255,255,0.4)'
-                              : 'transparent',
+                          backgroundColor: isSelected ? pt.colors?.[0] || '#3B82F6' : undefined,
                         }}
                       >
                         {pt.abbreviation || pt.name} ({count})
@@ -427,26 +444,29 @@ export const SearchableLeaderSelect: React.FC<SearchableLeaderSelectProps> = ({
               )}
             </div>
 
-            {/* Candidate List Container */}
-            <div className="overflow-y-auto p-2 space-y-1 flex-1">
+            {/* Candidate List Container (Strictly isolated scrolling with overscroll-contain) */}
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-3 space-y-1.5">
               {/* Option to Vacate / Clear */}
               <button
                 type="button"
                 onClick={() => handleSelect('')}
-                className={`w-full px-3 py-2 rounded-xl flex items-center justify-between text-left transition-all ${
+                className={`w-full px-3.5 py-2.5 rounded-xl flex items-center justify-between text-left transition-all cursor-pointer ${
                   !value || value === 'vacant'
-                    ? 'bg-zinc-800/80 border border-zinc-600 text-white'
-                    : 'hover:bg-zinc-900/60 text-zinc-400 hover:text-zinc-200'
+                    ? 'bg-zinc-800/90 border border-zinc-600 text-white shadow-sm'
+                    : 'hover:bg-zinc-900/80 text-zinc-400 hover:text-zinc-200 border border-transparent'
                 }`}
               >
-                <div className="flex items-center gap-2.5">
-                  <div className="w-7 h-7 rounded-lg bg-zinc-800 flex items-center justify-center text-zinc-500">
-                    <UserX size={14} />
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-zinc-800 border border-white/5 flex items-center justify-center text-zinc-500">
+                    <UserX size={15} />
                   </div>
-                  <span className="text-xs font-bold">Leave Position Vacant</span>
+                  <div>
+                    <span className="text-xs font-bold block text-white">Leave Position Vacant</span>
+                    <span className="text-[10px] text-zinc-500">Remove current appointee from this role</span>
+                  </div>
                 </div>
                 {(!value || value === 'vacant') && (
-                  <Check size={14} className="text-[#FFD700]" />
+                  <Check size={16} className="text-[#FFD700]" />
                 )}
               </button>
 
@@ -454,24 +474,24 @@ export const SearchableLeaderSelect: React.FC<SearchableLeaderSelectProps> = ({
               {filteredPersons.length > 0 ? (
                 filteredPersons.map((person) => {
                   const isCurrent = person.id === value;
-                  const party = parties.find((p) => p.id === person.partyId);
+                  const party = partyMap.get(person.partyId);
                   const conName = personConstituencyMap.get(person.id);
-                  const otherRole = getOtherRole(person.id);
+                  const otherRole = otherRolesMap.get(person.id);
 
                   return (
                     <button
                       key={person.id}
                       type="button"
                       onClick={() => handleSelect(person.id)}
-                      className={`w-full p-2.5 rounded-xl flex items-center justify-between gap-3 text-left transition-all group ${
+                      className={`w-full p-2.5 rounded-xl flex items-center justify-between gap-3 text-left transition-all group cursor-pointer border ${
                         isCurrent
-                          ? 'bg-[#FFD700]/15 border border-[#FFD700]/40 text-white'
-                          : 'hover:bg-zinc-800/70 text-zinc-300 hover:text-white'
+                          ? 'bg-[#FFD700]/15 border-[#FFD700]/40 text-white shadow-md shadow-[#FFD700]/5'
+                          : 'hover:bg-zinc-800/80 text-zinc-300 hover:text-white border-transparent hover:border-zinc-700/60'
                       }`}
                     >
                       <div className="flex items-center gap-3 min-w-0">
                         {/* Avatar */}
-                        <div className="relative w-9 h-9 rounded-lg bg-zinc-900 border border-white/10 overflow-hidden shrink-0">
+                        <div className="relative w-10 h-10 rounded-xl bg-zinc-900 border border-white/10 overflow-hidden shrink-0">
                           {person.imageUrl ? (
                             <img
                               src={person.imageUrl}
@@ -480,15 +500,15 @@ export const SearchableLeaderSelect: React.FC<SearchableLeaderSelectProps> = ({
                               className="w-full h-full object-cover"
                             />
                           ) : (
-                            <div className="w-full h-full flex items-center justify-center text-zinc-500">
-                              <User size={15} />
+                            <div className="w-full h-full flex items-center justify-center text-zinc-500 font-bold text-xs">
+                              {person.name.charAt(0)}
                             </div>
                           )}
                         </div>
 
                         {/* Details */}
                         <div className="min-w-0">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <span className="text-xs font-bold text-white truncate group-hover:text-[#FFD700] transition-colors">
                               {person.name}
                             </span>
@@ -504,16 +524,16 @@ export const SearchableLeaderSelect: React.FC<SearchableLeaderSelectProps> = ({
                             )}
                           </div>
 
-                          <div className="flex items-center gap-2 text-[10px] text-zinc-400 mt-0.5">
+                          <div className="flex items-center gap-2 text-[10px] text-zinc-400 mt-0.5 flex-wrap">
                             {conName ? (
-                              <span className="truncate">MLA • {conName}</span>
+                              <span className="truncate text-zinc-300">MLA • {conName}</span>
                             ) : (
                               <span>Civil Administration</span>
                             )}
 
                             {otherRole && (
-                              <span className="text-amber-400 text-[9px] font-bold shrink-0">
-                                (Currently {otherRole})
+                              <span className="text-amber-400 text-[9px] font-bold shrink-0 bg-amber-500/10 px-1 py-0.2 rounded border border-amber-500/20">
+                                Currently {otherRole}
                               </span>
                             )}
                           </div>
@@ -521,45 +541,45 @@ export const SearchableLeaderSelect: React.FC<SearchableLeaderSelectProps> = ({
                       </div>
 
                       {/* Selection Indicator */}
-                      <div className="shrink-0 flex items-center">
+                      <div className="shrink-0 flex items-center pl-2">
                         {isCurrent ? (
-                          <div className="w-5 h-5 rounded-full bg-[#FFD700] text-black flex items-center justify-center">
+                          <div className="w-5 h-5 rounded-full bg-[#FFD700] text-black flex items-center justify-center shadow">
                             <Check size={12} className="stroke-[3]" />
                           </div>
                         ) : (
-                          <div className="w-5 h-5 rounded-full border border-zinc-700 group-hover:border-zinc-500 transition-colors" />
+                          <div className="w-5 h-5 rounded-full border border-zinc-700 group-hover:border-[#FFD700]/50 transition-colors" />
                         )}
                       </div>
                     </button>
                   );
                 })
               ) : (
-                <div className="text-center py-6 px-4">
-                  <ShieldAlert size={24} className="mx-auto text-zinc-600 mb-2" />
-                  <p className="text-xs text-zinc-400 font-bold">
+                <div className="text-center py-10 px-4">
+                  <ShieldAlert size={28} className="mx-auto text-zinc-600 mb-2" />
+                  <p className="text-xs text-zinc-300 font-bold">
                     {searchQuery
                       ? `No candidates match "${searchQuery}"`
                       : isGovMlaOnly
                       ? 'No Government MLAs available in this assembly'
                       : 'No eligible members found'}
                   </p>
-                  <p className="text-[10px] text-zinc-600 mt-1 max-w-xs mx-auto">
+                  <p className="text-[10px] text-zinc-500 mt-1 max-w-xs mx-auto leading-relaxed">
                     {isGovMlaOnly
-                      ? 'Rule 1 requires this role to be appointed strictly from elected MLAs belonging to the ruling government composition.'
-                      : 'Rule 2 requires current members of this legislative assembly.'}
+                      ? 'Rule 1: Appointed strictly from elected MLAs belonging to the ruling government composition.'
+                      : 'Rule 2: Appointed from current members of this legislative assembly.'}
                   </p>
                 </div>
               )}
             </div>
 
-            {/* Popover Footer Stats */}
-            <div className="px-3 py-2 bg-zinc-950/80 border-t border-zinc-800 text-[10px] text-zinc-500 flex items-center justify-between">
-              <span>Showing {filteredPersons.length} eligible candidates</span>
-              <span className="font-mono text-zinc-400">{badgeText}</span>
+            {/* Dialog Footer */}
+            <div className="px-4 py-3 bg-zinc-950 border-t border-zinc-800 text-[11px] text-zinc-500 flex items-center justify-between">
+              <span>Showing {filteredPersons.length} candidates</span>
+              <span className="text-zinc-400 font-medium">Press Escape to cancel</span>
             </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

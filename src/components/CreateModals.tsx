@@ -678,10 +678,12 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
             persons
           );
 
-          // Rule 1: Only MLAs from government composition can be CM, Deputy CM, Speaker, Deputy Speaker
+          // Rule 1: Only MLAs from government composition can be CM, Deputy CM, Speaker, Deputy Speaker, Leader of House
           const rule1Fields: { key: string; name: string }[] = [
             { key: 'chiefMinister', name: 'Chief Minister' },
             { key: 'deputyChiefMinister', name: 'Deputy Chief Minister' },
+            { key: 'leaderOfHouse', name: 'Leader of the House' },
+            { key: 'deputyLeaderOfHouse', name: 'Deputy Leader of the House' },
             { key: 'speaker', name: 'Speaker' },
             { key: 'deputySpeaker', name: 'Deputy Speaker' }
           ];
@@ -698,6 +700,8 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
           const rule2Fields: { key: string; name: string }[] = [
             { key: 'chiefMinister', name: 'Chief Minister' },
             { key: 'deputyChiefMinister', name: 'Deputy Chief Minister' },
+            { key: 'leaderOfHouse', name: 'Leader of the House' },
+            { key: 'deputyLeaderOfHouse', name: 'Deputy Leader of the House' },
             { key: 'speaker', name: 'Speaker' },
             { key: 'deputySpeaker', name: 'Deputy Speaker' },
             { key: 'leaderOfOpposition', name: 'Leader of Opposition' },
@@ -727,6 +731,8 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
             deputySpeaker: data.deputySpeaker,
             chiefMinister: data.chiefMinister,
             deputyChiefMinister: data.deputyChiefMinister,
+            leaderOfHouse: data.leaderOfHouse,
+            deputyLeaderOfHouse: data.deputyLeaderOfHouse,
             leaderOfOpposition: data.leaderOfOpposition,
             deputyLeaderOfOpposition: data.deputyLeaderOfOpposition,
             chiefSecretary: data.chiefSecretary
@@ -1500,6 +1506,22 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
                       badgeType: 'gold' as const,
                     },
                     {
+                      key: 'leaderOfHouse',
+                      title: 'Leader of the House',
+                      isGovMlaOnly: true,
+                      isAssemblyMemberOnly: true,
+                      badgeText: 'Govt MLA Only • Rule 1',
+                      badgeType: 'gold' as const,
+                    },
+                    {
+                      key: 'deputyLeaderOfHouse',
+                      title: 'Deputy Leader of the House',
+                      isGovMlaOnly: true,
+                      isAssemblyMemberOnly: true,
+                      badgeText: 'Govt MLA Only • Rule 1',
+                      badgeType: 'gold' as const,
+                    },
+                    {
                       key: 'speaker',
                       title: 'Speaker of the House',
                       isGovMlaOnly: true,
@@ -1585,6 +1607,8 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
                           deputySpeaker: watch('deputySpeaker'),
                           chiefMinister: watch('chiefMinister'),
                           deputyChiefMinister: watch('deputyChiefMinister'),
+                          leaderOfHouse: watch('leaderOfHouse'),
+                          deputyLeaderOfHouse: watch('deputyLeaderOfHouse'),
                           leaderOfOpposition: watch('leaderOfOpposition'),
                           deputyLeaderOfOpposition: watch('deputyLeaderOfOpposition'),
                           chiefSecretary: watch('chiefSecretary'),

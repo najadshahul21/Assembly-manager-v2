@@ -5,7 +5,6 @@ import {
   X, Crown, Scale, Shield, Building2, AlertCircle, 
   CheckCircle2, Sparkles, Landmark, Users, Search, RefreshCw 
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
 import { computeAssemblyGovernmentComposition } from '../utils/governmentUtils';
 import { SearchableLeaderSelect } from './SearchableLeaderSelect';
 
@@ -48,6 +47,30 @@ const COUNCIL_ROLES: RoleConfig[] = [
   {
     key: 'deputyChiefMinister',
     title: 'Deputy Chief Minister',
+    category: 'executive',
+    categoryTitle: 'Executive Leadership (Government)',
+    categoryIcon: Crown,
+    ruleDescription: 'Rule 1: Appointed strictly from MLAs belonging to the ruling government composition.',
+    isGovMlaOnly: true,
+    isAssemblyMemberOnly: true,
+    badgeText: 'Govt MLA Only • Rule 1',
+    badgeType: 'gold',
+  },
+  {
+    key: 'leaderOfHouse',
+    title: 'Leader of the House',
+    category: 'executive',
+    categoryTitle: 'Executive Leadership (Government)',
+    categoryIcon: Crown,
+    ruleDescription: 'Rule 1: Appointed strictly from MLAs belonging to the ruling government composition.',
+    isGovMlaOnly: true,
+    isAssemblyMemberOnly: true,
+    badgeText: 'Govt MLA Only • Rule 1',
+    badgeType: 'gold',
+  },
+  {
+    key: 'deputyLeaderOfHouse',
+    title: 'Deputy Leader of the House',
     category: 'executive',
     categoryTitle: 'Executive Leadership (Government)',
     categoryIcon: Crown,
@@ -172,7 +195,7 @@ export const LeadershipCouncilModal: React.FC<LeadershipCouncilModalProps> = ({
     return map;
   }, [constituencies, assembly.id]);
 
-  // Candidate lists based on rules
+  // Pre-indexed candidate pools with stable memoization
   const governmentMlaCandidates = useMemo(() => {
     return persons
       .filter((p) => governmentMlaIds.has(p.id) && !p.isSuspended)
@@ -203,12 +226,14 @@ export const LeadershipCouncilModal: React.FC<LeadershipCouncilModalProps> = ({
 
   // Rule Validation before saving
   const validateAppointments = (): string | null => {
-    // Rule 1: Chief Minister, Deputy Chief Minister, Speaker, Deputy Speaker must be in governmentMlaIds
+    // Rule 1: Chief Minister, Deputy Chief Minister, Speaker, Deputy Speaker, Leader of House must be in governmentMlaIds
     const rule1Roles: (keyof Assembly['leaders'])[] = [
       'chiefMinister',
       'deputyChiefMinister',
       'speaker',
       'deputySpeaker',
+      'leaderOfHouse',
+      'deputyLeaderOfHouse',
     ];
 
     for (const rKey of rule1Roles) {
@@ -240,7 +265,7 @@ export const LeadershipCouncilModal: React.FC<LeadershipCouncilModalProps> = ({
         if (!allMlaIds.has(pId)) {
           const roleTitle = COUNCIL_ROLES.find((r) => r.key === rKey)?.title || rKey;
           const person = persons.find((p) => p.id === pId);
-          return `Rule 2 Violation: "${person?.name || 'Selected candidate'}" is not a current elected member (MLA) of ${assembly.name} and cannot hold ${roleTitle}.`;
+          return `Rule 2 Violation: "${person?.name || 'Selected candidate'}" is not an elected MLA of this assembly and cannot be appointed as ${roleTitle}.`;
         }
       }
     }
@@ -248,18 +273,17 @@ export const LeadershipCouncilModal: React.FC<LeadershipCouncilModalProps> = ({
     return null;
   };
 
+  // Save changes to assembly in Dexie DB
   const handleSave = async () => {
-    const error = validateAppointments();
-    if (error) {
-      setValidationError(error);
+    setValidationError(null);
+    const errorMsg = validateAppointments();
+    if (errorMsg) {
+      setValidationError(errorMsg);
       return;
     }
 
     setIsSaving(true);
-    setValidationError(null);
-
     try {
-      // Clean up draft leaders object
       const cleanLeaders: Assembly['leaders'] = {
         speaker: draftLeaders.speaker || undefined,
         deputySpeaker: draftLeaders.deputySpeaker || undefined,
@@ -284,7 +308,7 @@ export const LeadershipCouncilModal: React.FC<LeadershipCouncilModalProps> = ({
 
       setTimeout(() => {
         onClose();
-      }, 700);
+      }, 600);
     } catch (err: any) {
       console.error('Failed to update leadership council:', err);
       setValidationError(err?.message || 'Failed to save appointments. Please try again.');
@@ -328,183 +352,163 @@ export const LeadershipCouncilModal: React.FC<LeadershipCouncilModalProps> = ({
   }, [draftLeaders]);
 
   return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[100] flex items-center justify-center p-3 sm:p-6 overflow-y-auto">
-      <motion.div
-        initial={{ opacity: 0, scale: 0.96, y: 15 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.96, y: 15 }}
-        className="bg-[#0f0f13] border border-white/10 rounded-3xl w-full max-w-4xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]"
-      >
+    <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-[100] flex items-center justify-center p-2 sm:p-4 md:p-6 overflow-hidden">
+      <div className="bg-[#0f0f13] border border-white/10 rounded-3xl w-full max-w-4xl shadow-2xl flex flex-col h-[92vh] max-h-[860px] min-h-0 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+        
         {/* Modal Header */}
-        <div className="p-5 sm:p-6 border-b border-white/10 bg-gradient-to-r from-zinc-950 via-[#13131a] to-zinc-950">
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-2xl bg-[#FFD700]/10 border border-[#FFD700]/25 flex items-center justify-center text-[#FFD700] shadow-lg shadow-[#FFD700]/5 shrink-0">
-                <Crown size={24} />
+        <div className="p-4 sm:p-6 border-b border-white/10 bg-zinc-950/80 space-y-4 shrink-0">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-[#FFD700]/10 border border-[#FFD700]/30 flex items-center justify-center text-[#FFD700] shadow-lg shadow-[#FFD700]/10">
+                <Crown size={20} />
               </div>
               <div>
-                <div className="flex items-center gap-2 flex-wrap mb-1">
-                  <span className="text-[10px] font-black text-[#FFD700] uppercase tracking-[0.2em] bg-[#FFD700]/10 px-2 py-0.5 rounded border border-[#FFD700]/20">
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-[#FFD700] bg-[#FFD700]/10 px-2 py-0.5 rounded-full border border-[#FFD700]/20">
                     Constitutional Council
                   </span>
-                  <span className="text-[10px] font-mono text-zinc-400 bg-white/5 px-2 py-0.5 rounded">
-                    {assembly.name}
-                  </span>
+                  <span className="text-xs text-zinc-500">•</span>
+                  <span className="text-xs text-zinc-400 font-bold">{assembly.name}</span>
                 </div>
-                <h2 className="text-xl sm:text-2xl font-black uppercase tracking-tight text-white">
+                <h2 className="text-lg sm:text-xl font-black uppercase tracking-tight text-white mt-0.5">
                   Appointment of Leadership Council
                 </h2>
-                <p className="text-xs text-zinc-400 mt-0.5">
-                  Organized appointments for chamber officers, cabinet heads, and legislative leaders.
-                </p>
               </div>
             </div>
 
             <button
+              type="button"
               onClick={onClose}
-              className="p-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-zinc-400 hover:text-white border border-white/10 transition-all cursor-pointer shrink-0"
+              className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-zinc-400 hover:text-white border border-white/10 transition-colors cursor-pointer"
             >
               <X size={18} />
             </button>
           </div>
 
-          {/* Rules Information Banner */}
-          <div className="mt-5 grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div className="p-3 rounded-2xl bg-[#FFD700]/5 border border-[#FFD700]/20 flex items-start gap-2.5">
-              <Crown size={16} className="text-[#FFD700] shrink-0 mt-0.5" />
+          {/* Constitutional Rules Banner (Compact & High Contrast) */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+            <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/25 flex items-start gap-2">
+              <Scale size={15} className="text-amber-400 shrink-0 mt-0.5" />
               <div>
-                <p className="text-[11px] font-bold text-[#FFD700] uppercase tracking-wider">
-                  Rule 1: Government MLAs Only
-                </p>
-                <p className="text-[11px] text-zinc-300 mt-0.5 leading-relaxed">
-                  Only MLAs from the government composition can be appointed as{' '}
-                  <span className="text-white font-semibold">Chief Minister</span>,{' '}
-                  <span className="text-white font-semibold">Deputy Chief Minister</span>,{' '}
-                  <span className="text-white font-semibold">Speaker</span>, or{' '}
-                  <span className="text-white font-semibold">Deputy Speaker</span>.
-                </p>
+                <span className="font-bold text-amber-300 block">Rule 1: Government MLAs Only</span>
+                <span className="text-[11px] text-zinc-400 leading-tight">
+                  Chief Minister, Deputy CM, Speaker, & Deputy Speaker must be MLAs of the ruling government composition.
+                </span>
               </div>
             </div>
 
-            <div className="p-3 rounded-2xl bg-cyan-500/5 border border-cyan-500/20 flex items-start gap-2.5">
-              <Landmark size={16} className="text-cyan-400 shrink-0 mt-0.5" />
+            <div className="p-2.5 rounded-xl bg-blue-500/10 border border-blue-500/25 flex items-start gap-2">
+              <Users size={15} className="text-blue-400 shrink-0 mt-0.5" />
               <div>
-                <p className="text-[11px] font-bold text-cyan-400 uppercase tracking-wider">
-                  Rule 2: Assembly Membership
-                </p>
-                <p className="text-[11px] text-zinc-300 mt-0.5 leading-relaxed">
-                  Only current members of this assembly can hold leadership council positions,{' '}
-                  <span className="text-cyan-300 font-semibold underline">except Chief Secretary</span>{' '}
-                  who is an administrative official.
-                </p>
+                <span className="font-bold text-blue-300 block">Rule 2: Current Assembly Members Only</span>
+                <span className="text-[11px] text-zinc-400 leading-tight">
+                  Only current members of this assembly can hold leadership positions, except Chief Secretary (Civil Executive).
+                </span>
               </div>
             </div>
           </div>
 
-          {/* Government Strength Indicator */}
-          <div className="mt-3 flex items-center justify-between text-xs px-3.5 py-2 rounded-xl bg-white/[0.02] border border-white/5 flex-wrap gap-2">
-            <div className="flex items-center gap-2">
-              <span className="text-zinc-500 font-medium">Government Bloc:</span>
-              <span className="font-bold text-[#FFD700]">
-                {government?.name || 'Ruling Coalition'}
+          {/* Government Strength & Stats Strip */}
+          <div className="flex flex-wrap items-center justify-between gap-3 text-xs bg-white/[0.02] p-2.5 rounded-xl border border-white/5">
+            <div className="flex items-center gap-2 text-zinc-300">
+              <Landmark size={14} className="text-[#FFD700]" />
+              <span className="font-bold text-white">Government Bloc:</span>
+              <span className="text-[#FFD700] font-black">
+                {government ? government.name : 'Majority Coalition'}
               </span>
               <span className="text-zinc-500">•</span>
-              <span className="text-zinc-300 font-semibold">
-                {governmentMlaIds.size} Government MLAs
+              <span className="text-zinc-400">
+                {governmentMlaIds.size} Govt MLAs / {allMlaIds.size} Total MLAs
               </span>
-              <span className="text-zinc-500">of {allMlaIds.size} Total MLAs</span>
             </div>
 
-            <div className="flex items-center gap-3 font-mono text-[11px]">
-              <span className="text-green-400 font-bold">{stats.filled} Appointed</span>
-              <span className="text-zinc-600">/</span>
-              <span className="text-amber-400 font-bold">{stats.vacant} Vacant</span>
+            <div className="flex items-center gap-3">
+              <span className="px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold text-[11px]">
+                {stats.filled} Appointed
+              </span>
+              <span className="px-2 py-0.5 rounded-md bg-zinc-800 text-zinc-400 border border-white/5 font-bold text-[11px]">
+                {stats.vacant} Vacant
+              </span>
+            </div>
+          </div>
+
+          {/* Role Category Tabs & Quick Search */}
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-1">
+            <div className="flex items-center gap-1.5 overflow-x-auto w-full sm:w-auto pb-1 sm:pb-0 no-scrollbar">
+              {[
+                { id: 'all', label: 'All Roles', count: COUNCIL_ROLES.length },
+                { id: 'executive', label: 'Executive', count: 4 },
+                { id: 'presiding', label: 'Presiding', count: 2 },
+                { id: 'opposition', label: 'Opposition', count: 2 },
+                { id: 'administration', label: 'Administration', count: 1 },
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setActiveCategoryTab(tab.id)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all shrink-0 cursor-pointer ${
+                    activeCategoryTab === tab.id
+                      ? 'bg-white/15 text-white border border-white/20 shadow-md'
+                      : 'bg-white/5 text-zinc-400 hover:text-white hover:bg-white/10 border border-transparent'
+                  }`}
+                >
+                  {tab.label} ({tab.count})
+                </button>
+              ))}
+            </div>
+
+            <div className="relative w-full sm:w-64">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
+              <input
+                type="text"
+                value={globalFilter}
+                onChange={(e) => setGlobalFilter(e.target.value)}
+                placeholder="Search designation or appointee..."
+                className="w-full bg-zinc-900 border border-white/10 rounded-xl pl-9 pr-3 py-1.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-[#FFD700] transition-colors"
+              />
+              {globalFilter && (
+                <button
+                  type="button"
+                  onClick={() => setGlobalFilter('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
+                >
+                  <X size={12} />
+                </button>
+              )}
             </div>
           </div>
         </div>
 
-        {/* Filter Toolbar */}
-        <div className="px-5 sm:px-6 py-3 border-b border-white/5 bg-zinc-950/60 flex flex-col sm:flex-row items-center justify-between gap-3">
-          {/* Category Tabs */}
-          <div className="flex items-center gap-1.5 overflow-x-auto w-full sm:w-auto no-scrollbar">
-            {[
-              { id: 'all', label: 'All Roles', count: COUNCIL_ROLES.length },
-              { id: 'executive', label: 'Government', count: 2 },
-              { id: 'presiding', label: 'Presiding Officers', count: 2 },
-              { id: 'opposition', label: 'Opposition', count: 2 },
-              { id: 'administration', label: 'Administration', count: 1 },
-            ].map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setActiveCategoryTab(tab.id)}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all shrink-0 cursor-pointer ${
-                  activeCategoryTab === tab.id
-                    ? 'bg-[#FFD700] text-black shadow-md shadow-[#FFD700]/20'
-                    : 'bg-white/5 hover:bg-white/10 text-zinc-400 hover:text-white'
-                }`}
-              >
-                {tab.label} ({tab.count})
-              </button>
-            ))}
+        {/* Validation Messages */}
+        {validationError && (
+          <div className="mx-6 mt-4 p-3.5 bg-red-500/10 border border-red-500/30 rounded-xl flex items-start gap-3 text-xs text-red-300 shrink-0 animate-in fade-in duration-150">
+            <AlertCircle size={16} className="text-red-400 shrink-0 mt-0.5" />
+            <div className="flex-1 font-medium">{validationError}</div>
           </div>
+        )}
 
-          {/* Quick Search Roles */}
-          <div className="relative w-full sm:w-64">
-            <Search
-              size={14}
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500"
-            />
-            <input
-              type="text"
-              value={globalFilter}
-              onChange={(e) => setGlobalFilter(e.target.value)}
-              placeholder="Search roles or appointees..."
-              className="w-full bg-white/5 border border-white/10 focus:border-[#FFD700]/50 rounded-xl pl-8 pr-3 py-1.5 text-xs text-white placeholder-zinc-500 focus:outline-none"
-            />
+        {successMessage && (
+          <div className="mx-6 mt-4 p-3.5 bg-emerald-500/10 border border-emerald-500/30 rounded-xl flex items-center gap-3 text-xs text-emerald-300 shrink-0 animate-in fade-in duration-150">
+            <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />
+            <div className="flex-1 font-medium">{successMessage}</div>
           </div>
-        </div>
+        )}
 
-        {/* Modal Body: Organized Role Slots Grid */}
-        <div className="p-5 sm:p-6 overflow-y-auto flex-1 space-y-4">
-          {/* Validation Alert */}
-          {validationError && (
-            <div className="p-4 rounded-2xl bg-red-500/10 border border-red-500/30 flex items-start gap-3 text-red-300 animate-shake">
-              <AlertCircle size={18} className="text-red-400 shrink-0 mt-0.5" />
-              <div>
-                <p className="text-xs font-bold uppercase tracking-wider text-red-400">
-                  Appointment Validation Error
-                </p>
-                <p className="text-xs mt-0.5 leading-relaxed">{validationError}</p>
-              </div>
-            </div>
-          )}
-
-          {/* Success Message */}
-          {successMessage && (
-            <div className="p-4 rounded-2xl bg-green-500/10 border border-green-500/30 flex items-center gap-3 text-green-300">
-              <CheckCircle2 size={18} className="text-green-400 shrink-0" />
-              <p className="text-xs font-bold">{successMessage}</p>
-            </div>
-          )}
-
-          {/* Roles Grid */}
+        {/* Scrollable Slots Grid (Guaranteed Smooth Scrolling with flex-1 min-h-0 overscroll-contain) */}
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 sm:p-6 space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {filteredRoles.map((role) => {
-              // Select correct pool of eligible candidates based on Rule 1 & Rule 2
+              // Determine eligible pool
               let eligiblePool: Person[] = [];
               if (role.isGovMlaOnly) {
-                // Rule 1: Government MLAs only
                 eligiblePool = governmentMlaCandidates;
               } else if (role.isAssemblyMemberOnly) {
-                // Rule 2: Assembly MLAs
                 eligiblePool = assemblyMlaCandidates;
               } else {
-                // Rule 2 exception: Chief Secretary can be any person
                 eligiblePool = allPersonCandidates;
               }
 
-              // Also ensure currently appointed person is visible even if pool filtering would hide them
+              // Include current appointee if already set
               const currentId = draftLeaders[role.key];
               if (currentId && currentId !== 'vacant') {
                 const currentObj = persons.find((p) => p.id === currentId);
@@ -514,7 +518,7 @@ export const LeadershipCouncilModal: React.FC<LeadershipCouncilModalProps> = ({
               }
 
               return (
-                <div key={role.key} className="flex flex-col">
+                <div key={role.key} className="space-y-1">
                   <SearchableLeaderSelect
                     roleKey={role.key}
                     roleTitle={role.title}
@@ -523,8 +527,8 @@ export const LeadershipCouncilModal: React.FC<LeadershipCouncilModalProps> = ({
                     isAssemblyMemberOnly={role.isAssemblyMemberOnly}
                     badgeText={role.badgeText}
                     badgeType={role.badgeType}
-                    value={draftLeaders[role.key]}
-                    onChange={(personId) => handleRoleChange(role.key, personId)}
+                    value={draftLeaders[role.key] || ''}
+                    onChange={(newVal) => handleRoleChange(role.key, newVal)}
                     eligiblePersons={eligiblePool}
                     allPersons={persons}
                     parties={parties}
@@ -533,9 +537,8 @@ export const LeadershipCouncilModal: React.FC<LeadershipCouncilModalProps> = ({
                     governmentMlaIds={governmentMlaIds}
                     allMlaIds={allMlaIds}
                     currentLeadersMap={draftLeaders}
-                    disabled={isSaving}
                   />
-                  <p className="text-[10px] text-zinc-500 mt-1 px-1">
+                  <p className="text-[10px] text-zinc-500 px-1 italic">
                     {role.ruleDescription}
                   </p>
                 </div>
@@ -544,9 +547,9 @@ export const LeadershipCouncilModal: React.FC<LeadershipCouncilModalProps> = ({
           </div>
 
           {filteredRoles.length === 0 && (
-            <div className="text-center py-12 border border-dashed border-white/10 rounded-2xl">
+            <div className="text-center py-16 px-4">
               <Search size={32} className="mx-auto text-zinc-600 mb-2" />
-              <p className="text-sm font-bold text-zinc-400">No roles match your search filter</p>
+              <p className="text-sm text-zinc-400 font-bold">No designations matched your search.</p>
               <p className="text-xs text-zinc-600 mt-1">
                 Try searching for a different designation or clear the filter query.
               </p>
@@ -555,7 +558,7 @@ export const LeadershipCouncilModal: React.FC<LeadershipCouncilModalProps> = ({
         </div>
 
         {/* Modal Footer Actions */}
-        <div className="p-4 sm:p-6 border-t border-white/10 bg-zinc-950/80 flex flex-col sm:flex-row items-center justify-between gap-3">
+        <div className="p-4 sm:p-5 border-t border-white/10 bg-zinc-950/80 flex flex-col sm:flex-row items-center justify-between gap-3 shrink-0">
           <div className="flex items-center gap-2 text-xs text-zinc-400">
             <Sparkles size={14} className="text-[#FFD700]" />
             <span>Changes will reflect immediately across assembly records, cabinet, and profiles.</span>
@@ -590,7 +593,7 @@ export const LeadershipCouncilModal: React.FC<LeadershipCouncilModalProps> = ({
             </button>
           </div>
         </div>
-      </motion.div>
+      </div>
     </div>
   );
 };

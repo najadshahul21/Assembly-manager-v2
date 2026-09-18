@@ -5074,6 +5074,18 @@ export const EntityPage: React.FC = () => {
                         theme: "gold",
                       },
                       {
+                        key: "leaderOfHouse",
+                        title: "Leader of the House",
+                        badge: "Govt MLA • Rule 1",
+                        theme: "gold",
+                      },
+                      {
+                        key: "deputyLeaderOfHouse",
+                        title: "Deputy Leader of the House",
+                        badge: "Govt MLA • Rule 1",
+                        theme: "gold",
+                      },
+                      {
                         key: "speaker",
                         title: "Speaker of the House",
                         badge: "Govt MLA • Rule 1",

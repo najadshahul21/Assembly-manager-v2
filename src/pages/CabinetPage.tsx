@@ -56,15 +56,11 @@ export const CabinetPage: React.FC = () => {
     if (!activeAssembly) return [];
     
     const targetAssemblyId = activeAssembly.id;
+    const currentAssembly = await db.assemblies.get(targetAssemblyId) || activeAssembly;
     const allPersons = await db.persons.toArray();
     const allParties = await db.parties.toArray();
     const allAlliances = await db.alliances.toArray();
     const designations = await db.designations.where('assemblyId').equals(targetAssemblyId).toArray();
-    
-    // Find holders of key constitutional designations and ministerial designations
-    const specialDesignations = designations.filter(d => isCabinetRole(d.name));
-
-    const cabinetData: Map<string, { person: Person; roles: { name: string; canDemote: boolean }[] }> = new Map();
 
     const isCabinetRole = (role: string) => {
       const r = role.toLowerCase();
@@ -84,6 +80,11 @@ export const CabinetPage: React.FC = () => {
              r.includes('deputy speaker') ||
              r.includes('chief secretary');
     };
+
+    // Find holders of key constitutional designations and ministerial designations
+    const specialDesignations = designations.filter(d => isCabinetRole(d.name));
+
+    const cabinetData: Map<string, { person: Person; roles: { name: string; canDemote: boolean }[] }> = new Map();
 
     // 1. Add people with ministerial roles (from assemblyRoles)
     const ministers = allPersons.filter(p => p.assemblyRoles && p.assemblyRoles[targetAssemblyId]);
@@ -122,8 +123,8 @@ export const CabinetPage: React.FC = () => {
     }
 
     // 3. Add leadership council members (except leader of opposition & deputy leader of opposition, and house leaders)
-    if (activeAssembly.leaders) {
-      for (const [role, pId] of Object.entries(activeAssembly.leaders)) {
+    if (currentAssembly.leaders) {
+      for (const [role, pId] of Object.entries(currentAssembly.leaders)) {
         if (
           role === 'leaderOfOpposition' || 
           role === 'deputyLeaderOfOpposition' || 
@@ -157,7 +158,7 @@ export const CabinetPage: React.FC = () => {
       let allianceAbbreviation = person.partyId;
 
       if (person.partyId === 'independent') {
-        const supportedAllianceId = activeAssembly.independentSupports?.[person.id];
+        const supportedAllianceId = currentAssembly.independentSupports?.[person.id];
         if (supportedAllianceId && supportedAllianceId !== 'independent') {
           const alliance = allAlliances.find(a => a.id === supportedAllianceId);
           if (alliance) {

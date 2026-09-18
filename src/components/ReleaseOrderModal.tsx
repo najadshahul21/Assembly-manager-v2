@@ -258,6 +258,54 @@ export const ReleaseOrderModal: React.FC<ReleaseOrderModalProps> = ({
           });
         }
       }
+
+      // Deputy Leader of Opposition
+      if (leaders.deputyLeaderOfOpposition && leaders.deputyLeaderOfOpposition !== 'vacant') {
+        const dlopPerson = personsMap.get(leaders.deputyLeaderOfOpposition);
+        if (dlopPerson) {
+          addOption({
+            id: 'leader-deputyLeaderOfOpposition',
+            name: "Deputy Leader of Opposition",
+            category: 'Legislative Leadership',
+            incumbentId: dlopPerson.id,
+            incumbentName: dlopPerson.name,
+            partyAbbr: partiesMap.get(dlopPerson.partyId)?.abbreviation,
+            roleDescription: 'Deputy Opposition Leader'
+          });
+        }
+      }
+
+      // Leader of the House
+      if (leaders.leaderOfHouse && leaders.leaderOfHouse !== 'vacant') {
+        const lohPerson = personsMap.get(leaders.leaderOfHouse);
+        if (lohPerson) {
+          addOption({
+            id: 'leader-leaderOfHouse',
+            name: "Leader of the House",
+            category: 'Legislative Leadership',
+            incumbentId: lohPerson.id,
+            incumbentName: lohPerson.name,
+            partyAbbr: partiesMap.get(lohPerson.partyId)?.abbreviation,
+            roleDescription: 'Leader of the House'
+          });
+        }
+      }
+
+      // Deputy Leader of the House
+      if (leaders.deputyLeaderOfHouse && leaders.deputyLeaderOfHouse !== 'vacant') {
+        const dlohPerson = personsMap.get(leaders.deputyLeaderOfHouse);
+        if (dlohPerson) {
+          addOption({
+            id: 'leader-deputyLeaderOfHouse',
+            name: "Deputy Leader of the House",
+            category: 'Legislative Leadership',
+            incumbentId: dlohPerson.id,
+            incumbentName: dlohPerson.name,
+            partyAbbr: partiesMap.get(dlohPerson.partyId)?.abbreviation,
+            roleDescription: 'Deputy Leader of the House'
+          });
+        }
+      }
     }
 
     // 5. Ministers (from assemblyRoles and designations)
