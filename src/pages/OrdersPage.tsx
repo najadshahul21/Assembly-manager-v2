@@ -8,9 +8,11 @@ import {
   FileText, Stamp, Plus, Calendar, User, Search, Filter, 
   Trash2, Copy, Check, Scale, Shield, Landmark, AtSign, 
   ArrowUpRight, Building2, CheckCircle2, ChevronDown, 
-  ExternalLink, Printer, Sparkles, AlertCircle, X, Hash
+  ExternalLink, Printer, Sparkles, AlertCircle, X, Hash,
+  Clock, ArrowDownWideNarrow, ArrowUpNarrowWide
 } from 'lucide-react';
 import { ReleaseOrderModal } from '../components/ReleaseOrderModal';
+import { compareOrdersReverseChronological } from '../utils/governmentUtils';
 
 interface OrdersPageProps {
   searchQuery?: string;
@@ -24,6 +26,7 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({ searchQuery = '' }) => {
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedDesignationFilter, setSelectedDesignationFilter] = useState<string>('all');
   const [selectedPersonFilter, setSelectedPersonFilter] = useState<string>('all');
+  const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
   const [isReleaseModalOpen, setIsReleaseModalOpen] = useState(false);
   const [viewingOrder, setViewingOrder] = useState<LegislativeOrder | null>(null);
   const [orderToDelete, setOrderToDelete] = useState<LegislativeOrder | null>(null);
@@ -32,7 +35,7 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({ searchQuery = '' }) => {
   // Queries
   const orders = useLiveQuery(async () => {
     const list = await db.orders.toArray();
-    return list.sort((a, b) => ((b.timestamp || 0) - (a.timestamp || 0)) || ((b.createdAt || 0) - (a.createdAt || 0)));
+    return list.sort(compareOrdersReverseChronological);
   }) || [];
 
   const persons = useLiveQuery(() => db.persons.toArray()) || [];
@@ -102,8 +105,12 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({ searchQuery = '' }) => {
       }
 
       return true;
+    }).sort((a, b) => {
+      return sortOrder === 'desc'
+        ? compareOrdersReverseChronological(a, b)
+        : compareOrdersReverseChronological(b, a);
     });
-  }, [orders, selectedCategory, selectedDesignationFilter, selectedPersonFilter, effectiveSearch, personsMap]);
+  }, [orders, selectedCategory, selectedDesignationFilter, selectedPersonFilter, effectiveSearch, personsMap, sortOrder]);
 
   // Statistics
   const stats = useMemo(() => {
@@ -297,7 +304,7 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({ searchQuery = '' }) => {
         </div>
 
         {/* Search & Dropdown Filters */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-white/5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-2 border-t border-white/5">
           {/* Text Search */}
           <div className="relative">
             <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500" />
@@ -305,7 +312,7 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({ searchQuery = '' }) => {
               type="text"
               value={localSearch}
               onChange={(e) => setLocalSearch(e.target.value)}
-              placeholder="Search by order title, text, or signer..."
+              placeholder="Search title, text, signer..."
               className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-3.5 py-2 text-xs text-white focus:outline-none focus:border-[#FFD700]/50 placeholder:text-gray-600"
             />
           </div>
@@ -332,13 +339,51 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({ searchQuery = '' }) => {
               onChange={(e) => setSelectedPersonFilter(e.target.value)}
               className="w-full bg-[#121212] border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#FFD700]/50 appearance-none cursor-pointer"
             >
-              <option value="all">All Mentioned / Signer Officials</option>
+              <option value="all">All Mentioned / Signers</option>
               {persons.map(p => (
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))}
             </select>
             <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-500" />
           </div>
+
+          {/* Chronological Sort Control */}
+          <div className="relative">
+            <select
+              value={sortOrder}
+              onChange={(e) => setSortOrder(e.target.value as 'desc' | 'asc')}
+              className="w-full bg-[#121212] border border-[#FFD700]/30 rounded-xl pl-8 pr-7 py-2 text-xs text-[#FFD700] font-bold focus:outline-none focus:border-[#FFD700] appearance-none cursor-pointer"
+              title="Display Order"
+            >
+              <option value="desc">Newest First (Reverse Chronological)</option>
+              <option value="asc">Oldest First (Chronological)</option>
+            </select>
+            <Clock size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-[#FFD700]" />
+            <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-[#FFD700]" />
+          </div>
+        </div>
+      </div>
+
+      {/* Orders Sub-header / Sort Status Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-2 px-1 text-xs">
+        <div className="flex items-center gap-2 text-gray-400">
+          <span className="font-black text-white">{filteredOrders.length}</span>
+          <span className="uppercase tracking-wider font-semibold">
+            {filteredOrders.length === 1 ? 'Order Found' : 'Orders Found'}
+          </span>
+          {(selectedCategory !== 'all' || selectedDesignationFilter !== 'all' || selectedPersonFilter !== 'all' || effectiveSearch) && (
+            <span className="text-amber-400/80 font-mono text-[11px]">(Filtered)</span>
+          )}
+        </div>
+        <div className="flex items-center gap-1.5 text-[#FFD700] font-mono text-[11px] bg-[#FFD700]/10 border border-[#FFD700]/20 px-2.5 py-1 rounded-lg">
+          {sortOrder === 'desc' ? (
+            <ArrowDownWideNarrow size={13} className="shrink-0" />
+          ) : (
+            <ArrowUpNarrowWide size={13} className="shrink-0" />
+          )}
+          <span className="font-semibold uppercase tracking-wider">
+            {sortOrder === 'desc' ? 'Reverse Chronological Order (Newest First)' : 'Chronological Order (Oldest First)'}
+          </span>
         </div>
       </div>
 

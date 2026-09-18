@@ -1,4 +1,4 @@
-import { Assembly, Constituency, Party, Alliance, Person } from '../types';
+import { Assembly, Constituency, Party, Alliance, Person, LegislativeOrder } from '../types';
 import { db } from '../db';
 
 export interface GovernmentCompositionResult {
@@ -339,4 +339,80 @@ export function getConstituencyCreationAssembly(
 
   return sorted[0] || null;
 }
+
+/**
+ * Extracts a normalized Unix millisecond timestamp from an order for chronological sorting.
+ * Handles ISO dates (YYYY-MM-DD), slash/dot dates (DD/MM/YYYY or YYYY/MM/DD), fallback timestamps and creation time.
+ */
+export function getOrderChronologicalTime(order: LegislativeOrder): number {
+  if (order.date) {
+    const trimmed = order.date.trim();
+    // ISO format: YYYY-MM-DD or YYYY/MM/DD
+    const isoMatch = trimmed.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+    if (isoMatch) {
+      const year = parseInt(isoMatch[1], 10);
+      const month = parseInt(isoMatch[2], 10) - 1;
+      const day = parseInt(isoMatch[3], 10);
+      const dt = new Date(year, month, day).getTime();
+      if (!isNaN(dt)) return dt;
+    }
+    // DD-MM-YYYY or DD/MM/YYYY format
+    const dmyMatch = trimmed.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})/);
+    if (dmyMatch) {
+      const day = parseInt(dmyMatch[1], 10);
+      const month = parseInt(dmyMatch[2], 10) - 1;
+      const year = parseInt(dmyMatch[3], 10);
+      const dt = new Date(year, month, day).getTime();
+      if (!isNaN(dt)) return dt;
+    }
+    const parsed = Date.parse(trimmed);
+    if (!isNaN(parsed)) return parsed;
+  }
+  if (typeof order.timestamp === 'number' && !isNaN(order.timestamp) && order.timestamp > 0) {
+    return order.timestamp;
+  }
+  if (typeof order.createdAt === 'number' && !isNaN(order.createdAt) && order.createdAt > 0) {
+    return order.createdAt;
+  }
+  return 0;
+}
+
+/**
+ * Compares two orders in reverse chronological order:
+ * 1. Issuance Date descending (newest issuance date first)
+ * 2. Sl. No. descending (higher serial numbers within same date first)
+ * 3. Creation / release timestamp descending (most recently saved first)
+ * 4. Stable tie-break by ID
+ */
+export function compareOrdersReverseChronological(a: LegislativeOrder, b: LegislativeOrder): number {
+  const timeA = getOrderChronologicalTime(a);
+  const timeB = getOrderChronologicalTime(b);
+
+  // 1. Issuance date descending (newest date first)
+  if (timeB !== timeA) {
+    return timeB - timeA;
+  }
+
+  // 2. If same date, check Sl. No. numeric value descending (e.g. Sl. 2 before Sl. 1)
+  const parseSl = (sl?: string): number => {
+    if (!sl) return 0;
+    const match = sl.match(/\d+/);
+    return match ? parseInt(match[0], 10) : 0;
+  };
+  const slA = parseSl(a.slNo || a.orderNumber);
+  const slB = parseSl(b.slNo || b.orderNumber);
+  if (slB !== slA) {
+    return slB - slA;
+  }
+
+  // 3. If same slNo, latest creation time descending
+  const createdA = a.createdAt || a.timestamp || 0;
+  const createdB = b.createdAt || b.timestamp || 0;
+  if (createdB !== createdA) {
+    return createdB - createdA;
+  }
+
+  return (b.id || '').localeCompare(a.id || '');
+}
+
 

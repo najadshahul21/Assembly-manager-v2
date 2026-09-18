@@ -7,12 +7,11 @@ import { EntityListPage } from './pages/EntityListPage';
 import { CabinetPage } from './pages/CabinetPage';
 import { OrdersPage } from './pages/OrdersPage';
 import { CreateModals } from './components/CreateModals';
-import { ReleaseOrderModal } from './components/ReleaseOrderModal';
 import { LoginScreen } from './components/LoginScreen';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { EntityType } from './types';
 import { motion, AnimatePresence } from 'motion/react';
-import { User, Flag, Shield, Landmark, X, MapPin, Stamp } from 'lucide-react';
+import { User, Flag, Shield, Landmark, X, MapPin } from 'lucide-react';
 import { DbLookupProvider } from './context/DbLookupContext';
 
 function AppContent() {
@@ -26,7 +25,6 @@ function AppContent() {
   }
 
   const createOptions = [
-    { type: EntityType.ORDER, label: 'Release Order', icon: Stamp, color: 'hover:bg-[#FFD700]/10' },
     { type: EntityType.PERSON, label: 'Create Person', icon: User, color: 'hover:bg-blue-500/10' },
     { type: EntityType.PARTY, label: 'Create Party', icon: Flag, color: 'hover:bg-[#D32F2F]/10' },
     { type: EntityType.ALLIANCE, label: 'Create Alliance', icon: Shield, color: 'hover:bg-purple-500/10' },
@@ -98,18 +96,11 @@ function AppContent() {
         )}
       </AnimatePresence>
 
-      {activeCreateType === EntityType.ORDER ? (
-        <ReleaseOrderModal
-          isOpen={true}
-          onClose={() => setActiveCreateType(null)}
-        />
-      ) : (
-        <CreateModals
-          type={activeCreateType}
-          isOpen={activeCreateType !== null}
-          onClose={() => setActiveCreateType(null)}
-        />
-      )}
+      <CreateModals
+        type={activeCreateType}
+        isOpen={activeCreateType !== null}
+        onClose={() => setActiveCreateType(null)}
+      />
     </BrowserRouter>
   );
 }

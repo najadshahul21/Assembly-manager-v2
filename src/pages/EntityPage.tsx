@@ -44,12 +44,12 @@ import { EntityCard } from "../components/EntityCards";
 import { ElectionResultsTable } from "../components/ElectionResultsTable";
 import { ElectModal } from "../components/ElectModal";
 import { AssemblyMembersTable } from "../components/AssemblyMembersTable";
-import { ReleaseOrderModal } from "../components/ReleaseOrderModal";
 import {
   computeAssemblyGovernmentComposition,
   isSpeakerOrDeputySpeakerRole,
   isMinisterialRole,
   getConstituencyCreationAssembly,
+  compareOrdersReverseChronological,
 } from "../utils/governmentUtils";
 
 import { CreateModals } from "../components/CreateModals";
@@ -243,7 +243,6 @@ export const EntityPage: React.FC = () => {
     personName: string;
   } | null>(null);
   const [departmentInput, setDepartmentInput] = useState("");
-  const [isReleaseOrderModalOpen, setIsReleaseOrderModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<
     "details" | "related" | "history" | "cabinet" | "orders"
   >(
@@ -286,7 +285,7 @@ export const EntityPage: React.FC = () => {
     } else if (entityType === EntityType.DESIGNATION) {
       matching = all.filter((o) => o.byDesignationId === id || (entity && o.byDesignationName === (entity as Designation).name));
     }
-    return matching.sort((a, b) => ((b.timestamp || 0) - (a.timestamp || 0)) || ((b.createdAt || 0) - (a.createdAt || 0)));
+    return matching.sort(compareOrdersReverseChronological);
   }, [id, entityType, entity]);
 
   // Related data fetching
@@ -2877,68 +2876,66 @@ export const EntityPage: React.FC = () => {
   return (
     <div className="max-w-6xl mx-auto space-y-8 pb-24">
       {/* Header Actions */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-4">
         <button
           onClick={handleBack}
-          className="flex items-center gap-2 text-gray-400 hover:text-white transition-colors"
+          className="inline-flex items-center gap-2 px-3.5 h-10 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white border border-white/10 transition-all font-bold text-xs uppercase tracking-wider cursor-pointer"
         >
-          <ArrowLeft size={20} />
-          <span className="uppercase tracking-widest font-bold text-xs">
-            Back
-          </span>
+          <ArrowLeft size={16} />
+          <span>Back</span>
         </button>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           {entityType === EntityType.PERSON && !(entity as Person).isSuspended && (
             <button
               onClick={handleSuspendPerson}
-              className="flex items-center gap-2 px-4 py-2 bg-red-600/10 hover:bg-red-600/30 rounded-xl text-red-500 border border-red-500/20 transition-all font-bold text-xs uppercase tracking-widest"
+              title="Suspend Politician"
+              aria-label="Suspend Politician"
+              className="w-10 h-10 flex items-center justify-center rounded-xl bg-red-600/10 hover:bg-red-600/25 text-red-500 border border-red-500/25 active:scale-95 transition-all cursor-pointer shrink-0"
               id="suspend-person-btn"
             >
-              <UserMinus size={16} />
-              <span>Suspend</span>
+              <UserMinus size={18} />
             </button>
           )}
           {entityType === EntityType.PARTY && !(entity as Party).isSuspended && (
             <button
               onClick={handleSuspendParty}
-              className="flex items-center gap-2 px-4 py-2 bg-red-600/10 hover:bg-red-600/30 rounded-xl text-red-500 border border-red-500/20 transition-all font-bold text-xs uppercase tracking-widest"
+              title="Suspend Party"
+              aria-label="Suspend Party"
+              className="w-10 h-10 flex items-center justify-center rounded-xl bg-red-600/10 hover:bg-red-600/25 text-red-500 border border-red-500/25 active:scale-95 transition-all cursor-pointer shrink-0"
               id="suspend-party-btn"
             >
-              <UserMinus size={16} />
-              <span>Suspend</span>
-            </button>
-          )}
-          {(entityType === EntityType.PERSON || entityType === EntityType.DESIGNATION) && (
-            <button
-              onClick={() => setIsReleaseOrderModalOpen(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-[#FFD700] via-[#FFC000] to-[#E6B800] hover:scale-[1.02] active:scale-[0.98] rounded-xl text-black shadow-lg shadow-[#FFD700]/20 transition-all font-black text-xs uppercase tracking-wider cursor-pointer"
-            >
-              <Stamp size={15} />
-              <span>Release Order</span>
+              <UserMinus size={18} />
             </button>
           )}
           {!isDissolvedRecord && (
             <button
               onClick={() => setShowEditModal(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-[#FFD700]/10 hover:bg-[#FFD700]/20 rounded-xl text-[#FFD700] border border-[#FFD700]/20 transition-all font-bold text-xs uppercase tracking-widest"
+              title="Modify Entry"
+              aria-label="Modify Entry"
+              className="w-10 h-10 flex items-center justify-center rounded-xl bg-[#FFD700]/10 hover:bg-[#FFD700]/20 text-[#FFD700] border border-[#FFD700]/25 active:scale-95 transition-all cursor-pointer shrink-0"
+              id="modify-entry-btn"
             >
-              <Edit size={16} />
-              <span>Modify Entry</span>
+              <Edit size={18} />
             </button>
           )}
           {entityType === EntityType.ASSEMBLY &&
             (entity as Assembly).isActive !== false && (
               <button
                 onClick={() => setShowDeactivatePopup(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-orange-500/10 hover:bg-orange-500/20 rounded-xl text-orange-500 border border-orange-500/20 transition-all font-bold text-xs uppercase tracking-widest"
+                title="End Term / Deactivate"
+                aria-label="End Term / Deactivate"
+                className="w-10 h-10 flex items-center justify-center rounded-xl bg-orange-500/10 hover:bg-orange-500/20 text-orange-400 border border-orange-500/25 active:scale-95 transition-all cursor-pointer shrink-0"
+                id="end-term-btn"
               >
-                <HistoryIcon size={16} />
-                <span>End Term</span>
+                <HistoryIcon size={18} />
               </button>
             )}
           <button
             onClick={() => setShowDeletePopup(true)}
-            className="p-2.5 bg-red-500/10 hover:bg-red-500/20 rounded-xl text-red-500 border border-red-500/10 transition-all"
+            title="Delete Record"
+            aria-label="Delete Record"
+            className="w-10 h-10 flex items-center justify-center rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/20 active:scale-95 transition-all cursor-pointer shrink-0"
+            id="delete-record-btn"
           >
             <Trash2 size={18} />
           </button>
@@ -5705,11 +5702,10 @@ export const EntityPage: React.FC = () => {
                   </p>
                 </div>
                 <button
-                  onClick={() => setIsReleaseOrderModalOpen(true)}
-                  className="inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-gradient-to-r from-[#FFD700] via-[#FFC000] to-[#E6B800] hover:scale-[1.02] active:scale-[0.98] rounded-xl text-black shadow-lg shadow-[#FFD700]/20 transition-all font-black text-xs uppercase tracking-wider cursor-pointer shrink-0"
+                  onClick={() => navigate("/orders")}
+                  className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/10 rounded-xl text-gray-300 hover:text-white border border-white/10 transition-all font-bold text-xs uppercase tracking-wider cursor-pointer shrink-0"
                 >
-                  <Plus size={16} />
-                  <span>Release Order</span>
+                  <span>Orders Registry</span>
                 </button>
               </div>
 
@@ -5724,13 +5720,6 @@ export const EntityPage: React.FC = () => {
                   <p className="text-xs text-gray-500 mt-1 max-w-sm mx-auto">
                     There are currently no gazettes or decrees issued by or mentioning this profile.
                   </p>
-                  <button
-                    onClick={() => setIsReleaseOrderModalOpen(true)}
-                    className="mt-5 inline-flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-xs font-bold text-[#FFD700] uppercase tracking-wider transition-all"
-                  >
-                    <Plus size={14} />
-                    Issue First Order
-                  </button>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -6874,13 +6863,6 @@ export const EntityPage: React.FC = () => {
         isOpen={showEditModal}
         onClose={() => setShowEditModal(false)}
         editData={entity}
-      />
-
-      <ReleaseOrderModal
-        isOpen={isReleaseOrderModalOpen}
-        onClose={() => setIsReleaseOrderModalOpen(false)}
-        initialDesignationId={entityType === EntityType.DESIGNATION ? id : undefined}
-        initialPersonId={entityType === EntityType.PERSON ? id : undefined}
       />
     </div>
   );
