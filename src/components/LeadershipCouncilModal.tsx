@@ -27,7 +27,6 @@ interface RoleConfig {
   ruleDescription: string;
   isGovMlaOnly: boolean;
   isAssemblyMemberOnly: boolean;
-  badgeText: string;
   badgeType: 'gold' | 'amber' | 'silver' | 'blue';
 }
 
@@ -38,10 +37,9 @@ const COUNCIL_ROLES: RoleConfig[] = [
     category: 'executive',
     categoryTitle: 'Executive Leadership (Government)',
     categoryIcon: Crown,
-    ruleDescription: 'Rule 1: Appointed strictly from MLAs belonging to the ruling government composition.',
+    ruleDescription: '',
     isGovMlaOnly: true,
     isAssemblyMemberOnly: true,
-    badgeText: 'Govt MLA Only • Rule 1',
     badgeType: 'gold',
   },
   {
@@ -50,34 +48,9 @@ const COUNCIL_ROLES: RoleConfig[] = [
     category: 'executive',
     categoryTitle: 'Executive Leadership (Government)',
     categoryIcon: Crown,
-    ruleDescription: 'Rule 1: Appointed strictly from MLAs belonging to the ruling government composition.',
+    ruleDescription: '',
     isGovMlaOnly: true,
     isAssemblyMemberOnly: true,
-    badgeText: 'Govt MLA Only • Rule 1',
-    badgeType: 'gold',
-  },
-  {
-    key: 'leaderOfHouse',
-    title: 'Leader of the House',
-    category: 'executive',
-    categoryTitle: 'Executive Leadership (Government)',
-    categoryIcon: Crown,
-    ruleDescription: 'Rule 1: Appointed strictly from MLAs belonging to the ruling government composition.',
-    isGovMlaOnly: true,
-    isAssemblyMemberOnly: true,
-    badgeText: 'Govt MLA Only • Rule 1',
-    badgeType: 'gold',
-  },
-  {
-    key: 'deputyLeaderOfHouse',
-    title: 'Deputy Leader of the House',
-    category: 'executive',
-    categoryTitle: 'Executive Leadership (Government)',
-    categoryIcon: Crown,
-    ruleDescription: 'Rule 1: Appointed strictly from MLAs belonging to the ruling government composition.',
-    isGovMlaOnly: true,
-    isAssemblyMemberOnly: true,
-    badgeText: 'Govt MLA Only • Rule 1',
     badgeType: 'gold',
   },
   {
@@ -86,10 +59,9 @@ const COUNCIL_ROLES: RoleConfig[] = [
     category: 'presiding',
     categoryTitle: 'Presiding Officers of the Chamber',
     categoryIcon: Scale,
-    ruleDescription: 'Rule 1: Appointed strictly from MLAs belonging to the ruling government composition.',
+    ruleDescription: '',
     isGovMlaOnly: true,
     isAssemblyMemberOnly: true,
-    badgeText: 'Govt MLA Only • Rule 1',
     badgeType: 'amber',
   },
   {
@@ -98,10 +70,9 @@ const COUNCIL_ROLES: RoleConfig[] = [
     category: 'presiding',
     categoryTitle: 'Presiding Officers of the Chamber',
     categoryIcon: Scale,
-    ruleDescription: 'Rule 1: Appointed strictly from MLAs belonging to the ruling government composition.',
+    ruleDescription: '',
     isGovMlaOnly: true,
     isAssemblyMemberOnly: true,
-    badgeText: 'Govt MLA Only • Rule 1',
     badgeType: 'amber',
   },
   {
@@ -110,10 +81,9 @@ const COUNCIL_ROLES: RoleConfig[] = [
     category: 'opposition',
     categoryTitle: 'Parliamentary Opposition',
     categoryIcon: Shield,
-    ruleDescription: 'Rule 2: Appointed strictly from current members (MLAs) of this respective assembly.',
+    ruleDescription: '',
     isGovMlaOnly: false,
     isAssemblyMemberOnly: true,
-    badgeText: 'Assembly MLA • Rule 2',
     badgeType: 'silver',
   },
   {
@@ -122,10 +92,9 @@ const COUNCIL_ROLES: RoleConfig[] = [
     category: 'opposition',
     categoryTitle: 'Parliamentary Opposition',
     categoryIcon: Shield,
-    ruleDescription: 'Rule 2: Appointed strictly from current members (MLAs) of this respective assembly.',
+    ruleDescription: '',
     isGovMlaOnly: false,
     isAssemblyMemberOnly: true,
-    badgeText: 'Assembly MLA • Rule 2',
     badgeType: 'silver',
   },
   {
@@ -134,10 +103,9 @@ const COUNCIL_ROLES: RoleConfig[] = [
     category: 'administration',
     categoryTitle: 'Executive Administration & Civil Authority',
     categoryIcon: Building2,
-    ruleDescription: 'Rule 2 Exception: Civil Secretariat official. Assembly MLA membership is not required.',
+    ruleDescription: '',
     isGovMlaOnly: false,
     isAssemblyMemberOnly: false,
-    badgeText: 'Executive Head • Rule 2 Exception',
     badgeType: 'blue',
   },
 ];
@@ -160,8 +128,6 @@ export const LeadershipCouncilModal: React.FC<LeadershipCouncilModalProps> = ({
     leaderOfOpposition: assembly.leaders?.leaderOfOpposition || '',
     deputyLeaderOfOpposition: assembly.leaders?.deputyLeaderOfOpposition || '',
     chiefSecretary: assembly.leaders?.chiefSecretary || '',
-    leaderOfHouse: assembly.leaders?.leaderOfHouse || '',
-    deputyLeaderOfHouse: assembly.leaders?.deputyLeaderOfHouse || '',
   }));
 
   const [activeCategoryTab, setActiveCategoryTab] = useState<string>('all');
@@ -232,8 +198,6 @@ export const LeadershipCouncilModal: React.FC<LeadershipCouncilModalProps> = ({
       'deputyChiefMinister',
       'speaker',
       'deputySpeaker',
-      'leaderOfHouse',
-      'deputyLeaderOfHouse',
     ];
 
     for (const rKey of rule1Roles) {
@@ -242,7 +206,7 @@ export const LeadershipCouncilModal: React.FC<LeadershipCouncilModalProps> = ({
         if (!governmentMlaIds.has(pId)) {
           const roleTitle = COUNCIL_ROLES.find((r) => r.key === rKey)?.title || rKey;
           const person = persons.find((p) => p.id === pId);
-          return `Rule 1 Violation: "${person?.name || 'Selected candidate'}" is not an MLA from the government composition and cannot be appointed as ${roleTitle}.`;
+          return `Invalid Appointment: "${person?.name || 'Selected candidate'}" is not an MLA from the government composition and cannot be appointed as ${roleTitle}.`;
         }
       }
     }
@@ -255,8 +219,6 @@ export const LeadershipCouncilModal: React.FC<LeadershipCouncilModalProps> = ({
       'deputySpeaker',
       'leaderOfOpposition',
       'deputyLeaderOfOpposition',
-      'leaderOfHouse',
-      'deputyLeaderOfHouse',
     ];
 
     for (const rKey of rule2Roles) {
@@ -265,7 +227,7 @@ export const LeadershipCouncilModal: React.FC<LeadershipCouncilModalProps> = ({
         if (!allMlaIds.has(pId)) {
           const roleTitle = COUNCIL_ROLES.find((r) => r.key === rKey)?.title || rKey;
           const person = persons.find((p) => p.id === pId);
-          return `Rule 2 Violation: "${person?.name || 'Selected candidate'}" is not an elected MLA of this assembly and cannot be appointed as ${roleTitle}.`;
+          return `Invalid Appointment: "${person?.name || 'Selected candidate'}" is not an elected MLA of this assembly and cannot be appointed as ${roleTitle}.`;
         }
       }
     }
@@ -292,13 +254,23 @@ export const LeadershipCouncilModal: React.FC<LeadershipCouncilModalProps> = ({
         leaderOfOpposition: draftLeaders.leaderOfOpposition || undefined,
         deputyLeaderOfOpposition: draftLeaders.deputyLeaderOfOpposition || undefined,
         chiefSecretary: draftLeaders.chiefSecretary || undefined,
-        leaderOfHouse: draftLeaders.leaderOfHouse || undefined,
-        deputyLeaderOfHouse: draftLeaders.deputyLeaderOfHouse || undefined,
       };
+
+      const newLeadershipDates = { ...(assembly.leadershipDates || {}) };
+      const now = Date.now();
+      
+      Object.entries(cleanLeaders).forEach(([key, val]) => {
+        if (val && val !== (assembly.leaders as any)[key]) {
+          newLeadershipDates[key] = now;
+        } else if (!val) {
+          delete newLeadershipDates[key];
+        }
+      });
 
       await db.assemblies.update(assembly.id, {
         leaders: cleanLeaders,
-        updatedAt: Date.now(),
+        leadershipDates: newLeadershipDates,
+        updatedAt: now,
       });
 
       setSuccessMessage('Leadership Council appointments saved successfully.');
@@ -385,28 +357,6 @@ export const LeadershipCouncilModal: React.FC<LeadershipCouncilModalProps> = ({
             </button>
           </div>
 
-          {/* Constitutional Rules Banner (Compact & High Contrast) */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-            <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/25 flex items-start gap-2">
-              <Scale size={15} className="text-amber-400 shrink-0 mt-0.5" />
-              <div>
-                <span className="font-bold text-amber-300 block">Rule 1: Government MLAs Only</span>
-                <span className="text-[11px] text-zinc-400 leading-tight">
-                  Chief Minister, Deputy CM, Speaker, & Deputy Speaker must be MLAs of the ruling government composition.
-                </span>
-              </div>
-            </div>
-
-            <div className="p-2.5 rounded-xl bg-blue-500/10 border border-blue-500/25 flex items-start gap-2">
-              <Users size={15} className="text-blue-400 shrink-0 mt-0.5" />
-              <div>
-                <span className="font-bold text-blue-300 block">Rule 2: Current Assembly Members Only</span>
-                <span className="text-[11px] text-zinc-400 leading-tight">
-                  Only current members of this assembly can hold leadership positions, except Chief Secretary (Civil Executive).
-                </span>
-              </div>
-            </div>
-          </div>
 
           {/* Government Strength & Stats Strip */}
           <div className="flex flex-wrap items-center justify-between gap-3 text-xs bg-white/[0.02] p-2.5 rounded-xl border border-white/5">
@@ -437,7 +387,7 @@ export const LeadershipCouncilModal: React.FC<LeadershipCouncilModalProps> = ({
             <div className="flex items-center gap-1.5 overflow-x-auto w-full sm:w-auto pb-1 sm:pb-0 no-scrollbar">
               {[
                 { id: 'all', label: 'All Roles', count: COUNCIL_ROLES.length },
-                { id: 'executive', label: 'Executive', count: 4 },
+                { id: 'executive', label: 'Executive', count: 2 },
                 { id: 'presiding', label: 'Presiding', count: 2 },
                 { id: 'opposition', label: 'Opposition', count: 2 },
                 { id: 'administration', label: 'Administration', count: 1 },
@@ -525,7 +475,7 @@ export const LeadershipCouncilModal: React.FC<LeadershipCouncilModalProps> = ({
                     categoryTitle={role.categoryTitle}
                     isGovMlaOnly={role.isGovMlaOnly}
                     isAssemblyMemberOnly={role.isAssemblyMemberOnly}
-                    badgeText={role.badgeText}
+                    badgeText={""}
                     badgeType={role.badgeType}
                     value={draftLeaders[role.key] || ''}
                     onChange={(newVal) => handleRoleChange(role.key, newVal)}
@@ -538,9 +488,7 @@ export const LeadershipCouncilModal: React.FC<LeadershipCouncilModalProps> = ({
                     allMlaIds={allMlaIds}
                     currentLeadersMap={draftLeaders}
                   />
-                  <p className="text-[10px] text-zinc-500 px-1 italic">
-                    {role.ruleDescription}
-                  </p>
+
                 </div>
               );
             })}

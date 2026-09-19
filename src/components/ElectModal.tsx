@@ -78,14 +78,19 @@ const SearchablePersonSelect: React.FC<SearchablePersonSelectProps> = ({
   // Filter persons based on search query
   const filteredPersons = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    const sorted = [...personsList].sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
+    const sorted = [...personsList].sort((a, b) =>
+      (a.name || "").localeCompare(b.name || "", undefined, { sensitivity: "base" })
+    );
+
     if (!q) return sorted;
 
+    const partiesMap = new Map<string, Party>(partiesList.map((p) => [p.id, p]));
+
     return sorted.filter((p) => {
-      const pParty = partiesList.find((prty) => prty.id === p.partyId);
-      const partyAbbr = (pParty?.abbreviation || p.partyId || '').toLowerCase();
-      const partyName = (pParty?.name || '').toLowerCase();
-      const name = (p.name || '').toLowerCase();
+      const pParty = partiesMap.get(p.partyId);
+      const partyAbbr = (pParty?.abbreviation || p.partyId || "").toLowerCase();
+      const partyName = (pParty?.name || "").toLowerCase();
+      const name = (p.name || "").toLowerCase();
       return name.includes(q) || partyAbbr.includes(q) || partyName.includes(q);
     });
   }, [personsList, partiesList, searchQuery]);
@@ -375,13 +380,18 @@ export const ElectModal: React.FC<ElectModalProps> = ({
   const quickFilteredPersons = useMemo(() => {
     const q = quickSearchQuery.trim().toLowerCase();
     if (!q) return [];
-    const sorted = [...personsList].sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
+    const sorted = [...personsList].sort((a, b) =>
+      (a.name || "").localeCompare(b.name || "", undefined, { sensitivity: "base" })
+    );
+
+    const partiesMap = new Map<string, Party>(partiesList.map((p) => [p.id, p]));
+
     return sorted
       .filter((p) => {
-        const prty = partiesList.find((pr) => pr.id === p.partyId);
-        const partyAbbr = (prty?.abbreviation || p.partyId || '').toLowerCase();
-        const partyName = (prty?.name || '').toLowerCase();
-        const name = (p.name || '').toLowerCase();
+        const prty = partiesMap.get(p.partyId);
+        const partyAbbr = (prty?.abbreviation || p.partyId || "").toLowerCase();
+        const partyName = (prty?.name || "").toLowerCase();
+        const name = (p.name || "").toLowerCase();
         return name.includes(q) || partyAbbr.includes(q) || partyName.includes(q);
       })
       .slice(0, 8);
@@ -837,7 +847,7 @@ export const ElectModal: React.FC<ElectModalProps> = ({
             <div className="flex flex-wrap items-center justify-between text-sm gap-2">
               <div>
                 <span className="text-white font-bold text-base">{winner.candidateName}</span>{' '}
-                <span className="text-blue-400 font-semibold">({winner.partyAbbreviation})</span>
+                <span className="text-[#FFD700] font-semibold">({winner.partyAbbreviation})</span>
               </div>
               <div className="text-right text-xs text-zinc-400">
                 Votes: <strong className="text-white font-mono">{typeof winner.votes === 'number' ? winner.votes.toLocaleString() : 0}</strong> | Margin: <strong className="text-[#FFD700] font-mono">{marginOfVictory.toLocaleString()}</strong>

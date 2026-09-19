@@ -108,10 +108,15 @@ export function computeAssemblyGovernmentComposition(
   const allMlaIds = new Set<string>();
   const incumbentPersons: Person[] = [];
 
+  // Create maps for faster lookups
+  const personsMap = new Map(persons.map(p => [p.id, p]));
+  const partiesMap = new Map(parties.map(p => [p.id, p]));
+  const alliancesMap = new Map(alliances.map(a => [a.id, a]));
+
   targetCs.forEach(c => {
     if (c.currentIncumbentId && c.currentIncumbentId !== 'vacant') {
       allMlaIds.add(c.currentIncumbentId);
-      const p = persons.find(person => person.id === c.currentIncumbentId);
+      const p = personsMap.get(c.currentIncumbentId);
       if (p) incumbentPersons.push(p);
     }
   });
@@ -136,12 +141,12 @@ export function computeAssemblyGovernmentComposition(
   } = {};
 
   incumbentPersons.forEach(person => {
-    const party = parties.find(p => p.id === person.partyId);
+    const party = partiesMap.get(person.partyId);
     let allianceId = party ? party.allianceId : 'independent';
 
     if (person.partyId === 'independent' && independentSupportMap[person.id]) {
       const supAllianceId = independentSupportMap[person.id];
-      if (alliances.some(a => a.id === supAllianceId)) {
+      if (alliancesMap.has(supAllianceId)) {
         allianceId = supAllianceId;
       }
     }
@@ -154,7 +159,7 @@ export function computeAssemblyGovernmentComposition(
       }
     }
 
-    const alliance = alliances.find(a => a.id === allianceId);
+    const alliance = alliancesMap.get(allianceId);
 
     if (!groups[allianceId]) {
       groups[allianceId] = {
@@ -220,7 +225,7 @@ export function computeAssemblyGovernmentComposition(
     const govParties = new Set<string>(government.parties.map(p => p.id));
 
     incumbentPersons.forEach(person => {
-      const party = parties.find(p => p.id === person.partyId);
+      const party = partiesMap.get(person.partyId);
       const supAllianceId = independentSupportMap[person.id];
 
       const isGov =
@@ -414,5 +419,64 @@ export function compareOrdersReverseChronological(a: LegislativeOrder, b: Legisl
 
   return (b.id || '').localeCompare(a.id || '');
 }
+
+/**
+ * Prefixes a role with "Hon'ble" if it's a ministerial or leadership role.
+ */
+export const prefixRole = (role: string): string => {
+  const trimmed = role.trim();
+  const lower = trimmed.toLowerCase();
+  
+  if (lower.startsWith("hon'ble") || lower.startsWith("honourable") || lower.startsWith("honorable")) {
+    return trimmed;
+  }
+
+  const isMinister = lower.includes("minister");
+  const isSpeaker = lower.includes("speaker");
+
+  if (isMinister || isSpeaker) {
+    let displayName = trimmed;
+    if (lower === "chiefminister" || lower === "chief minister") {
+      displayName = "Chief Minister";
+    } else if (lower === "deputychiefminister" || lower === "deputy chief minister") {
+      displayName = "Deputy Chief Minister";
+    } else if (lower === "speaker" || lower === "speaker of the house" || lower === "speaker of the assembly") {
+      displayName = "Speaker";
+    } else if (lower === "deputyspeaker" || lower === "deputy speaker" || lower === "deputy speaker of the assembly" || lower === "deputy speaker of the house") {
+      displayName = "Deputy Speaker";
+    } else {
+      displayName = trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+    }
+    
+    return `Hon'ble ${displayName}`;
+  }
+  return trimmed;
+};
+
+/**
+ * Formats a comma-separated list of roles with Hon'ble prefixes.
+ */
+export const formatCommaSeparatedRoles = (rolesStr: string): string => {
+  if (!rolesStr) return "";
+  return rolesStr.split(", ").map(r => prefixRole(r)).join(", ");
+};
+
+/**
+ * Formats a person's name with Shri/Smt prefix based on gender.
+ */
+export const formatPersonName = (name: string, gender?: string): string => {
+  if (!name) return "";
+  const trimmedName = name.trim();
+  const prefix = gender?.toLowerCase() === 'female' ? 'Smt.' : 'Shri';
+  
+  // Check if already has prefix
+  const hasPrefix = trimmedName.startsWith('Shri ') || 
+                    trimmedName.startsWith('Smt. ') || 
+                    trimmedName.startsWith('Shri.') ||
+                    trimmedName.startsWith('Smt ');
+                    
+  if (hasPrefix) return trimmedName;
+  return `${prefix} ${trimmedName}`;
+};
 
 

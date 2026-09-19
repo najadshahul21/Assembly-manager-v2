@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router';
 import { useDbLookup } from '../context/DbLookupContext';
 import { Person, Party, Alliance, Assembly, Designation, Constituency, EntityType } from '../types';
 import { db } from '../db';
+import { formatPersonName } from '../utils/governmentUtils';
 
 interface CardProps {
   entity: any;
@@ -223,7 +224,7 @@ export const EntityCard: React.FC<CardProps> = ({ entity, type, onDelete, onProm
         }
 
         return {
-          title: entity.name,
+          title: formatPersonName(entity.name, entity.gender),
           subtitle,
           image: entity.imageUrl,
           icon: User,
@@ -243,7 +244,7 @@ export const EntityCard: React.FC<CardProps> = ({ entity, type, onDelete, onProm
           subtitle: `${entity.abbreviation} Alliance`,
           image: entity.logoUrl,
           icon: Shield,
-          color: 'border-blue-500/20'
+          color: 'border-[#FFD700]/20'
         };
       case EntityType.ASSEMBLY:
         return {
@@ -353,13 +354,13 @@ export const EntityCard: React.FC<CardProps> = ({ entity, type, onDelete, onProm
            <motion.button 
              initial={{ opacity: 0, scale: 0.8 }}
              animate={{ opacity: 1, scale: 1 }}
-             whileHover={{ scale: 1.05, backgroundColor: 'rgba(59, 130, 246, 0.2)' }}
+             whileHover={{ scale: 1.05, backgroundColor: 'rgba(255, 215, 0, 0.2)' }}
              whileTap={{ scale: 0.95 }}
              onClick={(e) => {
                e.stopPropagation();
                onPromote(e);
              }}
-             className="px-3 py-1.5 bg-blue-500/10 rounded-xl text-blue-400 backdrop-blur-md border border-blue-500/30 hover:text-white flex items-center gap-2 transition-all shadow-xl font-black text-[9px] uppercase tracking-[0.1em]"
+             className="px-3 py-1.5 bg-[#FFD700]/10 rounded-xl text-[#FFD700] backdrop-blur-md border border-[#FFD700]/30 hover:text-white flex items-center gap-2 transition-all shadow-xl font-black text-[9px] uppercase tracking-[0.1em]"
            >
               <Shield size={12} strokeWidth={3} />
               <span>Promote</span>
@@ -436,7 +437,7 @@ export const EntityCard: React.FC<CardProps> = ({ entity, type, onDelete, onProm
           <div className="flex gap-4 mt-3">
             <div className="flex flex-col">
               <span className="text-[10px] text-gray-500 font-black uppercase tracking-widest">Parties</span>
-              <span className="text-xs font-bold text-blue-400">{allianceStats.partyCount}</span>
+              <span className="text-xs font-bold text-[#FFD700]">{allianceStats.partyCount}</span>
             </div>
             <div className="flex flex-col">
               <span className="text-[10px] text-gray-500 font-black uppercase tracking-widest">Members</span>
@@ -445,7 +446,7 @@ export const EntityCard: React.FC<CardProps> = ({ entity, type, onDelete, onProm
             {allianceStats.leadingParty && (
               <div className="flex flex-col border-l border-white/5 pl-4">
                 <span className="text-[10px] text-[#FFD700] font-black uppercase tracking-widest">Lead</span>
-                <span className="text-xs font-bold text-blue-400">{allianceStats.leadingParty.abbreviation}</span>
+                <span className="text-xs font-bold text-[#FFD700]">{allianceStats.leadingParty.abbreviation}</span>
               </div>
             )}
           </div>

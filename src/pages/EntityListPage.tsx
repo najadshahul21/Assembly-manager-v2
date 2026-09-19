@@ -67,7 +67,7 @@ export const EntityListPage: React.FC<ListPageProps> = ({ type, searchQuery = ''
       case EntityType.DESIGNATION: {
         const list = await db.designations.toArray();
         results = list
-          .filter(e => !e.constituencyId)
+          .filter(e => !e.constituencyId && e.id !== 'governor')
           .sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
         break;
       }
@@ -113,7 +113,7 @@ export const EntityListPage: React.FC<ListPageProps> = ({ type, searchQuery = ''
   };
 
   const config = {
-    [EntityType.PERSON]: { title: 'Legislators', icon: User, color: 'text-blue-400' },
+    [EntityType.PERSON]: { title: 'Legislators', icon: User, color: 'text-[#FFD700]' },
     [EntityType.PARTY]: { title: 'Political Parties', icon: Flag, color: 'text-[#D32F2F]' },
     [EntityType.ALLIANCE]: { title: 'Strategic Alliances', icon: Shield, color: 'text-purple-400' },
     [EntityType.ASSEMBLY]: { title: 'Legislative Bodies', icon: Landmark, color: 'text-[#FFD700]' },

@@ -29,6 +29,15 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSearch, onPlusClick 
     { title: 'Constituencies', icon: MapPin, path: '/constituencies' },
   ];
 
+  const [showSlowLoad, setShowSlowLoad] = useState(false);
+
+  React.useEffect(() => {
+    const timer = setTimeout(() => {
+      if (!loaded) setShowSlowLoad(true);
+    }, 4000);
+    return () => clearTimeout(timer);
+  }, [loaded]);
+
   if (!loaded) {
     return (
       <div className="flex flex-col items-center justify-center h-screen bg-[#050505] text-white">
@@ -47,20 +56,19 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSearch, onPlusClick 
             <h1 className="text-2xl font-black tracking-[0.15em] uppercase gold-text">ASSEMBLY MANAGER</h1>
             <p className="text-xs text-gray-500 uppercase tracking-[0.2em]">Legislative Management Registry</p>
           </div>
-          <div className="flex justify-center pt-4">
+          <div className="flex flex-col items-center gap-4 pt-4">
             <div className="w-24 h-1 bg-white/5 rounded-full overflow-hidden relative">
-              <motion.div
-                className="absolute top-0 bottom-0 left-0 bg-[#FFD700] w-1/3"
-                animate={{
-                  left: ["-100%", "100%"],
-                }}
-                transition={{
-                  repeat: Infinity,
-                  duration: 1.5,
-                  ease: "easeInOut"
-                }}
-              />
+              <div className="absolute top-0 bottom-0 left-0 bg-[#FFD700] w-1/3 animate-loading-bar" />
             </div>
+            {showSlowLoad && (
+              <motion.p 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="text-[10px] text-zinc-500 uppercase tracking-[0.2em] animate-pulse"
+              >
+                Initializing Secure Database...
+              </motion.p>
+            )}
           </div>
         </motion.div>
       </div>

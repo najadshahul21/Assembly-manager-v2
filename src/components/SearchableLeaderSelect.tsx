@@ -219,12 +219,6 @@ export const SearchableLeaderSelect: React.FC<SearchableLeaderSelectProps> = ({
               {roleTitle}
             </span>
           </div>
-
-          <div
-            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider border shrink-0 ${badgeConfig.bg} ${badgeConfig.border} ${badgeConfig.text}`}
-          >
-            <span>{badgeText}</span>
-          </div>
         </div>
 
         {/* Slot Body: Active Person or Vacant Action */}
@@ -278,12 +272,6 @@ export const SearchableLeaderSelect: React.FC<SearchableLeaderSelectProps> = ({
                     ) : (
                       <span className="text-cyan-400 font-medium">
                         Administrative Head
-                      </span>
-                    )}
-
-                    {isGovMlaOnly && governmentMlaIds.has(selectedPerson.id) && (
-                      <span className="text-[9px] text-[#FFD700] font-black uppercase tracking-tighter shrink-0 bg-[#FFD700]/10 px-1 py-0.2 rounded border border-[#FFD700]/20">
-                        Govt Bloc
                       </span>
                     )}
                   </div>
@@ -361,13 +349,6 @@ export const SearchableLeaderSelect: React.FC<SearchableLeaderSelectProps> = ({
                     <h3 className="text-base font-black uppercase tracking-tight text-white">
                       Appoint {roleTitle}
                     </h3>
-                    <p className="text-xs text-zinc-400">
-                      {isGovMlaOnly
-                        ? 'Rule 1: Select an MLA from the ruling government composition'
-                        : isAssemblyMemberOnly
-                        ? 'Rule 2: Select an elected member of this assembly'
-                        : 'Administrative designation: Any qualified individual can be appointed'}
-                    </p>
                   </div>
                 </div>
 
@@ -559,14 +540,10 @@ export const SearchableLeaderSelect: React.FC<SearchableLeaderSelectProps> = ({
                   <p className="text-xs text-zinc-300 font-bold">
                     {searchQuery
                       ? `No candidates match "${searchQuery}"`
-                      : isGovMlaOnly
-                      ? 'No Government MLAs available in this assembly'
                       : 'No eligible members found'}
                   </p>
                   <p className="text-[10px] text-zinc-500 mt-1 max-w-xs mx-auto leading-relaxed">
-                    {isGovMlaOnly
-                      ? 'Rule 1: Appointed strictly from elected MLAs belonging to the ruling government composition.'
-                      : 'Rule 2: Appointed from current members of this legislative assembly.'}
+                    Search and appoint a qualified candidate for this role.
                   </p>
                 </div>
               )}

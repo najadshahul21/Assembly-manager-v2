@@ -211,7 +211,7 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({ searchQuery = '' }) => {
       case 'governor':
         return { label: 'Gubernatorial', icon: Shield, color: 'text-amber-400 bg-amber-500/10 border-amber-500/20' };
       case 'cabinet':
-        return { label: 'Executive & Cabinet', icon: Landmark, color: 'text-blue-400 bg-blue-500/10 border-blue-500/20' };
+        return { label: 'Executive & Cabinet', icon: Landmark, color: 'text-[#FFD700] bg-[#FFD700]/10 border-[#FFD700]/20' };
       case 'speaker':
         return { label: 'Assembly Secretariat', icon: Building2, color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' };
       case 'mla':
@@ -260,11 +260,11 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({ searchQuery = '' }) => {
           <span className="text-2xl font-black gold-text mt-1">{stats.total}</span>
         </div>
         <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/10 flex flex-col">
-          <span className="text-[10px] text-blue-400 uppercase font-bold tracking-widest">Executive / Cabinet</span>
-          <span className="text-2xl font-black text-blue-300 mt-1">{stats.executive}</span>
+          <span className="text-[10px] text-white uppercase font-bold tracking-widest">Executive / Cabinet</span>
+          <span className="text-2xl font-black text-[#FFD700] mt-1">{stats.executive}</span>
         </div>
         <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/10 flex flex-col">
-          <span className="text-[10px] text-[#FFD700] uppercase font-bold tracking-widest">MLAs & Speaker</span>
+          <span className="text-[10px] text-white uppercase font-bold tracking-widest">MLAs & Speaker</span>
           <span className="text-2xl font-black text-yellow-300 mt-1">{stats.legislative}</span>
         </div>
         <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/10 flex flex-col">
@@ -684,7 +684,7 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({ searchQuery = '' }) => {
 
                 {/* Order Text */}
                 <div className="space-y-4">
-                  <h4 className="text-xs uppercase tracking-widest text-gray-400 font-bold">Order Text & Directives</h4>
+                  <h4 className="text-xs uppercase tracking-widest text-white font-bold">Order Text & Directives</h4>
                   <div className="p-5 rounded-2xl bg-black/40 border border-white/5 text-sm text-gray-200 leading-relaxed font-sans whitespace-pre-wrap">
                     {renderFormattedOrderContent(viewingOrder.content, false)}
                   </div>
@@ -693,7 +693,7 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({ searchQuery = '' }) => {
                 {/* Linked Persons */}
                 {viewingOrder.taggedPersonIds && viewingOrder.taggedPersonIds.length > 0 && (
                   <div className="space-y-3 pt-2">
-                    <h4 className="text-xs uppercase tracking-widest text-gray-400 font-bold flex items-center gap-1.5">
+                    <h4 className="text-xs uppercase tracking-widest text-white font-bold flex items-center gap-1.5">
                       <AtSign size={14} className="text-[#FFD700]" /> Mentioned Officials & Stakeholders
                     </h4>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">

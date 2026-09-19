@@ -13,12 +13,20 @@ import {
   AlertCircle,
   Sparkles,
 } from "lucide-react";
+import {
+  prefixRole,
+  formatPersonName,
+} from "../utils/governmentUtils";
 
 export interface AssemblySeatItem {
   constituency: Constituency;
-  politician?: Person;
-  party?: Party;
-  alliance?: Alliance;
+  incumbents: {
+    person: Person;
+    party?: Party;
+    alliance?: Alliance;
+    reason?: string;
+    isByelected?: boolean;
+  }[];
 }
 
 interface AssemblyMembersTableProps {
@@ -44,12 +52,17 @@ interface ProcessedRow {
     baseName: string;
     categoryTag?: string;
   };
-  politician?: {
+  incumbents: {
     id: string;
     name: string;
+    gender: string;
     partyId?: string;
     isIndependent: boolean;
-  };
+    reason?: string;
+    isByelected?: boolean;
+    remarks: string[];
+    hasMinisterRole: boolean;
+  }[];
   party?: {
     id: string;
     name: string;
@@ -86,15 +99,26 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
   const leaderRoleTitles: Record<string, string> = {
     speaker: "Speaker",
     deputySpeaker: "Deputy Speaker",
-    leaderOfHouse: "Leader of the House",
     chiefMinister: "Chief Minister",
-    deputyLeaderOfHouse: "Deputy Leader of the House",
     deputyChiefMinister: "Deputy Chief Minister",
     leaderOfOpposition: "Leader of the Opposition",
     deputyLeaderOfOpposition: "Deputy Leader of the Opposition",
     chiefWhip: "Chief Whip",
     chiefSecretary: "Chief Secretary",
   };
+
+  // Pre-compute designations map for faster lookups in the loop
+  const designationsByIncumbentMap = useMemo(() => {
+    const map = new Map<string, Designation[]>();
+    (designationsList || []).forEach(d => {
+      if (d.assemblyId === assembly.id && d.incumbentId && d.incumbentId !== 'vacant') {
+        const existing = map.get(d.incumbentId) || [];
+        existing.push(d);
+        map.set(d.incumbentId, existing);
+      }
+    });
+    return map;
+  }, [designationsList, assembly.id]);
 
   // Helper to extract roles/remarks for a politician in this assembly
   const getRemarksForPolitician = (p?: Person): { remarks: string[]; hasMinisterRole: boolean } => {
@@ -108,7 +132,10 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
       Object.entries(assembly.leaders).forEach(([key, leaderId]) => {
         if (leaderId === p.id) {
           const title = leaderRoleTitles[key] || key.replace(/([A-Z])/g, " $1").trim();
-          remarksSet.add(title);
+          // Filter out "Leader of the House"
+          if (title.toLowerCase() !== "leader of the house") {
+            remarksSet.add(title);
+          }
         }
       });
     }
@@ -119,8 +146,9 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
       customRoles.forEach((r) => {
         const trimmed = r.trim();
         if (!trimmed) return;
-        // Do not display "MLA for <Constituency>" in remarks since the table already has Constituency
-        if (trimmed.toLowerCase().startsWith("mla for") || trimmed.toLowerCase().startsWith("hon'ble mla for")) {
+        
+        // Filter out "Leader of the House"
+        if (trimmed.toLowerCase() === "leader of the house") {
           return;
         }
         if (trimmed.toLowerCase().includes("minister")) {
@@ -130,16 +158,15 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
       });
     }
 
-    // 3. Designations in the assembly
-    designationsList.forEach((d) => {
-      if (d.assemblyId === assembly.id && d.incumbentId === p.id) {
-        const trimmed = d.name.trim();
-        if (!trimmed.toLowerCase().startsWith("mla for")) {
-          if (trimmed.toLowerCase().includes("minister")) {
-            hasMinister = true;
-          }
-          remarksSet.add(trimmed);
+    // 3. Designations in the assembly (using optimized map)
+    const personDesignations = designationsByIncumbentMap.get(p.id) || [];
+    personDesignations.forEach((d) => {
+      const trimmed = d.name.trim();
+      if (!trimmed.toLowerCase().startsWith("mla for")) {
+        if (trimmed.toLowerCase().includes("minister")) {
+          hasMinister = true;
         }
+        remarksSet.add(trimmed);
       }
     });
 
@@ -165,48 +192,71 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
         baseName = baseName.replace(tagMatch[0], "").trim();
       }
 
-      const p = seat.politician;
+      const incumbents = (seat.incumbents || []).map(inc => {
+        const p = inc.person;
+        const isIndependent = p.partyId === "independent";
+        const { remarks, hasMinisterRole } = getRemarksForPolitician(p);
+        
+        return {
+          id: p.id,
+          name: p.name,
+          gender: p.gender,
+          partyId: p.partyId,
+          isIndependent,
+          reason: inc.reason,
+          isByelected: inc.isByelected,
+          remarks,
+          hasMinisterRole
+        };
+      });
+
+      // Primary incumbent (current or most recent)
+      const primaryInc = incumbents[incumbents.length - 1];
+      const p = seat.incumbents?.[seat.incumbents.length - 1]?.person;
       const isIndependent = p?.partyId === "independent";
-      const { remarks, hasMinisterRole } = getRemarksForPolitician(p);
 
       // Party information
       let partyObj: ProcessedRow["party"] = undefined;
-      if (p) {
-        if (isIndependent) {
+      if (primaryInc) {
+        if (primaryInc.isIndependent) {
           partyObj = {
             id: "independent",
             name: "Independent",
             abbreviation: "IND",
             color: "#6b7280",
           };
-        } else if (seat.party) {
-          partyObj = {
-            id: seat.party.id,
-            name: seat.party.name,
-            abbreviation: seat.party.abbreviation || seat.party.name,
-            color: seat.party.colors?.[0] || "#ef4444",
-          };
+        } else {
+          const primarySeatInc = seat.incumbents[seat.incumbents.length - 1];
+          if (primarySeatInc.party) {
+            partyObj = {
+              id: primarySeatInc.party.id,
+              name: primarySeatInc.party.name,
+              abbreviation: primarySeatInc.party.abbreviation || primarySeatInc.party.name,
+              color: primarySeatInc.party.colors?.[0] || "#ef4444",
+            };
+          }
         }
       }
 
       // Alliance information
       let allianceObj: ProcessedRow["alliance"] = undefined;
-      if (p) {
-        if (seat.alliance && seat.alliance.id !== "independent") {
+      if (primaryInc) {
+        const primarySeatInc = seat.incumbents[seat.incumbents.length - 1];
+        if (primarySeatInc.alliance && primarySeatInc.alliance.id !== "independent") {
           allianceObj = {
-            id: seat.alliance.id,
-            name: seat.alliance.name,
-            abbreviation: seat.alliance.abbreviation || seat.alliance.name,
-            color: seat.alliance.colors?.[0] || "#3b82f6",
+            id: primarySeatInc.alliance.id,
+            name: primarySeatInc.alliance.name,
+            abbreviation: primarySeatInc.alliance.abbreviation || primarySeatInc.alliance.name,
+            color: primarySeatInc.alliance.colors?.[0] || "#3b82f6",
           };
-        } else if (assembly.independentSupports?.[p.id]) {
-          const supId = assembly.independentSupports[p.id];
-          if (seat.alliance && seat.alliance.id === supId) {
+        } else if (assembly.independentSupports?.[primaryInc.id]) {
+          const supId = assembly.independentSupports[primaryInc.id];
+          if (primarySeatInc.alliance && primarySeatInc.alliance.id === supId) {
             allianceObj = {
-              id: seat.alliance.id,
-              name: seat.alliance.name,
-              abbreviation: seat.alliance.abbreviation || seat.alliance.name,
-              color: seat.alliance.colors?.[0] || "#3b82f6",
+              id: primarySeatInc.alliance.id,
+              name: primarySeatInc.alliance.name,
+              abbreviation: primarySeatInc.alliance.abbreviation || primarySeatInc.alliance.name,
+              color: primarySeatInc.alliance.colors?.[0] || "#3b82f6",
             };
           }
         }
@@ -220,10 +270,11 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
       if (!govAllianceId && seats && seats.length > 0) {
         const groupCounts: Record<string, number> = {};
         seats.forEach(s => {
-          if (s.politician) {
-            let aId = s.alliance ? s.alliance.id : (s.party?.allianceId || s.party?.id || 'independent');
-            if (s.politician.partyId === 'independent' && assembly.independentSupports?.[s.politician.id]) {
-              aId = assembly.independentSupports[s.politician.id];
+          const mainInc = s.incumbents?.[s.incumbents.length - 1];
+          if (mainInc) {
+            let aId = mainInc.alliance ? mainInc.alliance.id : (mainInc.party?.allianceId || mainInc.party?.id || 'independent');
+            if (mainInc.person.partyId === 'independent' && assembly.independentSupports?.[mainInc.person.id]) {
+              aId = assembly.independentSupports[mainInc.person.id];
             }
             groupCounts[aId] = (groupCounts[aId] || 0) + 1;
           }
@@ -233,14 +284,15 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
       }
 
       let isGovernmentMember = false;
-      if (p && govAllianceId) {
-        if (isIndependent) {
-          const sup = assembly.independentSupports?.[p.id];
+      if (primaryInc && govAllianceId) {
+        const primarySeatInc = seat.incumbents[seat.incumbents.length - 1];
+        if (primaryInc.isIndependent) {
+          const sup = assembly.independentSupports?.[primaryInc.id];
           isGovernmentMember = sup === govAllianceId;
         } else {
           isGovernmentMember =
-            (seat.alliance && seat.alliance.id === govAllianceId) ||
-            (seat.party && (seat.party.allianceId === govAllianceId || govParties.has(seat.party.id) || seat.party.id === govAllianceId));
+            (primarySeatInc.alliance && primarySeatInc.alliance.id === govAllianceId) ||
+            (primarySeatInc.party && (primarySeatInc.party.allianceId === govAllianceId || govParties.has(primarySeatInc.party.id) || primarySeatInc.party.id === govAllianceId));
         }
       }
 
@@ -254,18 +306,11 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
           baseName,
           categoryTag,
         },
-        politician: p
-          ? {
-              id: p.id,
-              name: p.name,
-              partyId: p.partyId,
-              isIndependent,
-            }
-          : undefined,
+        incumbents,
         party: partyObj,
         alliance: allianceObj,
-        remarks,
-        hasMinisterRole,
+        remarks: incumbents.flatMap(inc => inc.remarks),
+        hasMinisterRole: incumbents.some(inc => inc.hasMinisterRole),
         isGovernmentMember,
       };
     });
@@ -287,9 +332,9 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
 
     // Filter by tab
     if (activeFilter === "occupied") {
-      list = list.filter((r) => !!r.politician);
+      list = list.filter((r) => r.incumbents.length > 0);
     } else if (activeFilter === "vacant") {
-      list = list.filter((r) => !r.politician);
+      list = list.filter((r) => r.incumbents.length === 0);
     } else if (activeFilter === "remarks") {
       list = list.filter((r) => r.remarks.length > 0);
     }
@@ -301,7 +346,7 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
         return (
           r.slNoDisplay.includes(q) ||
           r.constituency.fullName.toLowerCase().includes(q) ||
-          (r.politician && r.politician.name.toLowerCase().includes(q)) ||
+          r.incumbents.some(inc => inc.name.toLowerCase().includes(q)) ||
           (r.party && (r.party.abbreviation.toLowerCase().includes(q) || r.party.name.toLowerCase().includes(q))) ||
           (r.alliance && (r.alliance.abbreviation.toLowerCase().includes(q) || r.alliance.name.toLowerCase().includes(q))) ||
           r.remarks.some((rem) => rem.toLowerCase().includes(q))
@@ -320,10 +365,12 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
           cmp = a.constituency.baseName.localeCompare(b.constituency.baseName, undefined, { sensitivity: "base" });
           break;
         case "name":
-          if (!a.politician && !b.politician) cmp = a.slNo - b.slNo;
-          else if (!a.politician) cmp = 1;
-          else if (!b.politician) cmp = -1;
-          else cmp = a.politician.name.localeCompare(b.politician.name, undefined, { sensitivity: "base" });
+          const nameA = a.incumbents.map(i => i.name).join(" ");
+          const nameB = b.incumbents.map(i => i.name).join(" ");
+          if (nameA === "" && nameB === "") cmp = a.slNo - b.slNo;
+          else if (nameA === "") cmp = 1;
+          else if (nameB === "") cmp = -1;
+          else cmp = nameA.localeCompare(nameB, undefined, { sensitivity: "base" });
           break;
         case "party":
           const partyA = a.party?.abbreviation || "ZZZ";
@@ -360,7 +407,7 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
     let i = 0;
     while (i < filteredAndSortedRows.length) {
       const row = filteredAndSortedRows[i];
-      if (!row.politician || !row.party) {
+      if (row.incumbents.length === 0 || !row.party) {
         pSpans[i] = 1;
         i++;
         continue;
@@ -369,7 +416,7 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
       let count = 1;
       while (
         i + count < filteredAndSortedRows.length &&
-        filteredAndSortedRows[i + count].politician &&
+        filteredAndSortedRows[i + count].incumbents.length > 0 &&
         filteredAndSortedRows[i + count].party &&
         `${filteredAndSortedRows[i + count].party?.id}-${filteredAndSortedRows[i + count].party?.abbreviation}` === partyKey
       ) {
@@ -386,7 +433,7 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
     i = 0;
     while (i < filteredAndSortedRows.length) {
       const row = filteredAndSortedRows[i];
-      if (!row.politician || !row.alliance) {
+      if (row.incumbents.length === 0 || !row.alliance) {
         aSpans[i] = 1;
         i++;
         continue;
@@ -395,7 +442,7 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
       let count = 1;
       while (
         i + count < filteredAndSortedRows.length &&
-        filteredAndSortedRows[i + count].politician &&
+        filteredAndSortedRows[i + count].incumbents.length > 0 &&
         filteredAndSortedRows[i + count].alliance &&
         `${filteredAndSortedRows[i + count].alliance?.id}-${filteredAndSortedRows[i + count].alliance?.abbreviation}` === allianceKey
       ) {
@@ -412,8 +459,8 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
   }, [filteredAndSortedRows]);
 
   // Counts for summary tags
-  const occupiedCount = processedRows.filter((r) => !!r.politician).length;
-  const vacantCount = processedRows.filter((r) => !r.politician).length;
+  const occupiedCount = processedRows.filter((r) => r.incumbents.length > 0).length;
+  const vacantCount = processedRows.filter((r) => r.incumbents.length === 0).length;
   const ministersCount = processedRows.filter((r) => r.remarks.length > 0).length;
 
   return (
@@ -426,7 +473,7 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
             onClick={() => setActiveFilter("all")}
             className={`px-3 py-1.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all whitespace-nowrap ${
               activeFilter === "all"
-                ? "bg-[#FFD700] text-black shadow-md shadow-[#FFD700]/20"
+                ? "bg-[#60a5fa] text-black shadow-md shadow-[#60a5fa]/20"
                 : "bg-white/5 text-gray-400 hover:text-white hover:bg-white/10"
             }`}
           >
@@ -462,8 +509,8 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
               onClick={() => setActiveFilter("remarks")}
               className={`px-3 py-1.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all whitespace-nowrap ${
                 activeFilter === "remarks"
-                  ? "bg-sky-500 text-white shadow-md shadow-sky-500/20"
-                  : "bg-white/5 text-sky-400 hover:text-sky-300 hover:bg-sky-500/10"
+                  ? "bg-[#60a5fa] text-white shadow-md shadow-[#60a5fa]/20"
+                  : "bg-white/5 text-[#60a5fa] hover:text-[#60a5fa] hover:bg-[#60a5fa]/10"
               }`}
             >
               Leaders & Ministers ({ministersCount})
@@ -479,7 +526,7 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
             placeholder="Search member, constituency, party..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-9 pr-3 py-1.5 bg-black/40 border border-white/10 rounded-xl text-xs text-white placeholder-gray-500 focus:outline-none focus:border-[#FFD700]/50 transition-colors"
+            className="w-full pl-9 pr-3 py-1.5 bg-black/40 border border-white/10 rounded-xl text-xs text-white placeholder-gray-500 focus:outline-none focus:border-[#60a5fa]/50 transition-colors"
           />
           {searchTerm && (
             <button
@@ -493,12 +540,12 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
       </div>
 
       {/* Main Legislative Table Container */}
-      <div className="bg-[#121418] border border-[#272b35] rounded-2xl overflow-hidden shadow-2xl">
+      <div className="bg-[#0d1117] border border-[#272b35] rounded-2xl overflow-hidden shadow-2xl">
         <div className="overflow-x-auto">
           <table className="w-full border-collapse text-left select-text">
             {/* Table Header */}
             <thead>
-              <tr className="bg-[#1b1e25] text-gray-200 text-xs font-bold tracking-wide border-b border-[#2d323c]">
+              <tr className="bg-[#1a1d23] text-gray-300 text-xs font-bold tracking-wide border-b border-[#2d323c]">
                 {/* No. Column */}
                 <th
                   onClick={() => handleSort("no")}
@@ -507,7 +554,7 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
                   <div className="flex items-center justify-center gap-1">
                     <span>No.</span>
                     {sortColumn === "no" ? (
-                      sortDirection === "asc" ? <ArrowUp size={12} className="text-[#FFD700]" /> : <ArrowDown size={12} className="text-[#FFD700]" />
+                      sortDirection === "asc" ? <ArrowUp size={12} className="text-[#60a5fa]" /> : <ArrowDown size={12} className="text-[#60a5fa]" />
                     ) : (
                       <ArrowUpDown size={11} className="text-gray-500 opacity-60" />
                     )}
@@ -522,7 +569,7 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
                   <div className="flex items-center gap-1.5">
                     <span>Constituency</span>
                     {sortColumn === "constituency" ? (
-                      sortDirection === "asc" ? <ArrowUp size={12} className="text-[#FFD700]" /> : <ArrowDown size={12} className="text-[#FFD700]" />
+                      sortDirection === "asc" ? <ArrowUp size={12} className="text-[#60a5fa]" /> : <ArrowDown size={12} className="text-[#60a5fa]" />
                     ) : (
                       <ArrowUpDown size={11} className="text-gray-500 opacity-60" />
                     )}
@@ -537,7 +584,7 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
                   <div className="flex items-center gap-1.5">
                     <span>Name</span>
                     {sortColumn === "name" ? (
-                      sortDirection === "asc" ? <ArrowUp size={12} className="text-[#FFD700]" /> : <ArrowDown size={12} className="text-[#FFD700]" />
+                      sortDirection === "asc" ? <ArrowUp size={12} className="text-[#60a5fa]" /> : <ArrowDown size={12} className="text-[#60a5fa]" />
                     ) : (
                       <ArrowUpDown size={11} className="text-gray-500 opacity-60" />
                     )}
@@ -603,7 +650,7 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
                     className="border-b border-[#242832] hover:bg-white/[0.025] transition-colors group"
                   >
                     {/* 1. No. Cell */}
-                    <td className="px-3 py-2.5 text-center font-bold text-white text-xs sm:text-sm border-r border-[#242832] bg-[#14161b]">
+                    <td className="px-3 py-2.5 text-center font-bold text-gray-300 text-xs sm:text-sm border-r border-[#242832] bg-[#0d1117]">
                       {row.slNoDisplay}
                     </td>
 
@@ -613,12 +660,12 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
                         <button
                           type="button"
                           onClick={() => navigate(`/constituency/${row.constituency.id}`)}
-                          className="text-sky-400 hover:text-sky-300 hover:underline transition-colors text-left"
+                          className="text-[#60a5fa] hover:text-[#93c5fd] transition-colors text-left"
                         >
                           {row.constituency.baseName}
                         </button>
                         {row.constituency.categoryTag && (
-                          <span className="text-gray-300 font-normal">
+                          <span className="text-gray-400 font-normal">
                             {row.constituency.categoryTag}
                           </span>
                         )}
@@ -627,32 +674,73 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
 
                     {/* 3. Name Cell */}
                     <td className="px-4 py-2.5 text-xs sm:text-sm font-medium border-r border-[#242832]">
-                      {row.politician ? (
-                        <div className="flex items-center justify-between gap-2">
-                          <button
-                            type="button"
-                            onClick={() => navigate(`/person/${row.politician!.id}`)}
-                            className="text-sky-400 hover:text-sky-300 hover:underline transition-colors text-left"
-                          >
-                            {row.politician.name}
-                          </button>
-                          {/* Quick support alliance button for independents */}
-                          {!isDissolved && row.politician.isIndependent && onSupportAlliance && (
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                onSupportAlliance(row.politician!.id, row.politician!.name);
-                              }}
-                              className="opacity-0 group-hover:opacity-100 text-[10px] bg-white/5 hover:bg-[#FFD700]/20 text-[#FFD700] px-1.5 py-0.5 rounded border border-[#FFD700]/30 transition-all"
-                              title="Set alliance support"
-                            >
-                              Support Alliance
-                            </button>
-                          )}
+                      {row.incumbents.length > 0 ? (
+                        <div className="flex flex-col gap-2">
+                          {row.incumbents.map((inc, iIdx) => {
+                            const isPrimary = iIdx === row.incumbents.length - 1;
+                            const rawReason = inc.reason || '';
+                            const isElection = rawReason === 'election' || rawReason === 'appointment';
+                            const isResigned = rawReason.toLowerCase().includes('resign');
+                            const isExpired = !isElection && !isResigned && rawReason.length > 0;
+                            
+                            const reasonLabel = isResigned ? "Resigned" : (isExpired ? "Expired" : "");
+                            const dateStr = inc.removalDate ? ` on ${new Date(inc.removalDate).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '-')}` : '';
+                            const assuDateStr = inc.electionDate ? ` on ${new Date(inc.electionDate).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '-')}` : '';
+                            
+                            return (
+                              <div key={inc.id} className="flex flex-col">
+                                <div className="flex items-center justify-between gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => navigate(`/person/${inc.id}`)}
+                                    className="text-[#0ea5e9] hover:text-[#38bdf8] transition-colors text-left"
+                                  >
+                                    {formatPersonName(inc.name, inc.gender)}
+                                  </button>
+                                  
+                                  {isPrimary && !isDissolved && inc.isIndependent && onSupportAlliance && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        onSupportAlliance(inc.id, inc.name);
+                                      }}
+                                      className="opacity-0 group-hover:opacity-100 text-[10px] bg-white/5 hover:bg-[#FFD700]/20 text-[#FFD700] px-1.5 py-0.5 rounded border border-[#FFD700]/30 transition-all"
+                                      title="Set alliance support"
+                                    >
+                                      Support Alliance
+                                    </button>
+                                  )}
+                                </div>
+                                
+                                {reasonLabel && (
+                                  <span className="text-[10px] text-red-500 font-bold leading-none mt-1">
+                                    ({reasonLabel}{dateStr})
+                                  </span>
+                                )}
+                                
+                                {inc.isByelected && (
+                                  <span className="text-[10px] text-emerald-500 font-bold leading-none mt-1 italic">
+                                    (Assumed office{inc.electionDate ? ` on ${(() => {
+                                      const d = new Date(inc.electionDate);
+                                      const day = d.getDate();
+                                      const month = d.toLocaleString('en-GB', { month: 'long' });
+                                      const year = d.getFullYear();
+                                      const getOrdinal = (n: number) => {
+                                        const s = ['th', 'st', 'nd', 'rd'];
+                                        const v = n % 100;
+                                        return n + (s[(v - 20) % 10] || s[v] || s[0]);
+                                      };
+                                      return `${getOrdinal(day)} ${month} ${year}`;
+                                    })()}` : ' as Bye Elected'})
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })}
                         </div>
                       ) : (
-                        <span className="text-red-400/90 italic text-xs font-normal">
+                        <span className="text-[#ef4444] italic text-xs font-semibold uppercase tracking-wider">
                           Vacant
                         </span>
                       )}
@@ -665,7 +753,7 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
                         style={{
                           borderLeft: row.party ? `8px solid ${row.party.color}` : "8px solid transparent",
                         }}
-                        className="px-3 py-2.5 text-xs sm:text-sm font-bold text-gray-200 border-r border-[#242832] bg-[#14161b] align-middle"
+                        className="px-3 py-2.5 text-xs sm:text-sm font-bold text-gray-300 border-r border-[#242832] bg-[#0d1117] align-middle"
                       >
                         {row.party ? (
                           row.party.id === "independent" ? (
@@ -692,7 +780,7 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
                         style={{
                           borderLeft: row.alliance ? `8px solid ${row.alliance.color}` : "8px solid transparent",
                         }}
-                        className="px-3 py-2.5 text-xs sm:text-sm font-bold text-gray-200 border-r border-[#242832] bg-[#14161b] align-middle"
+                        className="px-3 py-2.5 text-xs sm:text-sm font-bold text-gray-300 border-r border-[#242832] bg-[#0d1117] align-middle"
                       >
                         {row.alliance ? (
                           <button
@@ -710,19 +798,22 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
 
                     {/* 6. Remarks Cell */}
                     <td className="px-4 py-2.5 text-xs sm:text-sm text-gray-300 font-normal">
-                      <div className="flex items-center justify-between gap-2 min-h-[22px]">
+                      <div className="flex items-center justify-between gap-3 min-h-[32px] w-full">
                         {row.remarks.length > 0 ? (
-                          <div className="space-y-0.5">
+                          <div className="space-y-0.5 flex-1">
                             {row.remarks.map((remark, rIdx) => {
                               const isOppLeader = remark.toLowerCase().includes("opposition");
                               const isHouseLeader = remark.toLowerCase().includes("leader of the house") || remark.toLowerCase().includes("chief minister");
                               const isSpeaker = remark.toLowerCase().includes("speaker");
+                              const isMinister = remark.toLowerCase().includes("minister");
 
-                              if (isOppLeader || isHouseLeader || isSpeaker) {
+                              if (isOppLeader || isHouseLeader || isSpeaker || isMinister) {
                                 return (
                                   <div
                                     key={rIdx}
-                                    className="text-sky-400 font-medium hover:text-sky-300 transition-colors"
+                                    className={`font-medium transition-colors ${
+                                      isMinister ? "text-cyan-400" : "text-[#60a5fa]"
+                                    }`}
                                   >
                                     {remark}
                                   </div>
@@ -737,21 +828,26 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
                             })}
                           </div>
                         ) : (
-                          <span className="text-transparent select-none">—</span>
+                          <div className="flex-1">
+                            <span className="text-transparent select-none">—</span>
+                          </div>
                         )}
 
                         {/* Promote to Cabinet / Add Portfolio action button (Only for Government MLAs) */}
-                        {!isDissolved && row.politician && !row.hasMinisterRole && row.isGovernmentMember && onPromote && (
+                        {!isDissolved && row.incumbents.length > 0 && 
+                         !row.incumbents[row.incumbents.length - 1].hasMinisterRole && 
+                         row.isGovernmentMember && onPromote && (
                           <button
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
-                              onPromote(row.politician!.id, row.politician!.name);
+                              const primary = row.incumbents[row.incumbents.length - 1];
+                              onPromote(primary.id, primary.name);
                             }}
-                            className="opacity-0 group-hover:opacity-100 text-[10px] font-bold uppercase tracking-wider bg-white/5 hover:bg-[#FFD700]/20 text-[#FFD700] px-2 py-1 rounded-lg border border-[#FFD700]/30 transition-all shrink-0 ml-auto"
+                            className="flex items-center justify-center w-8 h-8 rounded-lg bg-blue-600 hover:bg-blue-500 text-white border border-blue-400/30 transition-all shrink-0 shadow-lg cursor-pointer z-10"
                             title="Promote to Cabinet / Assign Portfolio"
                           >
-                            + Assign Portfolio
+                            <ArrowUp size={14} strokeWidth={3} />
                           </button>
                         )}
                       </div>
@@ -768,7 +864,7 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
                     {searchTerm && (
                       <button
                         onClick={() => setSearchTerm("")}
-                        className="mt-2 text-xs text-[#FFD700] hover:underline"
+                        className="mt-2 text-xs text-[#60a5fa] hover:underline"
                       >
                         Clear search
                       </button>
@@ -799,7 +895,7 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
             )}
             {ministersCount > 0 && (
               <span className="flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-sky-400" />
+                <span className="w-2 h-2 rounded-full bg-[#60a5fa]" />
                 {ministersCount} with Remarks
               </span>
             )}

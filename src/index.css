@@ -49,6 +49,15 @@ body {
   border-color: var(--color-accent-gold);
 }
 
+.animate-loading-bar {
+  animation: loading-bar 1.5s ease-in-out infinite;
+}
+
+@keyframes loading-bar {
+  0% { left: -100%; }
+  100% { left: 100%; }
+}
+
 ::-webkit-scrollbar {
   width: 8px;
 }

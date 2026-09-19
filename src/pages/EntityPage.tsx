@@ -52,10 +52,20 @@ import {
   isMinisterialRole,
   getConstituencyCreationAssembly,
   compareOrdersReverseChronological,
+  prefixRole,
+  formatCommaSeparatedRoles,
+  formatPersonName,
 } from "../utils/governmentUtils";
 
 import { CreateModals } from "../components/CreateModals";
 import { LeadershipCouncilModal } from "../components/LeadershipCouncilModal";
+import { AllianceInfoboxTable } from "../components/AllianceInfoboxTable";
+import { AssemblyInfoboxTable } from "../components/AssemblyInfoboxTable";
+import { PartyInfoboxTable } from "../components/PartyInfoboxTable";
+import { ConstituencyInfoboxTable } from "../components/ConstituencyInfoboxTable";
+import { AllianceConstituentPartiesTable } from "../components/AllianceConstituentPartiesTable";
+import { LegislativeSessionsTable } from "../components/LegislativeSessionsTable";
+import { buildLegislativeSessionsList } from "../data/legislativeHistoryData";
 
 const getAssemblyChronologicalScore = (assembly?: Assembly | null) => {
   if (!assembly) return 0;
@@ -72,41 +82,6 @@ const getAssemblyChronologicalScore = (assembly?: Assembly | null) => {
     }
   }
   return 0;
-};
-
-const prefixRole = (role: string): string => {
-  const trimmed = role.trim();
-  const lower = trimmed.toLowerCase();
-  
-  if (lower.startsWith("hon'ble") || lower.startsWith("honourable") || lower.startsWith("honorable")) {
-    return trimmed;
-  }
-
-  const isMinister = lower.includes("minister");
-  const isSpeaker = lower.includes("speaker");
-
-  if (isMinister || isSpeaker) {
-    let displayName = trimmed;
-    if (lower === "chiefminister" || lower === "chief minister") {
-      displayName = "Chief Minister";
-    } else if (lower === "deputychiefminister" || lower === "deputy chief minister") {
-      displayName = "Deputy Chief Minister";
-    } else if (lower === "speaker" || lower === "speaker of the house" || lower === "speaker of the assembly") {
-      displayName = "Speaker";
-    } else if (lower === "deputyspeaker" || lower === "deputy speaker" || lower === "deputy speaker of the assembly" || lower === "deputy speaker of the house") {
-      displayName = "Deputy Speaker";
-    } else {
-      displayName = trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
-    }
-    
-    return `Hon'ble ${displayName}`;
-  }
-  return trimmed;
-};
-
-const formatCommaSeparatedRoles = (rolesStr: string): string => {
-  if (!rolesStr) return "";
-  return rolesStr.split(", ").map(r => prefixRole(r)).join(", ");
 };
 
 const generateSeatLayout = (totalSeats: number) => {
@@ -189,41 +164,64 @@ export const EntityPage: React.FC = () => {
   ) => {
     if (!id || !entity || entityType !== EntityType.CONSTITUENCY) return;
 
-    const con = entity as Constituency;
-    const now = Date.now();
-    const newIncumbentId = winnerPersonId || "vacant";
+    // Close modal immediately to give instant feedback and prevent multiple clicks
+    setShowElectModal(false);
 
-    if (winnerPersonId && winnerPersonId !== "vacant") {
-      const person = await db.persons.get(winnerPersonId);
-      if (person && con.currentAssemblyId) {
-        const assemblyRoles = { ...(person.assemblyRoles || {}) };
-        assemblyRoles[con.currentAssemblyId] = `${con.name} MLA`;
-        await db.persons.update(winnerPersonId, {
-          assemblyRoles,
+    try {
+      await db.transaction("rw", [db.persons, db.constituencies], async () => {
+        // Fetch fresh constituency record within transaction
+        const con = await db.constituencies.get(id);
+        if (!con) return;
+
+        const now = Date.now();
+        const newIncumbentId = winnerPersonId || "vacant";
+
+        if (winnerPersonId && winnerPersonId !== "vacant") {
+          const person = await db.persons.get(winnerPersonId);
+          if (person && con.currentAssemblyId) {
+            const assemblyRoles = { ...(person.assemblyRoles || {}) };
+            assemblyRoles[con.currentAssemblyId] = `${con.name} MLA`;
+            
+            const pRoleHistory = [...(person.roleHistory || [])];
+            pRoleHistory.push({
+              role: `${con.name} MLA`,
+              assemblyId: con.currentAssemblyId,
+              date: now,
+              action: "appointment"
+            });
+
+            await db.persons.update(winnerPersonId, {
+              assemblyRoles,
+              roleHistory: pRoleHistory,
+              constituencyName: con.name,
+              updatedAt: now,
+            });
+          }
+        }
+
+        const historyEntry = {
+          personId: newIncumbentId,
+          assemblyId: con.currentAssemblyId || "15th-assembly",
+          date: now,
+          reason: "election",
+        };
+
+        await db.constituencies.update(id, {
+          currentIncumbentId: newIncumbentId,
+          lastElectionResult: result,
+          history: [...(con.history || []), historyEntry],
           updatedAt: now,
         });
-      }
+      });
+    } catch (error) {
+      console.error("Failed to confirm election:", error);
+      // Optional: show error message to user
     }
-
-    const historyEntry = {
-      personId: newIncumbentId,
-      assemblyId: con.currentAssemblyId || "15th-assembly",
-      date: now,
-      reason: "election",
-    };
-
-    await db.constituencies.update(id, {
-      currentIncumbentId: newIncumbentId,
-      lastElectionResult: result,
-      history: [...(con.history || []), historyEntry],
-      updatedAt: now,
-    });
-
-    setShowElectModal(false);
   };
   const [showDeactivatePopup, setShowDeactivatePopup] = useState(false);
   const [showVacateMlaReasonModal, setShowVacateMlaReasonModal] =
     useState(false);
+  const [vacateReasonType, setVacateReasonType] = useState<"resignation" | "expiry" | null>(null);
   const [confirmationDialog, setConfirmationDialog] = useState<{
     show: boolean;
     title: string;
@@ -250,11 +248,14 @@ export const EntityPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<
     "details" | "related" | "history" | "cabinet" | "orders"
   >(
-    initialTab &&
-      ["details", "related", "history", "cabinet", "orders"].includes(initialTab)
+    initialTab === "sessions"
+      ? (type === EntityType.CONSTITUENCY ? "related" : "history")
+      : initialTab &&
+        ["details", "related", "history", "cabinet", "orders"].includes(initialTab)
       ? (initialTab as any)
       : "details",
   );
+  const [alliancePartiesViewMode, setAlliancePartiesViewMode] = useState<"table" | "grid">("table");
 
   const entityType = type as EntityType;
 
@@ -282,12 +283,34 @@ export const EntityPage: React.FC = () => {
   // Orders referencing or issued by this entity
   const entityOrders = useLiveQuery(async () => {
     if (!id) return [];
-    const all = await db.orders.toArray();
     let matching: LegislativeOrder[] = [];
     if (entityType === EntityType.PERSON) {
-      matching = all.filter((o) => o.signerPersonId === id || o.taggedPersonIds?.includes(id));
+      // Use indexed queries for better performance
+      const signed = await db.orders.where('signerPersonId').equals(id).toArray();
+      const tagged = await db.orders.where('taggedPersonIds').equals(id).toArray();
+      
+      // Merge and unique-ify by ID
+      const merged = [...signed];
+      const seen = new Set(signed.map(o => o.id));
+      tagged.forEach(o => {
+        if (!seen.has(o.id)) {
+          merged.push(o);
+        }
+      });
+      matching = merged;
     } else if (entityType === EntityType.DESIGNATION) {
-      matching = all.filter((o) => o.byDesignationId === id || (entity && o.byDesignationName === (entity as Designation).name));
+      matching = await db.orders.where('byDesignationId').equals(id).toArray();
+      
+      // If we still need to filter by name (fallback for older records)
+      if (entity && (entity as Designation).name) {
+        const byName = await db.orders.where('byDesignationName').equals((entity as Designation).name).toArray();
+        const seen = new Set(matching.map(o => o.id));
+        byName.forEach(o => {
+          if (!seen.has(o.id)) {
+            matching.push(o);
+          }
+        });
+      }
     }
     return matching.sort(compareOrdersReverseChronological);
   }, [id, entityType, entity]);
@@ -317,22 +340,12 @@ export const EntityPage: React.FC = () => {
     return [];
   }, [type, id]);
 
-  const partiesList = useLiveQuery(async () => {
-    const list = await db.parties.toArray();
-    return list.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
-  }) || [];
-  const personsList = useLiveQuery(async () => {
-    const list = await db.persons.toArray();
-    return list.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
-  }) || [];
-  const assembliesList = useLiveQuery(() => db.assemblies.toArray()) || [];
-  const alliancesList = useLiveQuery(async () => {
-    const list = await db.alliances.toArray();
-    return list.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
-  }) || [];
-  const constituenciesList =
-    useLiveQuery(() => db.constituencies.toArray()) || [];
-  const designationsList = useLiveQuery(() => db.designations.toArray()) || [];
+  const partiesList = useLiveQuery(() => db.parties.toArray().then(items => items.sort((a, b) => (a.name || "").localeCompare(b.name || "", undefined, { sensitivity: "base" }))), []) || [];
+  const personsList = useLiveQuery(() => db.persons.toArray().then(items => items.sort((a, b) => (a.name || "").localeCompare(b.name || "", undefined, { sensitivity: "base" }))), []) || [];
+  const assembliesList = useLiveQuery(() => db.assemblies.toArray().then(items => items.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))), []) || [];
+  const alliancesList = useLiveQuery(() => db.alliances.toArray().then(items => items.sort((a, b) => (a.name || "").localeCompare(b.name || "", undefined, { sensitivity: "base" }))), []) || [];
+  const constituenciesList = useLiveQuery(() => db.constituencies.toArray().then(items => items.sort((a, b) => (parseInt(a.slNo) || 9999) - (parseInt(b.slNo) || 9999))), []) || [];
+  const designationsList = useLiveQuery(() => db.designations.toArray().then(items => items.sort((a, b) => (a.name || "").localeCompare(b.name || "", undefined, { sensitivity: "base" }))), []) || [];
 
   const leadingParty = useLiveQuery(async () => {
     if (entityType === EntityType.ALLIANCE && entity) {
@@ -412,6 +425,48 @@ export const EntityPage: React.FC = () => {
     return getConstituencyCreationAssembly(con, allAssemblies);
   }, [entityType, entity]);
 
+  const constituencyCurrentAssembly = useLiveQuery(async () => {
+    if (entityType !== EntityType.CONSTITUENCY || !entity) return null;
+    const con = entity as Constituency;
+    if (con.currentAssemblyId) {
+      const a = await db.assemblies.get(con.currentAssemblyId);
+      if (a) return a;
+    }
+    const active = await db.assemblies.filter((a) => a.isActive !== false).first();
+    return active || null;
+  }, [entityType, entity]);
+
+  const constituencyIncumbentPerson = useLiveQuery(async () => {
+    if (entityType !== EntityType.CONSTITUENCY || !entity) return null;
+    const con = entity as Constituency;
+    if (con.currentIncumbentId && con.currentIncumbentId !== "vacant") {
+      return db.persons.get(con.currentIncumbentId);
+    }
+    return null;
+  }, [entityType, entity]);
+
+  const constituencyIncumbentParty = useLiveQuery(async () => {
+    if (!constituencyIncumbentPerson?.partyId || constituencyIncumbentPerson.partyId === "independent") {
+      return null;
+    }
+    return db.parties.get(constituencyIncumbentPerson.partyId);
+  }, [constituencyIncumbentPerson]);
+
+  const constituencyIncumbentAlliance = useLiveQuery(async () => {
+    if (!constituencyIncumbentParty?.allianceId || constituencyIncumbentParty.allianceId === "independent") {
+      return null;
+    }
+    return db.alliances.get(constituencyIncumbentParty.allianceId);
+  }, [constituencyIncumbentParty]);
+
+  const handleSaveConstituencyMetadata = async (updatedFields: Partial<Constituency>) => {
+    if (!id || entityType !== EntityType.CONSTITUENCY) return;
+    await db.constituencies.update(id, {
+      ...updatedFields,
+      updatedAt: Date.now(),
+    });
+  };
+
   const designationsFromConstituency = useLiveQuery(async () => {
     if (entityType === EntityType.CONSTITUENCY && entity) {
       const con = entity as Constituency;
@@ -488,6 +543,22 @@ export const EntityPage: React.FC = () => {
     }
     return [];
   }, [entity, entityType, id]);
+
+  const sessionRows = React.useMemo(() => {
+    if (!entity) return [];
+    if (entityType === EntityType.CONSTITUENCY || entityType === EntityType.DESIGNATION) {
+      return buildLegislativeSessionsList({
+        entityType,
+        entity,
+        assemblies: assembliesList,
+        persons: personsList,
+        parties: partiesList,
+        alliances: alliancesList,
+        designations: designationsList,
+      });
+    }
+    return [];
+  }, [entity, entityType, assembliesList, personsList, partiesList, alliancesList, designationsList]);
 
   const currentIncumbentPerson = useLiveQuery(async () => {
     let personId = "vacant";
@@ -904,13 +975,19 @@ export const EntityPage: React.FC = () => {
               .map((r) => r.trim())
               .filter(Boolean);
             individualRoles.forEach((r) => {
-              // Check if it's already in the roles list under some type
-              const exists = roles.some(
-                (existing) =>
-                  existing.name &&
-                  existing.name.toLowerCase() === r.toLowerCase() &&
-                  existing.assemblyName === assembly.name,
-              );
+              // Special case: if it's an MLA role like "Constituency MLA", 
+              // we might already have it as "MLA for Constituency" from step 1.
+              // Normalize for comparison.
+              const normalizedR = r.toLowerCase().replace(/\s+mla$/i, '').replace(/^mla for\s+/i, '').trim();
+
+              const exists = roles.some((existing) => {
+                const normalizedExisting = existing.name.toLowerCase().replace(/\s+mla$/i, '').replace(/^mla for\s+/i, '').trim();
+                return (
+                  (existing.name.toLowerCase() === r.toLowerCase() || normalizedExisting === normalizedR) &&
+                  existing.assemblyName === assembly.name
+                );
+              });
+
               if (!exists) {
                 roles.push({
                   name: r,
@@ -1459,6 +1536,11 @@ export const EntityPage: React.FC = () => {
     const persons = await db.persons.toArray();
     const alliances = await db.alliances.toArray();
 
+    // Optimize lookups with Maps
+    const partiesMap = new Map(parties.map(p => [p.id, p]));
+    const personsMap = new Map(persons.map(p => [p.id, p]));
+    const alliancesMap = new Map(alliances.map(a => [a.id, a]));
+
     const targetCs = constituencies.filter(
       (c) =>
         c.currentAssemblyId === id ||
@@ -1467,59 +1549,110 @@ export const EntityPage: React.FC = () => {
 
     const mappedSeats = await Promise.all(
       targetCs.map(async (c) => {
-        let politician: Person | undefined = undefined;
+        // Collect unique people who held this seat in this assembly
+        // We want to preserve order: removals followed by the current incumbent
+        const conHistory = (c.history || [])
+          .filter((h) => h.assemblyId === id)
+          .sort((a, b) => a.date - b.date);
 
-        if (c.currentAssemblyId === id) {
-          if (c.currentIncumbentId !== "vacant") {
-            politician = persons.find((p) => p.id === c.currentIncumbentId);
-          }
-        } else {
-          const hist = (c.history || [])
-            .sort((a, b) => b.date - a.date)
-            .find((h) => h.assemblyId === id);
-          if (hist && hist.personId !== "vacant") {
-            politician = persons.find((p) => p.id === hist.personId);
-          }
-        }
+        const incumbentsMap = new Map<string, any>();
+        
+        // 1. Process history to find people who were removed
+        for (const h of conHistory) {
+          if (h.personId && h.personId !== "vacant") {
+            const p = personsMap.get(h.personId);
+            if (p) {
+              const party = partiesMap.get(p.partyId);
+              let alliance: Alliance | undefined = undefined;
+              if (party) {
+                let partyAllianceId = party.allianceId;
+                if ((!partyAllianceId || partyAllianceId === "independent") && assemblyObj) {
+                  const supportedAllianceId = assemblyObj.independentSupports?.[p.id];
+                  if (supportedAllianceId) partyAllianceId = supportedAllianceId;
+                }
+                if (partyAllianceId && partyAllianceId !== "independent") {
+                  alliance = alliancesMap.get(partyAllianceId);
+                }
+              }
 
-        let party: Party | undefined = undefined;
-        if (politician) {
-          party = parties.find((p) => p.id === politician!.partyId);
-        }
-
-        let alliance: Alliance | undefined = undefined;
-        if (party) {
-          let partyAllianceId = party.allianceId;
-          if ((!partyAllianceId || partyAllianceId === "independent") && politician && assemblyObj) {
-            const supportedAllianceId = assemblyObj.independentSupports?.[politician.id];
-            if (supportedAllianceId) {
-              partyAllianceId = supportedAllianceId;
+              // If reason is not "election", it's a removal marker
+              if (h.reason && h.reason !== "election" && h.reason !== "appointment") {
+                const existing = incumbentsMap.get(h.personId);
+                incumbentsMap.set(h.personId, { 
+                  ...(existing || { person: p, party, alliance }), 
+                  reason: h.reason,
+                  removalDate: h.date 
+                });
+              } else if (!incumbentsMap.has(h.personId)) {
+                // First time seeing this person in this assembly (the election entry)
+                incumbentsMap.set(h.personId, { 
+                  person: p, 
+                  party, 
+                  alliance, 
+                  electionDate: h.date 
+                });
+              }
             }
           }
-          if (partyAllianceId && partyAllianceId !== "independent") {
-            alliance = alliances.find((a) => a.id === partyAllianceId);
+        }
+
+        // 2. Ensure current incumbent is at the end if they are active
+        if (c.currentAssemblyId === id && c.currentIncumbentId !== "vacant") {
+          const p = personsMap.get(c.currentIncumbentId);
+          if (p) {
+            const party = partiesMap.get(p.partyId);
+            let alliance: Alliance | undefined = undefined;
+            if (party) {
+              let partyAllianceId = party.allianceId;
+              if ((!partyAllianceId || partyAllianceId === "independent") && assemblyObj) {
+                const supportedAllianceId = assemblyObj.independentSupports?.[p.id];
+                if (supportedAllianceId) partyAllianceId = supportedAllianceId;
+              }
+              if (partyAllianceId && partyAllianceId !== "independent") {
+                alliance = alliancesMap.get(partyAllianceId);
+              }
+            }
+            
+            const existing = incumbentsMap.get(p.id);
+            // If they are currently the incumbent, they should not have a removal reason showing for their current entry
+            incumbentsMap.set(p.id, { 
+              ...(existing || { person: p, party, alliance }), 
+              reason: undefined,
+              removalDate: undefined,
+              electionDate: existing?.electionDate || c.updatedAt 
+            });
           }
         }
+
+        const incumbentsList = Array.from(incumbentsMap.values());
+        
+        // 3. Mark as by-elected if they are not the first person to hold the seat in this assembly
+        // A by-election is only "Bye Elected" if it's the second or later incumbent.
+        const finalizedIncumbents = incumbentsList.map((inc, index) => ({
+          ...inc,
+          isByelected: index > 0
+        }));
 
         return {
           constituency: c,
-          politician,
-          party,
-          alliance,
+          incumbents: finalizedIncumbents
         };
       }),
     );
 
     // Sort seats cleanly so they cluster beautifully by Party / Alliance
     const sorted = mappedSeats.sort((a, b) => {
-      const isVacantA = !a.politician;
-      const isVacantB = !b.politician;
+      const primaryA = a.incumbents[a.incumbents.length - 1];
+      const primaryB = b.incumbents[b.incumbents.length - 1];
+      
+      const isVacantA = !primaryA;
+      const isVacantB = !primaryB;
       if (isVacantA && !isVacantB) return 1;
       if (!isVacantA && isVacantB) return -1;
       if (isVacantA && isVacantB) return 0;
 
-      const allianceA = a.alliance ? a.alliance.id : "independent";
-      const allianceB = b.alliance ? b.alliance.id : "independent";
+      const allianceA = primaryA.alliance ? primaryA.alliance.id : "independent";
+      const allianceB = primaryB.alliance ? primaryB.alliance.id : "independent";
 
       const govId = assemblyPerformance?.government?.id;
       const oppId = assemblyPerformance?.opposition?.id;
@@ -1536,8 +1669,8 @@ export const EntityPage: React.FC = () => {
 
       if (rankA !== rankB) return rankA - rankB;
 
-      const pIdA = a.politician!.partyId;
-      const pIdB = b.politician!.partyId;
+      const pIdA = primaryA.person.partyId;
+      const pIdB = primaryB.person.partyId;
       if (pIdA !== pIdB) return pIdA.localeCompare(pIdB);
 
       const slA = parseInt(a.constituency.slNo) || 999;
@@ -1940,6 +2073,23 @@ export const EntityPage: React.FC = () => {
         if (!person) return;
 
         const roleName = `Minister for ${departmentInput}`;
+        const now = Date.now();
+
+        // Create a new Designation record for the Minister role
+        const designationId = `minister-${departmentInput.toLowerCase().replace(/\s+/g, '-')}-${id}-${personId}-${now}`;
+        await db.designations.add({
+          id: designationId,
+          name: roleName,
+          assemblyId: id,
+          incumbentId: personId,
+          constituency: "Legislative Cabinet",
+          dateOfSigning: new Date(now).toISOString().split('T')[0],
+          history: [
+            { personId, reason: 'appointment', date: now }
+          ],
+          updatedAt: now
+        });
+
         const assemblyRoles = { ...(person.assemblyRoles || {}) };
 
         // Prevent duplicate promotion record if they already have this EXACT role name in this assembly
@@ -1961,7 +2111,7 @@ export const EntityPage: React.FC = () => {
 
         const updateData: any = {
           assemblyRoles,
-          updatedAt: Date.now(),
+          updatedAt: now,
         };
 
         if (!alreadyHasHistory) {
@@ -1970,7 +2120,7 @@ export const EntityPage: React.FC = () => {
             {
               role: roleName,
               assemblyId: id,
-              date: Date.now(),
+              date: now,
               action: "promotion" as const,
             },
           ];
@@ -2751,6 +2901,7 @@ export const EntityPage: React.FC = () => {
 
       const now = Date.now();
       if (con.currentIncumbentId !== "vacant" && con.currentAssemblyId) {
+        const incumbentIdBeforeVacating = con.currentIncumbentId;
         // Discard independent support mapping and leadership roles when MLA is removed from seat
         const assembly = await db.assemblies.get(con.currentAssemblyId);
         if (assembly) {
@@ -2759,10 +2910,10 @@ export const EntityPage: React.FC = () => {
 
           if (
             assembly.independentSupports &&
-            assembly.independentSupports[con.currentIncumbentId]
+            assembly.independentSupports[incumbentIdBeforeVacating]
           ) {
             const supports = { ...assembly.independentSupports };
-            delete supports[con.currentIncumbentId];
+            delete supports[incumbentIdBeforeVacating];
             asmUpdates.independentSupports = supports;
             shouldUpdateAsm = true;
           }
@@ -2772,7 +2923,7 @@ export const EntityPage: React.FC = () => {
             const leaders = { ...assembly.leaders };
             let hadLeaderRole = false;
             for (const [rKey, pId] of Object.entries(leaders)) {
-              if (pId === con.currentIncumbentId && rKey !== "chiefSecretary") {
+              if (pId === incumbentIdBeforeVacating && rKey !== "chiefSecretary") {
                 delete (leaders as any)[rKey];
                 hadLeaderRole = true;
               }
@@ -2788,75 +2939,99 @@ export const EntityPage: React.FC = () => {
           }
         }
 
-        const person = await db.persons.get(con.currentIncumbentId);
-        if (
-          person &&
-          person.assemblyRoles &&
-          person.assemblyRoles[con.currentAssemblyId]
-        ) {
-          const roleName = `MLA for ${con.name}`;
-          const assemblyRoles = { ...(person.assemblyRoles || {}) };
+        // Rule 3: If MLA post is gone, their minister post will also be considered as previous incumbent
+        const ministerialDesignations = await db.designations
+          .where("incumbentId")
+          .equals(incumbentIdBeforeVacating)
+          .and(d => d.assemblyId === con.currentAssemblyId && d.name.toLowerCase().includes("minister"))
+          .toArray();
 
-          // Only remove the specific MLA role
-          const existingRoles =
-            assemblyRoles[con.currentAssemblyId].split(", ");
-          const newRolesList = existingRoles.filter((r) => r !== roleName);
+        const person = await db.persons.get(incumbentIdBeforeVacating);
+        let pAssemblyRoles = { ...(person?.assemblyRoles || {}) };
+        let pRoleHistory = [...(person?.roleHistory || [])];
 
-          if (newRolesList.length === 0) {
-            delete assemblyRoles[con.currentAssemblyId];
+        // Clean up assemblyRoles for this assembly
+        if (person && con.currentAssemblyId) {
+          const rolesStr = pAssemblyRoles[con.currentAssemblyId] || "";
+          const individualRoles = rolesStr.split(", ").filter(r => {
+            const rLower = r.toLowerCase();
+            // Remove MLA role and any Ministerial roles
+            if (rLower.includes("mla") && rLower.includes(con.name.toLowerCase())) return false;
+            if (rLower.includes("minister")) return false;
+            return true;
+          });
+          
+          if (individualRoles.length === 0) {
+            delete pAssemblyRoles[con.currentAssemblyId];
           } else {
-            assemblyRoles[con.currentAssemblyId] = newRolesList.join(", ");
+            pAssemblyRoles[con.currentAssemblyId] = individualRoles.join(", ");
           }
 
-          // Prevent duplicate history entry
-          const alreadyHasHistory = (person.roleHistory || []).some(
-            (h) =>
-              h.role === roleName &&
-              h.assemblyId === con.currentAssemblyId &&
-              h.action === (reason === "Expired" ? "expiry" : "resignation") &&
-              Math.abs(h.date - now) < 2000,
-          );
-
-          const updateData: any = {
-            assemblyRoles,
-            updatedAt: now,
-          };
-
-          if (!alreadyHasHistory) {
-            updateData.roleHistory = [
-              ...(person.roleHistory || []),
-              {
-                role: roleName,
-                assemblyId: con.currentAssemblyId,
-                date: now,
-                action: (reason === "Expired" ? "expiry" : "resignation") as
-                  | "expiry"
-                  | "resignation",
-              },
-            ];
-          }
-
-          await db.persons.update(person.id, updateData);
-        }
-      }
-      await db.constituencies.update(id!, {
-        currentIncumbentId: "vacant",
-        history: [
-          ...(Array.isArray(con.history) ? con.history : []),
-          {
-            personId: con.currentIncumbentId,
-            assemblyId: con.currentAssemblyId || "unknown",
+          // Add to role history
+          pRoleHistory.push({
+            role: `${con.name} MLA`,
+            assemblyId: con.currentAssemblyId,
             date: now,
-            reason: reason,
-          },
-        ],
-        updatedAt: now,
-      });
-      setShowDeletePopup(false);
+            action: reason.toLowerCase().includes('resigned') ? 'resignation' : 'expiry'
+          });
+        }
+
+        for (const d of ministerialDesignations) {
+          await db.designations.update(d.id, {
+            incumbentId: "vacant",
+            history: [
+              ...(d.history || []),
+              { personId: incumbentIdBeforeVacating, reason: reason.toLowerCase().includes('resigned') ? 'resignation' : 'expiry', date: now }
+            ],
+            updatedAt: now
+          });
+
+          // Also remove from person's active roles
+          if (person && pAssemblyRoles[con.currentAssemblyId]) {
+            const roles = pAssemblyRoles[con.currentAssemblyId].split(", ").filter(r => r !== d.name);
+            if (roles.length === 0) {
+              delete pAssemblyRoles[con.currentAssemblyId];
+            } else {
+              pAssemblyRoles[con.currentAssemblyId] = roles.join(", ");
+            }
+          }
+
+          pRoleHistory.push({
+            role: d.name,
+            assemblyId: con.currentAssemblyId!,
+            date: now,
+            action: reason.toLowerCase().includes('resigned') ? 'resignation' : 'expiry'
+          });
+        }
+
+        if (person) {
+          await db.persons.update(incumbentIdBeforeVacating, {
+            assemblyRoles: pAssemblyRoles,
+            roleHistory: pRoleHistory,
+            constituencyName: undefined,
+            mlaStatusText: reason,
+            updatedAt: now
+          });
+        }
+
+        const historyEntry = {
+          personId: incumbentIdBeforeVacating,
+          assemblyId: con.currentAssemblyId,
+          date: now,
+          reason: reason // Specific reason like "Resigned", "Expired", "Removed by hon'ble Supreme Court", etc.
+        };
+
+        await db.constituencies.update(id!, {
+          currentIncumbentId: "vacant",
+          history: [...(con.history || []), historyEntry],
+          updatedAt: now
+        });
+      }
+
       setShowVacateMlaReasonModal(false);
+      setVacateReasonType(null);
     }
   };
-
   const handleBack = () => {
     try {
       let canGoBack = false;
@@ -2934,7 +3109,7 @@ export const EntityPage: React.FC = () => {
               <UserMinus size={18} />
             </button>
           )}
-          {!isDissolvedRecord && (
+          {!isDissolvedRecord && id !== 'governor' && (
             <button
               onClick={() => setShowEditModal(true)}
               title="Modify Entry"
@@ -2957,23 +3132,72 @@ export const EntityPage: React.FC = () => {
                 <HistoryIcon size={18} />
               </button>
             )}
-          <button
-            onClick={() => setShowDeletePopup(true)}
-            title="Delete Record"
-            aria-label="Delete Record"
-            className="w-10 h-10 flex items-center justify-center rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/20 active:scale-95 transition-all cursor-pointer shrink-0"
-            id="delete-record-btn"
-          >
-            <Trash2 size={18} />
-          </button>
+          {id !== 'governor' && (
+            <button
+              onClick={() => setShowDeletePopup(true)}
+              title="Delete Record"
+              aria-label="Delete Record"
+              className="w-10 h-10 flex items-center justify-center rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/20 active:scale-95 transition-all cursor-pointer shrink-0"
+              id="delete-record-btn"
+            >
+              <Trash2 size={18} />
+            </button>
+          )}
         </div>
       </div>
 
       {/* Hero Profile Block */}
-      <section className="glass-card overflow-hidden">
-        <div
-          className={`h-1 ${entityType === EntityType.ASSEMBLY ? "bg-[#FFD700]" : "bg-[#D32F2F]"}`}
-        />
+      {entityType === EntityType.CONSTITUENCY ? (
+        <section className="glass-card overflow-hidden border border-white/10 p-6 sm:p-8">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6">
+            <div className="flex items-center gap-5">
+              <div className="w-16 h-16 rounded-2xl bg-[#FFD700]/10 border border-[#FFD700]/20 flex flex-col items-center justify-center text-[#FFD700] shrink-0 shadow-lg">
+                <span className="text-[10px] uppercase font-mono tracking-widest text-zinc-400">NO.</span>
+                <span className="text-2xl font-black font-mono leading-none">{(entity as Constituency).slNo}</span>
+              </div>
+              <div>
+                <div className="flex flex-wrap items-center gap-2 mb-1.5">
+                  <span className="text-[10px] bg-[#FFD700]/10 text-[#FFD700] px-2.5 py-0.5 rounded-md font-black uppercase tracking-wider border border-[#FFD700]/20">
+                    Assembly Constituency
+                  </span>
+                  {constituencyCreationAssembly && (
+                    <span className="text-xs text-zinc-500">
+                      • Inception: {constituencyCreationAssembly.name}
+                    </span>
+                  )}
+                </div>
+                <h1 className="text-3xl sm:text-4xl font-black uppercase text-white tracking-tight">
+                  {(entity as Constituency).name}
+                </h1>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto justify-start sm:justify-end pt-4 sm:pt-0 border-t sm:border-t-0 border-white/5">
+              {!isDissolvedRecord && (
+                (entity as Constituency).currentIncumbentId !== "vacant" ? (
+                  <button
+                    onClick={() => setShowVacateMlaReasonModal(true)}
+                    className="px-4 py-2.5 bg-red-500 hover:bg-red-600 text-white font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-md shadow-red-500/10 flex items-center gap-2 cursor-pointer"
+                  >
+                    <UserMinus size={16} /> Remove MLA
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => setShowElectModal(true)}
+                    className="px-4 py-2.5 bg-[#FFD700] hover:bg-[#ffe234] text-black font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-md shadow-[#FFD700]/10 flex items-center gap-2 cursor-pointer"
+                  >
+                    <Vote size={16} /> Elect MLA
+                  </button>
+                )
+              )}
+            </div>
+          </div>
+        </section>
+      ) : (
+        <section className="glass-card overflow-hidden">
+          <div
+            className={`h-1 ${entityType === EntityType.ASSEMBLY ? "bg-[#FFD700]" : "bg-[#D32F2F]"}`}
+          />
         <div className="p-8 md:p-12 flex flex-col md:flex-row gap-10 items-center md:items-start text-center md:text-left">
           {/* Image/Avatar */}
           <div className="relative">
@@ -3001,8 +3225,6 @@ export const EntityPage: React.FC = () => {
                 <Flag size={24} />
               ) : entityType === EntityType.ALLIANCE ? (
                 <Shield size={24} />
-              ) : entityType === EntityType.CONSTITUENCY ? (
-                <MapPin size={24} />
               ) : (
                 <Landmark size={24} />
               )}
@@ -3021,13 +3243,14 @@ export const EntityPage: React.FC = () => {
                         ? "Political Alliance"
                         : entityType === EntityType.ASSEMBLY
                           ? "Legislative Body"
-                          : entityType === EntityType.CONSTITUENCY
-                            ? "Assembly Constituency"
-                            : "Government Post"}
+                          : "Government Post"}
                 </span>
               </div>
               <h1 className="text-4xl sm:text-5xl font-black uppercase tracking-tight mb-2">
-                {(entity as any).name}
+                {entityType === EntityType.PERSON 
+                  ? formatPersonName((entity as Person).name, (entity as Person).gender)
+                  : (entity as any).name
+                }
                 {entityType === EntityType.PERSON && (entity as Person).isSuspended && (
                   <span className="ml-4 text-sm bg-red-600/20 text-red-500 px-3 py-1 rounded-full border border-red-500/30 align-middle tracking-wider font-extrabold uppercase">
                     SUSPENDED
@@ -3078,27 +3301,12 @@ export const EntityPage: React.FC = () => {
                         ? "Independent"
                         : personParty?.name || "Political Party"}
                     </span>
-                    {activeRoles && activeRoles.length > 0 && (
-                      <span className="flex items-center gap-2 text-[#FFD700] bg-[#FFD700]/5 px-3 py-1 rounded-full border border-[#FFD700]/10 font-bold uppercase tracking-widest text-[10px]">
-                        <Award size={14} />{" "}
-                        {formatCommaSeparatedRoles(
-                          activeRoles.map((r) => r.name).join(", "),
-                        )}
-                      </span>
-                    )}
+
                   </>
                 )}
-                {entityType === EntityType.DESIGNATION && (
+                {entityType === EntityType.DESIGNATION && id !== 'governor' && (
                   <span className="flex items-center gap-2">
                     <MapPin size={16} /> {(entity as Designation).constituency}
-                  </span>
-                )}
-                {entityType === EntityType.CONSTITUENCY && constituencyCreationAssembly && (
-                  <span
-                    onClick={() => navigate(`/assembly/${constituencyCreationAssembly.id}`)}
-                    className="flex items-center gap-2 text-[#FFD700] hover:underline cursor-pointer font-bold"
-                  >
-                    <Landmark size={16} /> Since {constituencyCreationAssembly.name}
                   </span>
                 )}
                 <span className="flex items-center gap-2">
@@ -3124,12 +3332,6 @@ export const EntityPage: React.FC = () => {
                     return "Legislative Record";
                   })()}
                 </span>
-                {entityType === EntityType.PARTY && (
-                  <span className="flex items-center gap-2 text-[#FFD700]">
-                    <Users size={16} /> {relatedPersons?.length || 0} Affiliated
-                    Members
-                  </span>
-                )}
               </div>
 
               {entityType === EntityType.PERSON && (() => {
@@ -3137,9 +3339,13 @@ export const EntityPage: React.FC = () => {
                 const displayRoles = activeRoles.filter((role) => {
                   const nameLower = role.name.toLowerCase();
                   const conNameLower = person.constituencyName?.toLowerCase() || "";
-                  if (nameLower.includes("mla")) return false;
                   if (conNameLower && nameLower === conNameLower) return false;
-                  if (conNameLower && nameLower.includes(conNameLower) && !nameLower.includes("minister")) return false;
+                  // Only filter out roles that are ONLY the constituency name or variations of it without "MLA" or "Minister"
+                  if (conNameLower && nameLower.includes(conNameLower)) {
+                    if (!nameLower.includes("minister") && !nameLower.includes("mla")) {
+                      return false;
+                    }
+                  }
                   if (nameLower === "special role") return false;
                   return true;
                 });
@@ -3148,19 +3354,20 @@ export const EntityPage: React.FC = () => {
 
                 return (
                   <div className="mx-auto mt-4 flex max-w-md flex-col gap-3 rounded-2xl border border-[#FFD700]/10 bg-white/5 p-4 justify-center md:mx-0 md:justify-start items-center md:items-start w-full">
-                    <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-gray-500">
+                    <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-white">
                       <Award size={14} className="text-[#FFD700]" />
-                      <span>Active Legislative Structure</span>
+                      <span>currently assumed offices</span>
                     </div>
                     <div className="w-full space-y-3">
                       {displayRoles.map((role, idx) => {
                         const isSilver = role.name.toLowerCase().includes("opposition");
+                        const isGoldRole = role.name.toLowerCase().includes('chief minister');
                         return (
                           <div
                             key={idx}
                             className={`flex flex-col border-l-2 py-1 pl-4 items-center md:items-start w-full ${isSilver ? "border-slate-400/40" : "border-[#FFD700]/40"}`}
                           >
-                            <span className={`text-lg font-black leading-tight uppercase tracking-wider ${isSilver ? "silver-text" : "text-[#FFD700]"}`}>
+                            <span className={`text-lg font-black leading-tight uppercase tracking-wider ${isSilver ? "silver-text" : (isGoldRole ? "text-[#FFD700]" : "text-white")}`}>
                               {prefixRole(role.name)}
                             </span>
                             {role.assemblyName && (
@@ -3177,50 +3384,35 @@ export const EntityPage: React.FC = () => {
               })()}
             </div>
 
-            {(entityType === EntityType.DESIGNATION ||
-              entityType === EntityType.CONSTITUENCY) && (
+            {entityType === EntityType.DESIGNATION && (
               <div className="pt-6 border-t border-white/5">
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-sm font-bold uppercase tracking-widest text-gray-500">
-                    {entityType === EntityType.CONSTITUENCY ? "Elected MLA" : "Current Incumbent"}
+                  <h3 className="text-sm font-bold uppercase tracking-widest text-white">
+                    Current Incumbent
                   </h3>
-                  {entityType === EntityType.CONSTITUENCY ? (
-                    !isDissolvedRecord && (
-                      <button
-                        onClick={() => setShowElectModal(true)}
-                        className="flex items-center gap-2 text-xs gold-text hover:underline uppercase font-bold cursor-pointer"
-                      >
-                        <Vote size={14} /> Elect MLA
-                      </button>
-                    )
-                  ) : (
-                    (entity as Designation).incumbentId !== "vacant"
-                      ? !isDissolvedRecord && (
-                          <button
-                            onClick={() => setShowDeletePopup(true)}
-                            className="flex items-center gap-2 text-xs text-red-500 hover:underline uppercase font-bold"
-                          >
-                            <UserMinus size={14} /> Remove Incumbent
-                          </button>
-                        )
-                      : !isDissolvedRecord && (
-                          <button
-                            onClick={() => setShowAppointPopup(true)}
-                            className="flex items-center gap-2 text-xs gold-text hover:underline uppercase font-bold"
-                          >
-                            <UserPlus size={14} /> Appoint Member
-                          </button>
-                        )
-                  )}
+                  {(entity as Designation).incumbentId !== "vacant"
+                    ? !isDissolvedRecord && (
+                        <button
+                          onClick={() => setShowDeletePopup(true)}
+                          className="flex items-center gap-2 text-xs text-red-500 hover:underline uppercase font-bold"
+                        >
+                          <UserMinus size={14} /> Remove Incumbent
+                        </button>
+                      )
+                    : !isDissolvedRecord && (
+                        <button
+                          onClick={() => setShowAppointPopup(true)}
+                          className="flex items-center gap-2 text-xs gold-text hover:underline uppercase font-bold"
+                        >
+                          <UserPlus size={14} /> Appoint Member
+                        </button>
+                      )}
                 </div>
-                {(entityType === EntityType.DESIGNATION
-                  ? (entity as Designation).incumbentId
-                  : (entity as Constituency).currentIncumbentId) !==
-                "vacant" ? (
+                {(entity as Designation).incumbentId !== "vacant" ? (
                   <div
                     onClick={() =>
                       navigate(
-                        `/person/${entityType === EntityType.DESIGNATION ? (entity as Designation).incumbentId : (entity as Constituency).currentIncumbentId}`,
+                        `/person/${(entity as Designation).incumbentId}`,
                       )
                     }
                     className="bg-white/5 rounded-2xl p-4 flex items-center justify-between hover:bg-white/10 cursor-pointer transition-all border border-white/5"
@@ -3234,12 +3426,6 @@ export const EntityPage: React.FC = () => {
                           {currentIncumbentPerson
                             ? currentIncumbentPerson.name
                             : "Managed by Member"}
-                        </p>
-                        <p className="text-xs text-gray-400 uppercase tracking-widest">
-                          Linked ID:{" "}
-                          {entityType === EntityType.DESIGNATION
-                            ? (entity as Designation).incumbentId
-                            : (entity as Constituency).currentIncumbentId}
                         </p>
                       </div>
                     </div>
@@ -3260,6 +3446,7 @@ export const EntityPage: React.FC = () => {
           </div>
         </div>
       </section>
+      )}
 
       {/* Tabs Selector */}
       <div className="flex items-center gap-1 bg-white/5 p-1 rounded-2xl w-fit border border-white/10">
@@ -3285,13 +3472,12 @@ export const EntityPage: React.FC = () => {
           </button>
         )}
         {(entityType === EntityType.DESIGNATION ||
-          entityType === EntityType.ASSEMBLY ||
           entityType === EntityType.PERSON) && (
           <button
             onClick={() => setActiveTab("history")}
             className={`px-6 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === "history" ? "bg-[#FFD700] text-black shadow-lg shadow-[#FFD700]/20" : "text-gray-400 hover:text-white"}`}
           >
-            HISTORY
+            {entityType === EntityType.DESIGNATION ? "SESSIONS" : "HISTORY"}
           </button>
         )}
         {(entityType === EntityType.PERSON || entityType === EntityType.DESIGNATION) && (
@@ -3319,59 +3505,115 @@ export const EntityPage: React.FC = () => {
           exit={{ opacity: 0, y: -10 }}
           transition={{ duration: 0.2 }}
         >
-          {activeTab === "details" && (
+          {activeTab === "details" && entityType === EntityType.ALLIANCE && (
+            <div className="max-w-4xl mx-auto space-y-6">
+              <AllianceInfoboxTable
+                alliance={entity as Alliance}
+                leadingParty={leadingParty}
+                relatedParties={relatedParties || []}
+                allianceLeadership={allianceLeadership}
+                highCommandMembers={highCommandMembers || []}
+                activeAssembly={assembliesList.find((a) => a && a.isActive !== false)}
+                constituenciesList={constituenciesList || []}
+                partiesList={partiesList || []}
+                personsList={personsList || []}
+                onNavigatePerson={(personId) => navigate(`/person/${personId}`)}
+                onNavigateParty={(partyId) => navigate(`/party/${partyId}`)}
+                isDissolved={isDissolvedRecord}
+              />
+            </div>
+          )}
+
+          {activeTab === "details" && entityType === EntityType.PARTY && (
+            <div className="max-w-4xl mx-auto space-y-8">
+              {/* Wikipedia-Style Infobox Table matching reference layout */}
+              <PartyInfoboxTable
+                party={entity as Party}
+                alliance={partyAlliance}
+                relatedPersons={relatedPersons || []}
+                activeAssembly={assembliesList.find((a) => a && a.isActive !== false)}
+                constituenciesList={constituenciesList || []}
+                assembliesList={assembliesList || []}
+                alliancesList={alliancesList || []}
+                personsList={personsList || []}
+                onNavigatePerson={(personId) => navigate(`/person/${personId}`)}
+                onNavigateAlliance={(allianceId) => navigate(`/alliance/${allianceId}`)}
+                onNavigateAssembly={(assemblyId) => navigate(`/assembly/${assemblyId}`)}
+                isDissolved={isDissolvedRecord}
+              />
+            </div>
+          )}
+
+          {activeTab === "details" && entityType === EntityType.CONSTITUENCY && (
+            <div className="space-y-8">
+              {/* Wikipedia-Style Infobox Table matching user's reference screenshot */}
+              <ConstituencyInfoboxTable
+                constituency={entity as Constituency}
+                incumbentPerson={constituencyIncumbentPerson}
+                incumbentParty={constituencyIncumbentParty}
+                incumbentAlliance={constituencyIncumbentAlliance}
+                currentAssembly={constituencyCurrentAssembly}
+                creationAssembly={constituencyCreationAssembly}
+                assembliesList={assembliesList || []}
+                onNavigatePerson={(personId) => navigate(`/person/${personId}`)}
+                onNavigateParty={(partyId) => navigate(`/party/${partyId}`)}
+                onNavigateAlliance={(allianceId) => navigate(`/alliance/${allianceId}`)}
+                onNavigateAssembly={(assemblyId) => navigate(`/assembly/${assemblyId}`)}
+                onElectMla={() => setShowElectModal(true)}
+                isDissolved={isDissolvedRecord}
+              />
+
+              {/* Recent Election Results section */}
+              <div className="max-w-xl mx-auto">
+                <section className="glass-card p-6 border border-white/10">
+                  <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+                    <div>
+                      <h3 className="text-lg font-black uppercase text-white tracking-wider flex items-center gap-2">
+                        <Vote size={20} className="text-[#FFD700]" /> Recent Election Results
+                      </h3>
+                      <p className="text-xs text-zinc-400 mt-1">
+                        Electoral breakdown and vote tally for {(entity as Constituency).name} constituency
+                      </p>
+                    </div>
+                  </div>
+
+                  {(() => {
+                    const con = entity as Constituency;
+                    if (!con.lastElectionResult) {
+                      return (
+                        <div className="p-6 text-center rounded-xl bg-[#141416] border border-zinc-800 my-2 space-y-2">
+                          <p className="text-sm font-bold text-zinc-300 uppercase tracking-wider">
+                            No Election Data Recorded
+                          </p>
+                          <p className="text-xs text-zinc-500">
+                            No election result has been declared for this constituency.
+                          </p>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <ElectionResultsTable
+                        result={con.lastElectionResult}
+                        onPersonClick={(personId) => navigate(`/person/${personId}`)}
+                      />
+                    );
+                  })()}
+                </section>
+              </div>
+            </div>
+          )}
+
+          {activeTab === "details" &&
+            entityType !== EntityType.ALLIANCE &&
+            entityType !== EntityType.PARTY &&
+            entityType !== EntityType.CONSTITUENCY && (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
               <div className="lg:col-span-2 space-y-8">
-                {entityType === EntityType.CONSTITUENCY && (
-                  <section className="glass-card p-6 sm:p-8 border border-white/10">
-                    <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
-                      <div>
-                        <h3 className="text-xl font-black uppercase text-white tracking-wider flex items-center gap-2">
-                          <Vote size={22} className="text-[#FFD700]" /> Recent Election Results
-                        </h3>
-                        <p className="text-xs text-zinc-400 mt-1">
-                          Electoral breakdown and vote tally for {(entity as Constituency).name} constituency
-                        </p>
-                      </div>
-                      {!isDissolvedRecord && (
-                        <button
-                          onClick={() => setShowElectModal(true)}
-                          className="px-5 py-2.5 bg-[#FFD700] text-black font-black text-xs uppercase tracking-wider rounded-xl hover:bg-[#ffe234] transition-all cursor-pointer flex items-center gap-2 shadow-lg shadow-[#FFD700]/10"
-                        >
-                          <Vote size={16} /> ELECT / CONDUCT ELECTION
-                        </button>
-                      )}
-                    </div>
-
-                    {(() => {
-                      const con = entity as Constituency;
-                      if (!con.lastElectionResult) {
-                        return (
-                          <div className="p-8 text-center rounded-xl bg-[#141416] border border-zinc-800 my-4 space-y-2">
-                            <p className="text-base font-bold text-zinc-300 uppercase tracking-wider">
-                              New Constituency - No Election Data Found
-                            </p>
-                            <p className="text-xs text-zinc-500">
-                              No recent election results are recorded for this constituency yet. Click &quot;ELECT / CONDUCT ELECTION&quot; above to declare an election winner.
-                            </p>
-                          </div>
-                        );
-                      }
-
-                      return (
-                        <ElectionResultsTable
-                          result={con.lastElectionResult}
-                          onPersonClick={(personId) => navigate(`/person/${personId}`)}
-                        />
-                      );
-                    })()}
-                  </section>
-                )}
-
                 {entityType === EntityType.ASSEMBLY &&
                   (precededByAssembly || followedByAssembly) && (
                     <section className="glass-card p-8">
-                      <h3 className="text-sm font-bold uppercase tracking-widest text-[#FFD700] mb-6">
+                      <h3 className="text-sm font-bold uppercase tracking-widest text-white mb-6">
                         Assembly Succession
                       </h3>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -3431,14 +3673,14 @@ export const EntityPage: React.FC = () => {
 
                 {entityType === EntityType.PERSON && (
                   <section className="glass-card p-8">
-                    <h3 className="text-sm font-bold uppercase tracking-widest text-[#FFD700] mb-6">
+                    <h3 className="text-sm font-bold uppercase tracking-widest text-white mb-6">
                       Legislative Roles & History
                     </h3>
                     <div className="space-y-4">
                       {personAssemblyRoles &&
                         personAssemblyRoles.length > 0 && (
                           <div className="mb-6 space-y-4">
-                            <p className="text-[10px] text-gray-500 uppercase font-black tracking-widest">
+                            <p className="text-[10px] text-white uppercase font-black tracking-widest">
                               Leadership Councils
                             </p>
                             {personAssemblyRoles.map((r, idx) => {
@@ -3449,9 +3691,10 @@ export const EntityPage: React.FC = () => {
                               const shieldColorClass = isSilver
                                 ? "text-slate-300"
                                 : "text-[#FFD700]";
+                              const isGoldRole = r.role.toLowerCase().includes("chief minister");
                               const textColorClass = isSilver
                                 ? "silver-text"
-                                : "text-[#FFD700]";
+                                : (isGoldRole ? "text-[#FFD700]" : "text-white");
                               const chevronColorClass = isSilver
                                 ? "text-slate-400/40"
                                 : "text-[#FFD700]/40";
@@ -3564,7 +3807,7 @@ export const EntityPage: React.FC = () => {
                 {entityType === EntityType.DESIGNATION && (
                   <div className="space-y-6">
                     <section className="glass-card p-8">
-                      <h3 className="text-sm font-bold uppercase tracking-widest text-[#FFD700] mb-4">
+                      <h3 className="text-sm font-bold uppercase tracking-widest text-white mb-4">
                         Official Jurisdiction
                       </h3>
                       {associatedAssembly ? (
@@ -3603,7 +3846,7 @@ export const EntityPage: React.FC = () => {
                     </section>
                     <section className="glass-card p-8">
                       <div className="flex items-center justify-between mb-6">
-                        <h3 className="text-lg font-bold uppercase tracking-widest text-[#FFD700]">
+                        <h3 className="text-lg font-bold uppercase tracking-widest text-white">
                           Legislative Seat Management
                         </h3>
                       </div>
@@ -3679,368 +3922,118 @@ export const EntityPage: React.FC = () => {
                 )}
 
                 <section className="glass-card p-8">
-                  <h3 className="text-lg font-bold uppercase tracking-widest mb-6 text-gray-400">
+                  <h3 className="text-lg font-bold uppercase tracking-widest mb-6 text-white">
                     About {(entity as any).name}
                   </h3>
                   <div className="prose prose-invert max-w-none text-gray-400 leading-relaxed">
                     {entityType === EntityType.ASSEMBLY &&
                       (entity as Assembly).description}
-                    {entityType === EntityType.PARTY &&
-                      `The ${(entity as Party).name} (${(entity as Party).abbreviation}) is a major political force. Founded in ${(entity as Party).founded}, it maintains its headquarters in ${(entity as Party).headquarters}.`}
                     {entityType === EntityType.PERSON &&
                       `Details for legislator ${(entity as Person).name} ${(entity as Person).partyId === "independent" ? "serving as an independent." : `affiliated with ${personParty?.name || (entity as Person).partyId}.`}`}
-                    {entityType === EntityType.ALLIANCE &&
-                      `The ${(entity as Alliance).name} is a strategic coordination of multiple parties to ensure legislative stability.`}
                     {entityType === EntityType.DESIGNATION &&
                       `Official designation of ${(entity as Designation).name} for the ${associatedConstituency?.name || (entity as Designation).constituency || "selected"} constituency.`}
-                    {entityType === EntityType.CONSTITUENCY && (
-                      <div className="space-y-4">
-                        <p>
-                          Assembly constituency record for the {(entity as Constituency).name} constituency. This seat persists across multiple assembly terms and serves as a primary electoral division.
-                        </p>
-                        {constituencyCreationAssembly && (
-                          <p className="text-white text-base font-bold flex items-center gap-2 not-prose">
-                            <span className="text-gray-400 font-normal">Created:</span>{" "}
-                            <span
-                              onClick={() => navigate(`/assembly/${constituencyCreationAssembly.id}`)}
-                              className="text-[#FFD700] hover:underline cursor-pointer font-black inline-flex items-center gap-1.5"
-                            >
-                              <Landmark size={16} /> Since {constituencyCreationAssembly.name}
-                            </span>
-                          </p>
-                        )}
-                      </div>
-                    )}
                   </div>
 
-                  {entityType === EntityType.CONSTITUENCY && constituencyCreationAssembly && (
-                    <div className="mt-8 pt-6 border-t border-white/5 flex flex-wrap items-center justify-between gap-4">
-                      <div className="flex items-center gap-3.5">
-                        <div className="w-12 h-12 rounded-2xl bg-[#FFD700]/10 border border-[#FFD700]/20 flex items-center justify-center text-[#FFD700]">
-                          <Landmark size={22} />
-                        </div>
-                        <div>
-                          <p className="text-[10px] text-gray-500 font-black uppercase tracking-[0.2em] mb-1">
-                            Legislative Creation
-                          </p>
-                          <h4
-                            onClick={() => navigate(`/assembly/${constituencyCreationAssembly.id}`)}
-                            className="text-base font-black text-white hover:text-[#FFD700] cursor-pointer transition-colors flex items-center gap-2 group"
-                          >
-                            <span>Since {constituencyCreationAssembly.name}</span>
-                            <ExternalLink size={14} className="text-gray-500 group-hover:text-[#FFD700] transition-colors" />
-                          </h4>
-                        </div>
-                      </div>
-                      {constituencyCreationAssembly.termLimits && (
-                        <div className="flex items-center gap-2 bg-white/5 border border-white/10 px-3.5 py-2 rounded-xl text-xs font-mono font-bold text-gray-300">
-                          <Calendar size={14} className="text-[#FFD700]" />
-                          <span>{constituencyCreationAssembly.termLimits}</span>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {entityType === EntityType.ASSEMBLY && (
-                    <div className="space-y-8">
-                      {/* Seat Distribution */}
-                      {assemblyPerformance && (
-                        <section className="glass-card p-8 border-[#FFD700]/10">
-                          <div className="flex items-center justify-between mb-8">
-                            <div>
-                              <h3 className="text-sm font-black uppercase text-[#FFD700] tracking-[0.2em] mb-1">
-                                Legislative Control
-                              </h3>
-                              <p className="text-2xl font-black">
-                                {assemblyPerformance.totalSeats} Total
-                                Constituencies
-                              </p>
-                            </div>
-                          </div>
-
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                            {/* Government */}
-                            {assemblyPerformance.government && (
-                              <div className="p-6 bg-gradient-to-br from-[#FFD700]/10 to-transparent border border-[#FFD700]/30 rounded-2xl">
-                                <div className="flex items-center gap-2 mb-3">
-                                  <Award size={16} className="text-[#FFD700]" />
-                                  <span className="text-[10px] font-black uppercase tracking-widest text-[#FFD700]">
-                                    Government
-                                  </span>
-                                </div>
-                                <p className="text-xl font-bold mb-1 truncate">
-                                  {assemblyPerformance.government.name}
-                                </p>
-                                <p className="text-3xl font-black gold-text">
-                                  {assemblyPerformance.government.totalSeats}{" "}
-                                  Seats
-                                </p>
-                              </div>
-                            )}
-
-                            {/* Official Opposition */}
-                            {assemblyPerformance.opposition && (
-                              <div className="p-6 bg-white/5 border border-white/10 rounded-2xl">
-                                <div className="flex items-center gap-2 mb-3">
-                                  <Shield size={16} className="text-blue-400" />
-                                  <span className="text-[10px] font-black uppercase tracking-widest text-blue-400">
-                                    Official Opposition
-                                  </span>
-                                </div>
-                                <p className="text-xl font-bold mb-1 truncate">
-                                  {assemblyPerformance.opposition.name}
-                                </p>
-                                <p className="text-3xl font-black text-blue-400">
-                                  {assemblyPerformance.opposition.totalSeats}{" "}
-                                  Seats
-                                </p>
-                              </div>
-                            )}
-
-                            {/* Others */}
-                            <div className="p-6 bg-white/5 border border-white/5 rounded-2xl">
-                              <div className="flex items-center gap-2 mb-3">
-                                <Users size={16} className="text-gray-500" />
-                                <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">
-                                  Other Blocks
-                                </span>
-                              </div>
-                              <div className="space-y-2 max-h-20 overflow-y-auto custom-scrollbar">
-                                {assemblyPerformance.others.length > 0 ? (
-                                  assemblyPerformance.others.map((o) => (
-                                    <div
-                                      key={o.id}
-                                      className="flex items-center justify-between"
-                                    >
-                                      <span className="text-xs font-bold text-gray-400 truncate pr-2">
-                                        {o.name}
-                                      </span>
-                                      <span className="text-xs font-black">
-                                        {o.totalSeats}
-                                      </span>
-                                    </div>
-                                  ))
-                                ) : (
-                                  <p className="text-xs text-gray-600 italic">
-                                    No minor blocks recorded
-                                  </p>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="mt-8 flex h-4 rounded-full overflow-hidden bg-white/5 p-1 gap-1">
-                            {assemblyPerformance.distribution.map((a) => {
-                              const total = assemblyPerformance.totalSeats || 1;
-                              const pct = Math.min(100, Math.max(0, (a.totalSeats / total) * 100));
-                              return (
-                                <div
-                                  key={a.id}
-                                  style={{
-                                    width: `${pct}%`,
-                                    backgroundColor: a.color,
-                                  }}
-                                  className="h-full rounded-full opacity-80 hover:opacity-100 transition-opacity cursor-pointer relative group"
-                                >
-                                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 p-2 bg-black rounded-lg text-[10px] font-black opacity-0 group-hover:opacity-100 whitespace-nowrap z-10 transition-opacity border border-white/10 pointer-events-none">
-                                    {a.name}: {a.totalSeats}
-                                  </div>
-                                </div>
-                              );
-                            })}
-                            {(() => {
-                              const total = assemblyPerformance.totalSeats || 0;
-                              const occupied = (assemblyPerformance.distribution as any[]).reduce(
-                                (acc: number, cur: any) => acc + (cur.totalSeats || 0),
-                                0
-                              );
-                              const unallocated = Math.max(0, total - occupied);
-                              if (total > 0 && unallocated > 0) {
-                                return (
-                                  <div
-                                    style={{
-                                      width: `${(unallocated / total) * 100}%`,
-                                    }}
-                                    className="h-full bg-white/5 rounded-full relative group"
-                                  >
-                                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 p-2 bg-black rounded-lg text-[10px] font-black opacity-0 group-hover:opacity-100 whitespace-nowrap z-10 transition-opacity border border-white/10 pointer-events-none text-gray-400">
-                                      Vacant / Unallocated: {unallocated}
-                                    </div>
-                                  </div>
-                                );
-                              }
-                              return null;
-                            })()}
-                          </div>
-                        </section>
-                      )}
-                    </div>
-                  )}
+                  {/* Legislative Control section removed per user request */}
                 </section>
               </div>
 
               <div className="space-y-6">
-                <div className="glass-card p-6 border-[#FFD700]/10">
-                  <h4 className="text-xs font-bold uppercase tracking-widest text-[#FFD700] mb-6 flex items-center gap-2">
-                    <Shield size={14} /> SYSTEM METADATA
-                  </h4>
-                  <div className="space-y-4">
-                    {entityType === EntityType.PERSON && (
-                      <>
-                        <div className="flex justify-between py-2 border-b border-white/5">
-                          <span className="text-xs text-gray-400 uppercase">
-                            Gender
-                          </span>
-                          <span className="text-xs font-bold">
-                            {(entity as Person).gender || "Not Specified"}
-                          </span>
-                        </div>
-                        {activeRoles.length > 0 && (
-                          <div className="py-2 border-b border-white/5 space-y-2">
-                            <span className="text-xs text-gray-400 uppercase block mb-1">
-                              Active Roles
-                            </span>
-                            <div className="space-y-1.5">
-                              {activeRoles.map((role, rIdx) => {
-                                const isOpposition = role.name.toLowerCase().includes("opposition");
-                                const isGold =
-                                  (role.type === "cabinet" ||
-                                    role.type === "leadership") &&
-                                  !isOpposition;
-                                const isSilver =
-                                  (role.type === "cabinet" ||
-                                    role.type === "leadership") &&
-                                  isOpposition;
-                                return (
-                                  <div
-                                    key={rIdx}
-                                    className="flex flex-col bg-white/[0.02] border border-white/5 rounded-xl p-2.5"
-                                  >
-                                    <span
-                                      className={`text-xs font-black uppercase tracking-wider ${isGold ? "text-[#FFD700]" : isSilver ? "silver-text" : "text-gray-300"}`}
-                                    >
-                                      {prefixRole(role.name)}
-                                    </span>
-                                    {role.assemblyName && (
-                                      <span className="text-[10px] text-gray-500 font-bold uppercase mt-0.5">
-                                        {role.assemblyName}
-                                      </span>
-                                    )}
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        )}
-                      </>
-                    )}
-                    {entityType === EntityType.PARTY && (
-                      <>
-                        <div className="flex justify-between py-2 border-b border-white/5">
-                          <span className="text-xs text-gray-400 uppercase">
-                            Chairman
-                          </span>
-                          <span className="text-xs font-bold">
-                            {(entity as Party).chairman}
-                          </span>
-                        </div>
-                        <div className="flex justify-between py-2 border-b border-white/5">
-                          <span className="text-xs text-gray-400 uppercase">
-                            Founded
-                          </span>
-                          <span className="text-xs font-bold">
-                            {(entity as Party).founded}
-                          </span>
-                        </div>
-                        <div className="py-2 border-b border-white/5 flex justify-between">
-                          <span className="text-xs text-gray-400 uppercase block mb-1">
-                            Headquarters
-                          </span>
-                          <span className="text-xs font-bold text-gray-300">
-                            {(entity as Party).headquarters}
-                          </span>
-                        </div>
-                        <div className="py-2 flex justify-between">
-                          <span className="text-xs text-gray-400 uppercase block mb-1">
-                            Total Members
-                          </span>
-                          <span className="text-xs font-bold text-[#FFD700]">
-                            {relatedPersons?.length || 0} Legislators
-                          </span>
-                        </div>
-                      </>
-                    )}
                     {entityType === EntityType.ASSEMBLY && (
-                      <>
-                        <div className="flex justify-between py-2 border-b border-white/5">
-                          <span className="text-xs text-gray-400 uppercase">
-                            Term Limits
-                          </span>
-                          <span className="text-xs font-bold">
-                            {(entity as Assembly).termLimits}
-                          </span>
-                        </div>
-                        <div className="py-2">
-                          <span className="text-xs text-gray-400 uppercase block mb-1">
-                            Control ID
-                          </span>
-                          <span className="text-xs font-bold text-[#D32F2F]">
-                            {(entity as Assembly).partyControlId}
-                          </span>
-                        </div>
-                      </>
+                      <AssemblyInfoboxTable
+                        assembly={entity as Assembly}
+                        personsList={personsList}
+                        partiesList={partiesList}
+                        alliancesList={alliancesList}
+                        assembliesList={assembliesList}
+                        onNavigatePerson={(id) => navigate(`/person/${id}`)}
+                        onNavigateParty={(id) => navigate(`/party/${id}`)}
+                        onNavigateAlliance={(id) => navigate(`/alliance/${id}`)}
+                        onNavigateAssembly={(id) => navigate(`/assembly/${id}`)}
+                      />
                     )}
-                    {entityType === EntityType.CONSTITUENCY && (
-                      <>
-                        <div className="flex justify-between py-2 border-b border-white/5">
-                          <span className="text-xs text-gray-400 uppercase">
-                            Serial Number
-                          </span>
-                          <span className="text-xs font-mono font-bold text-[#FFD700]">
-                            #{(entity as Constituency).slNo}
-                          </span>
-                        </div>
-                        {constituencyCreationAssembly && (
-                          <div className="flex justify-between py-2 border-b border-white/5">
+                    {entityType !== EntityType.ASSEMBLY && (
+                      <div className="glass-card p-6 border-[#FFD700]/10">
+                        <h4 className="text-xs font-bold uppercase tracking-widest text-[#FFD700] mb-6 flex items-center gap-2">
+                          <Shield size={14} /> SYSTEM METADATA
+                        </h4>
+                        <div className="space-y-4">
+                          {entityType === EntityType.PERSON && (
+                            <>
+                              <div className="flex justify-between py-2 border-b border-white/5">
+                                <span className="text-xs text-gray-400 uppercase">
+                                  Gender
+                                </span>
+                                <span className="text-xs font-bold">
+                                  {(entity as Person).gender || "Not Specified"}
+                                </span>
+                              </div>
+                              {activeRoles.length > 0 && (
+                                <div className="py-2 border-b border-white/5 space-y-2">
+                                  <span className="text-xs text-gray-400 uppercase block mb-1">
+                                    Active Roles
+                                  </span>
+                                  <div className="space-y-1.5">
+                                    {activeRoles.map((role, rIdx) => {
+                                      const isOpposition = role.name.toLowerCase().includes("opposition");
+                                      const isGold =
+                                        (role.type === "cabinet" ||
+                                          role.type === "leadership") &&
+                                        !isOpposition;
+                                      const isSilver =
+                                        (role.type === "cabinet" ||
+                                          role.type === "leadership") &&
+                                        isOpposition;
+                                      return (
+                                        <div
+                                          key={rIdx}
+                                          className="flex flex-col bg-white/[0.02] border border-white/5 rounded-xl p-2.5"
+                                        >
+                                          <span
+                                            className={`text-xs font-black uppercase tracking-wider ${isGold ? "text-[#FFD700]" : isSilver ? "silver-text" : "text-gray-300"}`}
+                                          >
+                                            {prefixRole(role.name)}
+                                          </span>
+                                          {role.assemblyName && (
+                                            <span className="text-[10px] text-gray-500 font-bold uppercase mt-0.5">
+                                              {role.assemblyName}
+                                            </span>
+                                          )}
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              )}
+                            </>
+                          )}
+                          <div className="flex justify-between py-2">
                             <span className="text-xs text-gray-400 uppercase">
-                              Legislative Inception
+                              Last Registry Update
                             </span>
-                            <span
-                              onClick={() => navigate(`/assembly/${constituencyCreationAssembly.id}`)}
-                              className="text-xs font-bold text-[#FFD700] hover:underline cursor-pointer"
-                            >
-                              Since {constituencyCreationAssembly.name}
+                            <span className="text-xs font-bold">
+                              {(() => {
+                                const dateVal = entity.updatedAt;
+                                const isValidDate =
+                                  dateVal && !isNaN(new Date(dateVal).getTime());
+                                if (isValidDate)
+                                  return new Date(dateVal).toLocaleString();
+                                if (entityType === EntityType.PERSON) {
+                                  const person = entity as Person;
+                                  const cName =
+                                    person.constituencyName ||
+                                    constituenciesList.find(
+                                      (c) => c.currentIncumbentId === person.id,
+                                    )?.name;
+                                  if (cName) return `MLA for ${cName}`;
+                                }
+                                return "Active Term";
+                              })()}
                             </span>
                           </div>
-                        )}
-                      </>
+                        </div>
+                      </div>
                     )}
-                    <div className="flex justify-between py-2">
-                      <span className="text-xs text-gray-400 uppercase">
-                        Last Registry Update
-                      </span>
-                      <span className="text-xs font-bold">
-                        {(() => {
-                          const dateVal = entity.updatedAt;
-                          const isValidDate =
-                            dateVal && !isNaN(new Date(dateVal).getTime());
-                          if (isValidDate)
-                            return new Date(dateVal).toLocaleString();
-                          if (entityType === EntityType.PERSON) {
-                            const person = entity as Person;
-                            const cName =
-                              person.constituencyName ||
-                              constituenciesList.find(
-                                (c) => c.currentIncumbentId === person.id,
-                              )?.name;
-                            if (cName) return `MLA for ${cName}`;
-                          }
-                          return "Active Term";
-                        })()}
-                      </span>
-                    </div>
-                  </div>
-                </div>
               </div>
             </div>
           )}
@@ -4049,81 +4042,15 @@ export const EntityPage: React.FC = () => {
             <div className="space-y-12">
               {entityType === EntityType.CONSTITUENCY && (
                 <section>
-                  <div className="mb-12">
-                    <h3 className="text-2xl font-black uppercase tracking-tight mb-8">
-                      Legislative Sessions for this seat
-                    </h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {designationsFromConstituency &&
-                        designationsFromConstituency.map((d) => (
-                          <div
-                            key={d.id}
-                            onClick={() => navigate(`/designation/${d.id}`)}
-                            className="p-6 bg-white/5 border border-white/5 rounded-2xl hover:border-[#FFD700]/30 transition-all cursor-pointer group"
-                          >
-                            <div className="flex items-center justify-between mb-4">
-                              <p className="text-xs font-black uppercase text-[#FFD700] tracking-widest">
-                                {d.assembly?.name || "Unknown Assembly"}
-                              </p>
-                              {d.incumbentId === "vacant" ? (
-                                <span className="text-[10px] text-red-500 font-bold">
-                                  VACANT
-                                </span>
-                              ) : (
-                                <span className="text-[10px] text-emerald-500 font-bold">
-                                  ACTIVE
-                                </span>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-4">
-                              <div className="w-12 h-12 rounded-xl bg-black flex items-center justify-center text-gray-500 group-hover:text-white transition-colors overflow-hidden">
-                                {d.incumbent?.imageUrl ? (
-                                  <img
-                                    src={d.incumbent.imageUrl}
-                                    className="w-full h-full object-cover"
-                                  />
-                                ) : (
-                                  <User size={24} />
-                                )}
-                              </div>
-                              <div>
-                                <p className="font-bold text-white mb-1">
-                                  {d.incumbent?.name || "No Incumbent"}
-                                </p>
-                                <div className="flex items-center gap-2">
-                                  <p className="text-[10px] text-gray-500 uppercase tracking-widest font-black">
-                                    {partiesList.find(
-                                      (p) => p.id === d.incumbent?.partyId,
-                                    )?.abbreviation || "Independent"}
-                                  </p>
-                                  {d.incumbent?.partyId &&
-                                    d.incumbent.partyId !== "independent" && (
-                                      <>
-                                        <span className="text-[8px] text-gray-700">
-                                          •
-                                        </span>
-                                        <span className="text-[9px] text-[#FFD700] uppercase font-black tracking-widest bg-[#FFD700]/5 px-2 py-0.5 rounded border border-[#FFD700]/10">
-                                          {
-                                            alliancesList.find(
-                                              (a) =>
-                                                a.id ===
-                                                partiesList.find(
-                                                  (p) =>
-                                                    p.id ===
-                                                    d.incumbent?.partyId,
-                                                )?.allianceId,
-                                            )?.name
-                                          }
-                                        </span>
-                                      </>
-                                    )}
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                    </div>
-                  </div>
+                  <LegislativeSessionsTable
+                    title="Members of Legislative Assembly"
+                    subtitle="Chronological record of assembly sessions, members, and political party affiliations"
+                    rows={sessionRows}
+                    onNavigatePerson={(personId) => navigate(`/person/${personId}`)}
+                    onNavigateParty={(partyId) => navigate(`/party/${partyId}`)}
+                    onNavigateAlliance={(allianceId) => navigate(`/alliance/${allianceId}`)}
+                    onNavigateAssembly={(assemblyId) => navigate(`/assembly/${assemblyId}`)}
+                  />
                 </section>
               )}
               {entityType === EntityType.PARTY && (
@@ -4218,15 +4145,15 @@ export const EntityPage: React.FC = () => {
                     <h3 className="text-3xl font-black gold-text uppercase tracking-tighter">
                       {(entity as Alliance).name}
                     </h3>
-                    <p className="text-blue-400 uppercase tracking-[0.4em] text-[10px] font-black mt-2">
+                    <p className="text-[#FFD700] uppercase tracking-[0.4em] text-[10px] font-black mt-2">
                       Grand Strategic Alliance
                     </p>
                   </div>
 
                   <div className="w-full space-y-24">
-                    {/* 1. Constituent Parties Portion */}
-                    <div className="space-y-8">
-                      <div className="flex items-center justify-between gap-3">
+                    {/* 1. Constituent Parties Portion (Wikipedia-Style Tabular Layout) */}
+                    <div className="space-y-6">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                         <div className="flex items-center gap-3">
                           <div className="w-10 h-10 rounded-xl bg-[#FFD700]/10 flex items-center justify-center border border-[#FFD700]/20">
                             <Flag size={20} className="text-[#FFD700]" />
@@ -4236,41 +4163,77 @@ export const EntityPage: React.FC = () => {
                               Constituent Parties
                             </h4>
                             <p className="text-[10px] text-gray-500 uppercase tracking-widest font-black">
-                              Political Base
+                              Political Coalition Base
                             </p>
                           </div>
                         </div>
-                        {!isDissolvedRecord && (
-                          <button
-                            onClick={() => setShowAddPartyModal(true)}
-                            className="flex items-center gap-2 px-4 py-2 bg-[#FFD700]/10 hover:bg-[#FFD700]/20 rounded-xl text-[#FFD700] text-[10px] font-black uppercase tracking-widest border border-[#FFD700]/20 transition-all"
-                          >
-                            <Plus size={14} /> Add Constituent
-                          </button>
-                        )}
+
+                        <div className="flex items-center gap-3 self-end sm:self-auto">
+                          {/* View Mode Toggle: Table (default) / Cards */}
+                          <div className="flex items-center bg-white/5 border border-white/10 rounded-xl p-0.5">
+                            <button
+                              type="button"
+                              onClick={() => setAlliancePartiesViewMode("table")}
+                              className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                                alliancePartiesViewMode === "table"
+                                  ? "bg-[#FFD700] text-black shadow-sm"
+                                  : "text-zinc-400 hover:text-white"
+                              }`}
+                            >
+                              Table
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setAlliancePartiesViewMode("grid")}
+                              className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                                alliancePartiesViewMode === "grid"
+                                  ? "bg-[#FFD700] text-black shadow-sm"
+                                  : "text-zinc-400 hover:text-white"
+                              }`}
+                            >
+                              Cards
+                            </button>
+                          </div>
+                        </div>
                       </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {Array.isArray(relatedParties) &&
-                          relatedParties.map((p) => (
-                            <motion.div key={p.id} whileHover={{ y: -5 }}>
-                              <EntityCard
-                                entity={p}
-                                type={EntityType.PARTY}
-                                onDelete={() =>
-                                  handleRemovePartyFromAlliance(p.id)
-                                }
-                              />
-                            </motion.div>
-                          ))}
-                        {Array.isArray(relatedParties) &&
-                          relatedParties.length === 0 && (
-                            <div className="col-span-full py-12 border border-dashed border-white/5 rounded-3xl text-center">
-                              <p className="text-gray-600 uppercase tracking-widest text-xs font-black">
-                                No member parties assigned
-                              </p>
-                            </div>
-                          )}
-                      </div>
+
+                      {alliancePartiesViewMode === "table" ? (
+                        <AllianceConstituentPartiesTable
+                          alliance={entity as Alliance}
+                          relatedParties={relatedParties || []}
+                          activeAssembly={assembliesList.find((a) => a && a.isActive !== false)}
+                          assembliesList={assembliesList || []}
+                          constituenciesList={constituenciesList || []}
+                          personsList={personsList || []}
+                          onNavigateParty={(partyId) => navigate(`/party/${partyId}`)}
+                          onAddConstituent={() => setShowAddPartyModal(true)}
+                          onRemoveParty={(partyId) => handleRemovePartyFromAlliance(partyId)}
+                          isDissolved={isDissolvedRecord}
+                        />
+                      ) : (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                          {Array.isArray(relatedParties) &&
+                            relatedParties.map((p) => (
+                              <motion.div key={p.id} whileHover={{ y: -5 }}>
+                                <EntityCard
+                                  entity={p}
+                                  type={EntityType.PARTY}
+                                  onDelete={() =>
+                                    handleRemovePartyFromAlliance(p.id)
+                                  }
+                                />
+                              </motion.div>
+                            ))}
+                          {Array.isArray(relatedParties) &&
+                            relatedParties.length === 0 && (
+                              <div className="col-span-full py-12 border border-dashed border-white/5 rounded-3xl text-center">
+                                <p className="text-gray-600 uppercase tracking-widest text-xs font-black">
+                                  No member parties assigned
+                                </p>
+                              </div>
+                            )}
+                        </div>
+                      )}
                     </div>
 
                     {/* 2. Alliance Leadership Portion (Leader, Chairman, Founder) */}
@@ -4366,12 +4329,12 @@ export const EntityPage: React.FC = () => {
                                 </div>
                               )}
                             </div>
-                            <div className="absolute -bottom-2 -right-2 bg-blue-500 text-white p-2 rounded-xl shadow-xl">
+                            <div className="absolute -bottom-2 -right-2 bg-[#FFD700] text-white p-2 rounded-xl shadow-xl">
                               <Landmark size={16} />
                             </div>
                           </div>
                           <div>
-                            <p className="text-[10px] text-blue-400 font-black uppercase tracking-[0.3em] mb-1">
+                            <p className="text-[10px] text-[#FFD700] font-black uppercase tracking-[0.3em] mb-1">
                               Chairman
                             </p>
                             <p className="text-xl font-black text-white uppercase tracking-tight">
@@ -4385,7 +4348,7 @@ export const EntityPage: React.FC = () => {
                                       `/person/${allianceLeadership.chairman!.id}`,
                                     )
                                   }
-                                  className="text-[10px] text-gray-500 hover:text-blue-400 transition-colors uppercase font-black tracking-widest"
+                                  className="text-[10px] text-gray-500 hover:text-[#FFD700] transition-colors uppercase font-black tracking-widest"
                                 >
                                   View Profile
                                 </button>
@@ -4395,7 +4358,7 @@ export const EntityPage: React.FC = () => {
                                     setCouncilSearchQuery("");
                                     setAppointingCouncilRole("chairman");
                                   }}
-                                  className="text-[10px] text-blue-400/70 hover:text-blue-400 transition-colors uppercase font-black tracking-widest"
+                                  className="text-[10px] text-[#FFD700]/70 hover:text-[#FFD700] transition-colors uppercase font-black tracking-widest"
                                 >
                                   Change
                                 </button>
@@ -4413,7 +4376,7 @@ export const EntityPage: React.FC = () => {
                                   setCouncilSearchQuery("");
                                   setAppointingCouncilRole("chairman");
                                 }}
-                                className="mt-3 px-4 py-1.5 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 rounded-xl text-[10px] font-black uppercase tracking-widest border border-blue-500/20 transition-all flex items-center gap-1.5 mx-auto"
+                                className="mt-3 px-4 py-1.5 bg-[#FFD700]/10 hover:bg-[#FFD700]/20 text-[#FFD700] rounded-xl text-[10px] font-black uppercase tracking-widest border border-[#FFD700]/20 transition-all flex items-center gap-1.5 mx-auto"
                               >
                                 <UserPlus size={12} /> Appoint Chairman
                               </button>
@@ -5046,16 +5009,6 @@ export const EntityPage: React.FC = () => {
                         </h4>
                       </div>
                     </div>
-
-                    {!isDissolvedRecord && (
-                      <button
-                        onClick={() => setIsLeadershipModalOpen(true)}
-                        className="inline-flex items-center gap-2 px-4 py-2.5 bg-[#FFD700] hover:bg-[#FFD700]/90 text-black rounded-xl font-bold text-xs uppercase tracking-wider shadow-lg shadow-[#FFD700]/20 transition-all cursor-pointer shrink-0"
-                      >
-                        <Crown size={14} />
-                        <span>Appoint Leadership Council</span>
-                      </button>
-                    )}
                   </div>
 
                   {/* Leadership Council Cards Grid */}
@@ -5064,55 +5017,36 @@ export const EntityPage: React.FC = () => {
                       {
                         key: "chiefMinister",
                         title: "Chief Minister",
-                        badge: "Govt MLA • Rule 1",
                         theme: "gold",
                       },
                       {
                         key: "deputyChiefMinister",
                         title: "Deputy Chief Minister",
-                        badge: "Govt MLA • Rule 1",
-                        theme: "gold",
-                      },
-                      {
-                        key: "leaderOfHouse",
-                        title: "Leader of the House",
-                        badge: "Govt MLA • Rule 1",
-                        theme: "gold",
-                      },
-                      {
-                        key: "deputyLeaderOfHouse",
-                        title: "Deputy Leader of the House",
-                        badge: "Govt MLA • Rule 1",
                         theme: "gold",
                       },
                       {
                         key: "speaker",
                         title: "Speaker of the House",
-                        badge: "Govt MLA • Rule 1",
                         theme: "amber",
                       },
                       {
                         key: "deputySpeaker",
                         title: "Deputy Speaker",
-                        badge: "Govt MLA • Rule 1",
                         theme: "amber",
                       },
                       {
                         key: "leaderOfOpposition",
                         title: "Leader of Opposition",
-                        badge: "Assembly MLA • Rule 2",
                         theme: "silver",
                       },
                       {
                         key: "deputyLeaderOfOpposition",
                         title: "Deputy Leader of Opposition",
-                        badge: "Assembly MLA • Rule 2",
                         theme: "silver",
                       },
                       {
                         key: "chiefSecretary",
                         title: "Chief Secretary",
-                        badge: "Executive • Rule 2 Exception",
                         theme: "blue",
                       },
                     ].map((role) => {
@@ -5170,7 +5104,7 @@ export const EntityPage: React.FC = () => {
                               <div className="flex items-start justify-between gap-2 mb-3">
                                 <div
                                   onClick={() => navigate(`/person/${person.id}`)}
-                                  className={`w-14 h-14 rounded-2xl bg-black overflow-hidden border ${imageBorderClasses} shadow-lg cursor-pointer shrink-0`}
+                                  className={`w-14 h-14 rounded-2xl bg-zinc-900 overflow-hidden border ${imageBorderClasses} shadow-lg cursor-pointer shrink-0 group-hover:border-[#FFD700]/50 transition-colors`}
                                 >
                                   {person.imageUrl ? (
                                     <img
@@ -5185,10 +5119,6 @@ export const EntityPage: React.FC = () => {
                                     </div>
                                   )}
                                 </div>
-
-                                <span className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded border ${badgeClasses}`}>
-                                  {role.badge}
-                                </span>
                               </div>
 
                               <p className="text-[10px] uppercase text-gray-500 font-bold tracking-widest leading-none mb-1">
@@ -5258,9 +5188,6 @@ export const EntityPage: React.FC = () => {
                               <div className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center text-zinc-600">
                                 <User size={20} />
                               </div>
-                              <span className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded border ${badgeClasses}`}>
-                                {role.badge}
-                              </span>
                             </div>
 
                             <p className="text-[10px] uppercase text-gray-500 font-bold tracking-widest leading-none mb-1">
@@ -5268,13 +5195,6 @@ export const EntityPage: React.FC = () => {
                             </p>
                             <p className="font-bold text-base text-zinc-500 italic">
                               Position Vacant
-                            </p>
-                            <p className="text-[11px] text-zinc-600 mt-1">
-                              {role.badge.includes("Govt")
-                                ? "Requires an elected MLA from the government composition."
-                                : role.badge.includes("Assembly")
-                                ? "Requires an active MLA of this legislative assembly."
-                                : "Administrative head appointment."}
                             </p>
                           </div>
 
@@ -5284,7 +5204,7 @@ export const EntityPage: React.FC = () => {
                               className="w-full py-2.5 bg-white/5 hover:bg-[#FFD700]/10 hover:text-[#FFD700] border border-white/10 hover:border-[#FFD700]/30 rounded-xl text-xs font-bold uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer"
                             >
                               <Plus size={14} />
-                              <span>Appoint {role.title}</span>
+                              <span>Appoint</span>
                             </button>
                           ) : (
                             <span className="text-[10px] text-zinc-600 font-mono italic">
@@ -5431,7 +5351,7 @@ export const EntityPage: React.FC = () => {
                           </h3>
                           <div className="flex items-center gap-6">
                             <div className="text-right">
-                              <p className="text-[10px] text-blue-400 font-bold uppercase tracking-widest">
+                              <p className="text-[10px] text-[#FFD700] font-bold uppercase tracking-widest">
                                 Government
                               </p>
                               <p className="text-xl font-black text-white">
@@ -5460,12 +5380,12 @@ export const EntityPage: React.FC = () => {
                           {assemblyPerformance.government && (
                             <div className="space-y-6">
                               <div className="flex items-center justify-between">
-                                <h4 className="text-lg font-black text-blue-400 uppercase tracking-tighter">
+                                <h4 className="text-lg font-black text-[#FFD700] uppercase tracking-tighter">
                                   Government (
                                   {assemblyPerformance.government.totalSeats})
                                 </h4>
                               </div>
-                              <div className="pl-4 border-l-2 border-blue-400/20 space-y-6">
+                              <div className="pl-4 border-l-2 border-[#FFD700]/20 space-y-6">
                                 <div className="flex items-center gap-3">
                                   <div
                                     className="w-5 h-5 rounded-[4px]"
@@ -5631,71 +5551,6 @@ export const EntityPage: React.FC = () => {
               </div>
 
               <div className="space-y-0 pl-4 border-l border-[#FFD700]/20 ml-6">
-                {entityType === EntityType.ASSEMBLY &&
-                  Array.isArray((entity as Assembly).history) &&
-                  (entity as Assembly).history
-                    .slice()
-                    .reverse()
-                    .map((h, i) => (
-                      <motion.div
-                        key={`${h.term}-${i}`}
-                        initial={{ opacity: 0, x: -20 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: i * 0.1 }}
-                        className="relative pb-10 group"
-                      >
-                        <div className="absolute -left-[27px] top-0 w-3 h-3 rounded-full bg-[#050505] border-2 border-[#FFD700] group-hover:scale-150 transition-transform" />
-                        <div className="glass-card p-6 ml-4 hover:border-[#FFD700]/40 transition-all">
-                          <div className="flex items-center justify-between mb-4">
-                            <p className="text-sm text-[#FFD700] font-black uppercase tracking-[0.2em]">
-                              {h.term}
-                            </p>
-                            {h.notes && (
-                              <p className="text-[10px] text-gray-500 font-bold bg-white/5 px-2 py-1 rounded italic">
-                                "{h.notes}"
-                              </p>
-                            )}
-                          </div>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            {h.chiefMinisterId && (
-                              <div className="flex items-center gap-3">
-                                <div className="w-8 h-8 rounded-lg bg-black flex items-center justify-center text-gray-400 border border-white/5">
-                                  <User size={16} />
-                                </div>
-                                <div>
-                                  <p className="text-[10px] text-gray-500 uppercase font-black tracking-widest leading-none mb-1">
-                                    Chief Minister
-                                  </p>
-                                  <p className="text-sm font-bold text-gray-200">
-                                    {personsList.find(
-                                      (p) => p.id === h.chiefMinisterId,
-                                    )?.name || "Former Legislator"}
-                                  </p>
-                                </div>
-                              </div>
-                            )}
-                            {h.speakerId && (
-                              <div className="flex items-center gap-3">
-                                <div className="w-8 h-8 rounded-lg bg-black flex items-center justify-center text-gray-400 border border-white/5">
-                                  <Landmark size={16} />
-                                </div>
-                                <div>
-                                  <p className="text-[10px] text-gray-500 uppercase font-black tracking-widest leading-none mb-1">
-                                    Speaker
-                                  </p>
-                                  <p className="text-sm font-bold text-gray-200">
-                                    {personsList.find(
-                                      (p) => p.id === h.speakerId,
-                                    )?.name || "Former Legislator"}
-                                  </p>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </motion.div>
-                    ))}
-
                 {entityType === EntityType.PERSON &&
                   (entity as Person).roleHistory &&
                   (() => {
@@ -5731,10 +5586,10 @@ export const EntityPage: React.FC = () => {
                             className="relative pb-10 group"
                           >
                             <div
-                              className={`absolute -left-[27px] top-0 w-3 h-3 rounded-full bg-[#050505] border-2 ${isActive ? "border-emerald-500 scale-125" : "border-blue-500"} group-hover:scale-150 transition-transform`}
+                              className={`absolute -left-[27px] top-0 w-3 h-3 rounded-full bg-[#050505] border-2 ${isActive ? "border-emerald-500 scale-125" : "border-[#FFD700]"} group-hover:scale-150 transition-transform`}
                             />
                             <div
-                              className={`glass-card p-6 ml-4 hover:border-blue-500/40 transition-all ${isActive ? "border-emerald-500/20 bg-emerald-500/[0.02]" : "border-blue-500/10"}`}
+                              className={`glass-card p-6 ml-4 hover:border-[#FFD700]/40 transition-all ${isActive ? "border-emerald-500/20 bg-emerald-500/[0.02]" : "border-[#FFD700]/10"}`}
                             >
                               <div className="flex items-center justify-between mb-4">
                                 <div className="flex items-center gap-2">
@@ -5783,78 +5638,22 @@ export const EntityPage: React.FC = () => {
                       });
                   })()}
 
-                {entityType === EntityType.DESIGNATION &&
-                  Array.isArray((entity as Designation).history) &&
-                  (() => {
-                    const history = (entity as Designation).history || [];
-                    const filteredHistory = history.filter((h, idx) => {
-                      const firstIdx = history.findIndex(
-                        (h2) =>
-                          h2.personId === h.personId &&
-                          h2.reason === h.reason &&
-                          Math.abs(h2.date - h.date) < 60000,
-                      );
-                      return firstIdx === idx;
-                    });
-
-                    return filteredHistory
-                      .slice()
-                      .reverse()
-                      .map((h, i) => (
-                        <motion.div
-                          key={`${h.personId}-${h.date}-${i}`}
-                          initial={{ opacity: 0, x: -20 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          transition={{ delay: i * 0.1 }}
-                          className="relative pb-10 group"
-                        >
-                          <div className="absolute -left-[27px] top-0 w-3 h-3 rounded-full bg-[#050505] border-2 border-[#FFD700] group-hover:scale-150 transition-transform" />
-                          <div className="glass-card p-6 ml-4 hover:border-[#FFD700]/40 transition-all">
-                            <div className="flex items-center justify-between mb-2">
-                              <p className="text-xs text-[#FFD700] font-black uppercase tracking-widest">
-                                {h.reason}
-                              </p>
-                              <p className="text-xs text-gray-500 font-mono">
-                                {new Date(h.date).toLocaleString()}
-                              </p>
-                            </div>
-                            <div className="mt-4">
-                              {personsList.find((p) => p.id === h.personId) ? (
-                                <EntityCard
-                                  entity={
-                                    personsList.find(
-                                      (p) => p.id === h.personId,
-                                    )!
-                                  }
-                                  type={EntityType.PERSON}
-                                  onEdit={() => {}}
-                                />
-                              ) : (
-                                <div className="flex items-center gap-3 opacity-50">
-                                  <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-gray-600 border border-white/5">
-                                    <User size={20} />
-                                  </div>
-                                  <div>
-                                    <p className="text-sm font-bold text-gray-400">
-                                      Former Legislator
-                                    </p>
-                                    <p className="text-[10px] text-gray-600 font-mono tracking-tighter uppercase">
-                                      {h.personId}
-                                    </p>
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        </motion.div>
-                      ));
-                  })()}
+                {entityType === EntityType.DESIGNATION && (
+                  <div className="space-y-8">
+                    <LegislativeSessionsTable
+                      title="Legislative Sessions"
+                      subtitle="Historical succession of incumbents and political affiliations across assembly terms"
+                      rows={sessionRows}
+                      onNavigatePerson={(personId) => navigate(`/person/${personId}`)}
+                      onNavigateParty={(partyId) => navigate(`/party/${partyId}`)}
+                      onNavigateAlliance={(allianceId) => navigate(`/alliance/${allianceId}`)}
+                      onNavigateAssembly={(assemblyId) => navigate(`/assembly/${assemblyId}`)}
+                    />
+                  </div>
+                )}
                 {((entityType === EntityType.DESIGNATION &&
                   (!(entity as Designation).history ||
-                    (entity as Designation).history?.length === 0)) ||
-                  (entityType === EntityType.ASSEMBLY &&
-                    (!(entity as Assembly).history ||
-                      (entity as Assembly).history?.length === 0))) && (
+                    (entity as Designation).history?.length === 0))) && (
                   <p className="text-gray-600 font-bold uppercase tracking-widest py-10 pl-6">
                     No historical records found for this seat
                   </p>
@@ -5962,10 +5761,10 @@ export const EntityPage: React.FC = () => {
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="w-full max-w-sm glass-card border-blue-500/20 p-8 relative"
+              className="w-full max-w-sm glass-card border-[#FFD700]/20 p-8 relative"
             >
               <div className="text-center">
-                <div className="w-16 h-16 rounded-full bg-blue-500/10 text-blue-400 flex items-center justify-center mx-auto mb-4">
+                <div className="w-16 h-16 rounded-full bg-[#FFD700]/10 text-[#FFD700] flex items-center justify-center mx-auto mb-4">
                   <Shield size={32} />
                 </div>
                 <h3 className="text-xl font-bold mb-2 uppercase tracking-tight">
@@ -5989,7 +5788,7 @@ export const EntityPage: React.FC = () => {
                       value={departmentInput}
                       onChange={(e) => setDepartmentInput(e.target.value)}
                       placeholder="e.g. Finance, Education, Home..."
-                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-400/50 transition-colors"
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#FFD700]/50 transition-colors"
                       autoFocus
                     />
                   </div>
@@ -6005,7 +5804,7 @@ export const EntityPage: React.FC = () => {
                   <button
                     disabled={!departmentInput.trim()}
                     onClick={handlePromote}
-                    className="flex-1 py-3 bg-blue-500 hover:bg-blue-600 rounded-xl text-white font-black text-xs uppercase tracking-widest transition-all shadow-lg shadow-blue-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="flex-1 py-3 bg-[#FFD700] hover:bg-[#FFD700]/80 rounded-xl text-white font-black text-xs uppercase tracking-widest transition-all shadow-lg shadow-[#FFD700]/20 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Confirm Roll
                   </button>
@@ -6116,7 +5915,7 @@ export const EntityPage: React.FC = () => {
                         }}
                         className={`w-full flex items-center justify-between p-3 rounded-xl transition-all border ${
                           isSelected
-                            ? "bg-blue-500/10 border-blue-500/30"
+                            ? "bg-[#FFD700]/10 border-[#FFD700]/30"
                             : "bg-white/5 border-white/5 hover:bg-white/10"
                         }`}
                       >
@@ -6298,7 +6097,10 @@ export const EntityPage: React.FC = () => {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              onClick={() => setShowVacateMlaReasonModal(false)}
+              onClick={() => {
+                setShowVacateMlaReasonModal(false);
+                setVacateReasonType(null);
+              }}
               className="absolute inset-0 bg-black/80 backdrop-blur-sm"
             />
             <motion.div
@@ -6308,7 +6110,10 @@ export const EntityPage: React.FC = () => {
               className="w-full max-w-sm glass-card border-red-500/20 p-8 relative"
             >
               <button
-                onClick={() => setShowVacateMlaReasonModal(false)}
+                onClick={() => {
+                  setShowVacateMlaReasonModal(false);
+                  setVacateReasonType(null);
+                }}
                 className="absolute top-4 right-4 text-gray-400 hover:text-white transition-colors"
                 id="close-vacate-reason-btn"
               >
@@ -6322,43 +6127,74 @@ export const EntityPage: React.FC = () => {
                   className="text-xl font-bold mb-2 uppercase tracking-tight font-sans"
                   id="vacate-reason-title"
                 >
-                  Select Removal Reason
+                  {vacateReasonType === "expiry" ? "Specify Expiry Reason" : "Select Removal Reason"}
                 </h3>
                 <p className="text-gray-500 text-sm mb-6 font-sans">
-                  Select the reason for vacating the seat of constituency{" "}
-                  <span className="text-white font-bold">
-                    {(entity as Constituency)?.name}
-                  </span>
-                  .
+                  {vacateReasonType === "expiry" 
+                    ? "Please specify the nature of expiry."
+                    : `Select the reason for vacating the seat of constituency ${(entity as Constituency)?.name}.`
+                  }
                 </p>
 
                 <div className="space-y-2 mb-6 text-left">
-                  {[
-                    "Resigned",
-                    "Expired",
-                    "Suspended by hon'ble highcourt",
-                    "Suspended by hon'ble supreme court",
-                  ].map((reason) => (
-                    <button
-                      key={reason}
-                      id={`reason-btn-${reason.replace(/[\s']/g, "-").toLowerCase()}`}
-                      onClick={async () => {
-                        await removeConstituencyIncumbent(reason);
-                      }}
-                      className="w-full text-left p-3.5 bg-white/5 hover:bg-red-500/10 hover:border-red-500/30 rounded-xl transition-all border border-white/5 text-xs font-bold text-gray-300 hover:text-white flex items-center justify-between"
-                    >
-                      <span className="font-sans">{reason}</span>
-                      <ChevronRight size={14} className="text-gray-500" />
-                    </button>
-                  ))}
+                  {!vacateReasonType ? (
+                    <>
+                      <button
+                        onClick={() => removeConstituencyIncumbent("Resigned")}
+                        className="w-full text-left p-3.5 bg-white/5 hover:bg-red-500/10 hover:border-red-500/30 rounded-xl transition-all border border-white/5 text-xs font-bold text-gray-300 hover:text-white flex items-center justify-between"
+                      >
+                        <span className="font-sans uppercase tracking-widest">Mark as Resignation</span>
+                        <ChevronRight size={14} className="text-gray-500" />
+                      </button>
+                      <button
+                        onClick={() => setVacateReasonType("expiry")}
+                        className="w-full text-left p-3.5 bg-white/5 hover:bg-red-500/10 hover:border-red-500/30 rounded-xl transition-all border border-white/5 text-xs font-bold text-gray-300 hover:text-white flex items-center justify-between"
+                      >
+                        <span className="font-sans uppercase tracking-widest">Mark as Expired</span>
+                        <ChevronRight size={14} className="text-gray-500" />
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        onClick={() => removeConstituencyIncumbent("Removed by Hon'ble Supreme Court")}
+                        className="w-full text-left p-3.5 bg-white/5 hover:bg-red-500/10 hover:border-red-500/30 rounded-xl transition-all border border-white/5 text-[10px] font-bold text-gray-300 hover:text-white flex items-center justify-between"
+                      >
+                        <span className="font-sans uppercase tracking-widest">Removed by Hon'ble Supreme Court</span>
+                        <ChevronRight size={14} className="text-gray-500" />
+                      </button>
+                      <button
+                        onClick={() => removeConstituencyIncumbent("Removed by Hon'ble High Court")}
+                        className="w-full text-left p-3.5 bg-white/5 hover:bg-red-500/10 hover:border-red-500/30 rounded-xl transition-all border border-white/5 text-[10px] font-bold text-gray-300 hover:text-white flex items-center justify-between"
+                      >
+                        <span className="font-sans uppercase tracking-widest">Removed by Hon'ble High Court</span>
+                        <ChevronRight size={14} className="text-gray-500" />
+                      </button>
+                      <button
+                        onClick={() => removeConstituencyIncumbent("Expired")}
+                        className="w-full text-left p-3.5 bg-white/5 hover:bg-red-500/10 hover:border-red-500/30 rounded-xl transition-all border border-white/5 text-[10px] font-bold text-gray-300 hover:text-white flex items-center justify-between"
+                      >
+                        <span className="font-sans uppercase tracking-widest">Expired Only</span>
+                        <ChevronRight size={14} className="text-gray-500" />
+                      </button>
+                      <button
+                        onClick={() => setVacateReasonType(null)}
+                        className="w-full text-center text-[#FFD700]/60 hover:text-[#FFD700] text-[10px] font-black uppercase tracking-widest py-2 font-sans mt-4"
+                      >
+                        ← Back
+                      </button>
+                    </>
+                  )}
                 </div>
-                <button
-                  id="cancel-vacate-reason-btn"
-                  onClick={() => setShowVacateMlaReasonModal(false)}
-                  className="w-full text-center text-gray-400 hover:text-white text-xs font-bold py-2 font-sans"
-                >
-                  Cancel
-                </button>
+                {!vacateReasonType && (
+                  <button
+                    id="cancel-vacate-reason-btn"
+                    onClick={() => setShowVacateMlaReasonModal(false)}
+                    className="w-full text-center text-gray-400 hover:text-white text-xs font-bold py-2 font-sans"
+                  >
+                    Cancel
+                  </button>
+                )}
               </div>
             </motion.div>
           </div>

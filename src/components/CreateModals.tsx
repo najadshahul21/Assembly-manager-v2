@@ -64,45 +64,6 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
     name: "colors"
   });
   
-  // Pre-fill form when editing or with initial values
-  React.useEffect(() => {
-    if (editData && isOpen) {
-      setIsBulkMode(false);
-      Object.entries(editData).forEach(([key, value]) => {
-        if (key === 'history' && Array.isArray(value) && type === EntityType.DESIGNATION) {
-          const formattedHistory = value.map(h => ({
-            ...h,
-            date: h.date ? new Date(h.date).toISOString().split('T')[0] : ''
-          }));
-          setValue('history', formattedHistory);
-        } else if (key === 'leaders' && typeof value === 'object') {
-          Object.entries(value as object).forEach(([lKey, lValue]) => {
-            setValue(lKey, lValue);
-          });
-        } else if (key === 'colors' && Array.isArray(value)) {
-          setValue('colors', value.map(c => typeof c === 'string' ? { value: c } : c));
-          setValue('color', value[0]);
-        } else {
-          setValue(key, value);
-        }
-      });
-    } else if (isOpen && !editData && type === EntityType.PARTY && colorFields.length === 0) {
-      // Default color for new party
-      appendColor({ value: '#D32F2F' });
-    } else if (isOpen && !editData && type === EntityType.PERSON) {
-      // Reset bulk list to 2 default rows if empty
-      if (bulkPersons.length === 0) {
-        setBulkPersons([createDefaultBulkPerson(), createDefaultBulkPerson()]);
-      }
-    } else if (!isOpen) {
-      reset();
-      setIsBulkMode(false);
-      setBulkErrors({});
-      setBulkPersons([createDefaultBulkPerson(), createDefaultBulkPerson()]);
-      setBulkPartyToApply('');
-    }
-  }, [editData, isOpen, setValue, reset, type]);
-
   const handleImageUpload = (fieldName: string) => {
     const input = document.createElement('input');
     input.type = 'file';
@@ -170,6 +131,68 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
   const constituenciesCount = useLiveQuery(() => db.constituencies.count()) || 0;
   const constituencies = useLiveQuery(() => db.constituencies.toArray()) || [];
   const designations = useLiveQuery(() => db.designations.toArray()) || [];
+
+  const assemblyGovComposition = React.useMemo(() => {
+    if (type !== EntityType.ASSEMBLY) {
+      return { government: null, governmentMlaIds: new Set<string>(), allMlaIds: new Set<string>() };
+    }
+    const targetAsm = editData || { id: 'temp' };
+    return computeAssemblyGovernmentComposition(
+      targetAsm as Assembly,
+      constituencies,
+      parties,
+      alliances,
+      persons
+    );
+  }, [type, editData, constituencies, parties, alliances, persons]);
+
+  // Pre-fill form when editing or with initial values
+  React.useEffect(() => {
+    if (editData && isOpen) {
+      setIsBulkMode(false);
+      Object.entries(editData).forEach(([key, value]) => {
+        if (key === 'history' && Array.isArray(value) && type === EntityType.DESIGNATION) {
+          const formattedHistory = value.map(h => ({
+            ...h,
+            date: h.date ? new Date(h.date).toISOString().split('T')[0] : ''
+          }));
+          setValue('history', formattedHistory);
+        } else if (key === 'leaders' && typeof value === 'object') {
+          Object.entries(value as object).forEach(([lKey, lValue]) => {
+            setValue(lKey, lValue);
+          });
+        } else if (key === 'colors' && Array.isArray(value)) {
+          setValue('colors', value.map(c => typeof c === 'string' ? { value: c } : c));
+          setValue('color', value[0]);
+        } else if (key === 'localBodies' && Array.isArray(value)) {
+          setValue('localBodies', value.join(', '));
+        } else {
+          setValue(key, value);
+        }
+      });
+    } else if (isOpen && !editData && type === EntityType.PARTY && colorFields.length === 0) {
+      // Default color for new party
+      appendColor({ value: '#D32F2F' });
+    } else if (isOpen && !editData && type === EntityType.PERSON) {
+      // Reset bulk list to 2 default rows if empty
+      if (bulkPersons.length === 0) {
+        setBulkPersons([createDefaultBulkPerson(), createDefaultBulkPerson()]);
+      }
+    } else if (!isOpen) {
+      reset();
+      setIsBulkMode(false);
+      setBulkErrors({});
+      setBulkPersons([createDefaultBulkPerson(), createDefaultBulkPerson()]);
+      setBulkPartyToApply('');
+    }
+  }, [editData, isOpen, setValue, reset, type]);
+
+  // Automatically sync Party Control with Government Alliance
+  React.useEffect(() => {
+    if (type === EntityType.ASSEMBLY && assemblyGovComposition.government?.id && !editData?.partyControlId) {
+      setValue('partyControlId', assemblyGovComposition.government.id);
+    }
+  }, [type, assemblyGovComposition.government?.id, setValue, editData]);
   
   const memberParties = React.useMemo(() => {
     if (!editData || type !== EntityType.ALLIANCE) return [];
@@ -264,20 +287,6 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
       </>
     );
   }, [type, editData, persons, constituencies, parties, alliances, personOptions]);
-
-  const assemblyGovComposition = React.useMemo(() => {
-    if (type !== EntityType.ASSEMBLY) {
-      return { government: null, governmentMlaIds: new Set<string>(), allMlaIds: new Set<string>() };
-    }
-    const targetAsm = editData || { id: 'temp' };
-    return computeAssemblyGovernmentComposition(
-      targetAsm as Assembly,
-      constituencies,
-      parties,
-      alliances,
-      persons
-    );
-  }, [type, editData, constituencies, parties, alliances, persons]);
 
   const assemblyPersonConstituencyMap = React.useMemo(() => {
     const map = new Map<string, string>();
@@ -603,9 +612,7 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
           name: data.name,
           logoUrl: data.logoUrl || `https://api.dicebear.com/7.x/initials/svg?seed=${data.name}`,
           abbreviation: data.abbreviation,
-          founded: data.founded,
           chairman: data.chairman,
-          headquarters: data.headquarters,
           allianceId: data.allianceId || 'independent',
           colors: Array.isArray(data.colors) ? data.colors.map((c: any) => c.value) : [],
           isSuspended: editData?.isSuspended || false,
@@ -622,7 +629,6 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
           chairmanId: data.chairmanId,
           founderId: data.founderId,
           leadingPartyId: data.leadingPartyId,
-          foundedDate: data.foundedDate,
           colors: [data.color || '#D32F2F'],
           highCommandIds: editData?.highCommandIds || [],
           updatedAt: now
@@ -678,12 +684,10 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
             persons
           );
 
-          // Rule 1: Only MLAs from government composition can be CM, Deputy CM, Speaker, Deputy Speaker, Leader of House
+          // Rule 1: Only MLAs from government composition can be CM, Deputy CM, Speaker, Deputy Speaker
           const rule1Fields: { key: string; name: string }[] = [
             { key: 'chiefMinister', name: 'Chief Minister' },
             { key: 'deputyChiefMinister', name: 'Deputy Chief Minister' },
-            { key: 'leaderOfHouse', name: 'Leader of the House' },
-            { key: 'deputyLeaderOfHouse', name: 'Deputy Leader of the House' },
             { key: 'speaker', name: 'Speaker' },
             { key: 'deputySpeaker', name: 'Deputy Speaker' }
           ];
@@ -691,7 +695,7 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
           for (const f of rule1Fields) {
             const val = data[f.key];
             if (val && val !== 'vacant' && !govRes.governmentMlaIds.has(val)) {
-              alert(`Rule 1 Violation: Only MLAs from the government composition can be appointed as ${f.name}.`);
+              alert(`Invalid Appointment: Only MLAs from the government composition can be appointed as ${f.name}.`);
               return;
             }
           }
@@ -700,8 +704,6 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
           const rule2Fields: { key: string; name: string }[] = [
             { key: 'chiefMinister', name: 'Chief Minister' },
             { key: 'deputyChiefMinister', name: 'Deputy Chief Minister' },
-            { key: 'leaderOfHouse', name: 'Leader of the House' },
-            { key: 'deputyLeaderOfHouse', name: 'Deputy Leader of the House' },
             { key: 'speaker', name: 'Speaker' },
             { key: 'deputySpeaker', name: 'Deputy Speaker' },
             { key: 'leaderOfOpposition', name: 'Leader of Opposition' },
@@ -711,7 +713,7 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
           for (const f of rule2Fields) {
             const val = data[f.key];
             if (val && val !== 'vacant' && !govRes.allMlaIds.has(val)) {
-              alert(`Rule 2 Violation: Only current members (MLAs) of this respective assembly can be appointed as ${f.name}.`);
+              alert(`Invalid Appointment: Only current members (MLAs) of this respective assembly can be appointed as ${f.name}.`);
               return;
             }
           }
@@ -724,15 +726,12 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
           logoUrl: data.logoUrl || `https://api.dicebear.com/7.x/identicon/svg?seed=${data.name}`,
           termLimits: data.termLimits,
           description: data.description,
-          history: Array.isArray(data.history) ? data.history : [],
           partyControlId: data.partyControlId,
           leaders: {
             speaker: data.speaker,
             deputySpeaker: data.deputySpeaker,
             chiefMinister: data.chiefMinister,
             deputyChiefMinister: data.deputyChiefMinister,
-            leaderOfHouse: data.leaderOfHouse,
-            deputyLeaderOfHouse: data.deputyLeaderOfHouse,
             leaderOfOpposition: data.leaderOfOpposition,
             deputyLeaderOfOpposition: data.deputyLeaderOfOpposition,
             chiefSecretary: data.chiefSecretary
@@ -858,6 +857,12 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
            throw new Error("A constituency can only be created if an assembly is active.");
         }
 
+        const localBodiesParsed = data.localBodies
+          ? (typeof data.localBodies === 'string'
+              ? data.localBodies.split(',').map((s: string) => s.trim()).filter(Boolean)
+              : data.localBodies)
+          : (isEdit ? editData?.localBodies : undefined);
+
         const payload: any = {
           id,
           slNo: isEdit ? (data.slNo || editData?.slNo) : (constituenciesCount + 1).toString().padStart(3, '0'),
@@ -867,6 +872,10 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
           createdInAssemblyId: isEdit
             ? (editData?.createdInAssemblyId || getConstituencyCreationAssembly(editData, assemblies)?.id || editData?.currentAssemblyId || activeAssembly?.id)
             : (activeAssembly?.id || undefined),
+          imageUrl: data.imageUrl !== undefined ? data.imageUrl : editData?.imageUrl,
+          imageCaption: data.imageCaption !== undefined ? data.imageCaption : editData?.imageCaption,
+          country: data.country || editData?.country || 'India',
+          state: data.state || editData?.state || 'Kerala',
           history: isEdit ? (editData?.history || []) : [],
           lastElectionResult: isEdit ? editData?.lastElectionResult : undefined,
           updatedAt: now
@@ -1207,16 +1216,8 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
               <input {...register('abbreviation')} className="w-full bg-white/5 border border-white/10 rounded-xl p-3 focus:outline-none focus:border-[#FFD700]/50" required />
             </div>
             <div>
-              <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Founded Date</label>
-              <input {...register('founded')} type="date" className="w-full bg-white/5 border border-white/10 rounded-xl p-3 focus:outline-none focus:border-[#FFD700]/50" />
-            </div>
-            <div>
               <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Chairman</label>
               <input {...register('chairman')} className="w-full bg-white/5 border border-white/10 rounded-xl p-3 focus:outline-none focus:border-[#FFD700]/50" />
-            </div>
-            <div>
-              <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Headquarters</label>
-              <input {...register('headquarters')} className="w-full bg-white/5 border border-white/10 rounded-xl p-3 focus:outline-none focus:border-[#FFD700]/50" />
             </div>
             <div className="sm:col-span-2">
               <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Party Logo URL (Optional)</label>
@@ -1238,7 +1239,6 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
                   {alliances.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                 </select>
             </div>
-            
             <div className="sm:col-span-2 pt-4 border-t border-white/10">
                <div className="flex items-center justify-between mb-3">
                   <label className="text-xs text-gray-400 uppercase font-bold tracking-widest block">Party Colors</label>
@@ -1284,12 +1284,8 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
               <input {...register('name')} className="w-full bg-white/5 border border-white/10 rounded-xl p-3 focus:outline-none focus:border-[#FFD700]/50" required />
             </div>
             <div>
-               <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Abbreviation</label>
-               <input {...register('abbreviation')} className="w-full bg-white/5 border border-white/10 rounded-xl p-3 focus:outline-none focus:border-[#FFD700]/50" required />
-            </div>
-            <div>
-               <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Founded Date</label>
-               <input {...register('foundedDate')} type="date" className="w-full bg-white/5 border border-white/10 rounded-xl p-3 focus:outline-none focus:border-[#FFD700]/50" />
+              <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Abbreviation</label>
+              <input {...register('abbreviation')} className="w-full bg-white/5 border border-white/10 rounded-xl p-3 focus:outline-none focus:border-[#FFD700]/50" required />
             </div>
             <div className="sm:col-span-2 grid grid-cols-3 gap-2">
                <div>
@@ -1357,8 +1353,9 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
              </div>
              <div>
                 <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Term Limits</label>
-                <input {...register('termLimits')} className="w-full bg-white/5 border border-white/10 rounded-xl p-3 focus:outline-none focus:border-[#FFD700]/50" />
+                <input {...register('termLimits')} placeholder="e.g. 5 years" className="w-full bg-white/5 border border-white/10 rounded-xl p-3 focus:outline-none focus:border-[#FFD700]/50" />
              </div>
+
              <div>
                 <label className="flex items-center gap-3 cursor-pointer group p-3 bg-white/5 border border-white/10 rounded-xl hover:border-[#FFD700]/30 transition-all">
                   <input {...register('isActive')} type="checkbox" className="w-5 h-5 accent-[#FFD700]" defaultChecked={true} />
@@ -1385,69 +1382,22 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
                 <textarea {...register('description')} rows={3} className="w-full bg-white/5 border border-white/10 rounded-xl p-3 focus:outline-none focus:border-[#FFD700]/50" />
              </div>
 
-             <div className="pt-4 border-t border-white/10">
-                <div className="flex items-center justify-between mb-4">
-                   <h4 className="text-sm font-bold gold-text uppercase tracking-widest flex items-center gap-2">
-                      <History size={16} /> Past Terms (History)
-                   </h4>
-                   <button 
-                     type="button" 
-                     onClick={() => appendHistory({ term: '', speakerId: '', chiefMinisterId: '', notes: '' })}
-                     className="p-2 bg-[#FFD700]/10 hover:bg-[#FFD700]/20 rounded-lg text-[#FFD700] transition-all"
-                   >
-                     <Plus size={16} />
-                   </button>
-                </div>
-                
-                <div className="space-y-4">
-                  {historyFields.map((field, index) => (
-                    <div key={field.id} className="p-4 bg-white/5 border border-white/10 rounded-2xl relative group">
-                       <button 
-                         type="button" 
-                         onClick={() => removeHistory(index)}
-                         className="absolute -top-2 -right-2 p-1.5 bg-red-500/20 text-red-500 rounded-lg opacity-0 group-hover:opacity-100 transition-all border border-red-500/10"
-                       >
-                         <Trash2 size={12} />
-                       </button>
-                       <div className="grid grid-cols-2 gap-3 mb-3">
-                          <div className="col-span-2 sm:col-span-1">
-                             <label className="text-[10px] text-gray-500 uppercase font-bold tracking-wider mb-1 block">Term / Year</label>
-                             <input {...register(`history.${index}.term`)} placeholder="e.g. 2014-2019" className="w-full bg-white/5 border border-white/10 rounded-lg p-2 text-xs focus:outline-none focus:border-[#FFD700]/50" />
-                          </div>
-                          <div className="col-span-2 sm:col-span-1">
-                             <label className="text-[10px] text-gray-500 uppercase font-bold tracking-wider mb-1 block">Notes / Outcome</label>
-                             <input {...register(`history.${index}.notes`)} placeholder="Reason for dissolution..." className="w-full bg-white/5 border border-white/10 rounded-lg p-2 text-xs focus:outline-none focus:border-[#FFD700]/50" />
-                          </div>
-                          <div className="col-span-2 sm:col-span-1">
-                             <label className="text-[10px] text-gray-500 uppercase font-bold tracking-wider mb-1 block">Speaker</label>
-                             <select {...register(`history.${index}.speakerId`)} className="w-full bg-white/5 border border-white/10 rounded-lg p-2 text-xs focus:outline-none focus:border-[#FFD700]/50 appearance-none">
-                                <option value="">Select...</option>
-                                {persons.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                             </select>
-                          </div>
-                          <div className="col-span-2 sm:col-span-1">
-                             <label className="text-[10px] text-gray-500 uppercase font-bold tracking-wider mb-1 block">Chief Minister</label>
-                             <select {...register(`history.${index}.chiefMinisterId`)} className="w-full bg-white/5 border border-white/10 rounded-lg p-2 text-xs focus:outline-none focus:border-[#FFD700]/50 appearance-none">
-                                <option value="">Select...</option>
-                                {persons.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                             </select>
-                          </div>
-                       </div>
-                    </div>
-                  ))}
-                  {historyFields.length === 0 && (
-                    <div className="text-center py-6 border border-dashed border-white/5 rounded-2xl">
-                       <p className="text-xs text-gray-600 italic">No past terms added to the archives</p>
-                    </div>
-                  )}
-                </div>
-             </div>
+
+
              <div>
-                <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Ruling Party</label>
-                <select {...register('partyControlId')} className="w-full bg-white/5 border border-white/10 rounded-xl p-3 focus:outline-none focus:border-[#FFD700]/50 appearance-none">
-                  <option value="">Select...</option>
-                  {parties.filter(p => !p.isSuspended || (editData && editData.partyControlId === p.id)).map(p => <option key={p.id} value={p.id}>{p.name}{p.isSuspended ? " (Suspended)" : ""}</option>)}
-                </select>
+                <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Party Control</label>
+                <div className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-white flex items-center justify-between">
+                  <span className="font-bold">
+                   {alliances.find(a => a.id === watch('partyControlId'))?.name || 
+                    parties.find(p => p.id === watch('partyControlId'))?.name || 
+                    assemblyGovComposition.government?.name || 
+                    "None / Minority"}
+                  </span>
+                  <span className="text-[10px] text-gray-500 uppercase tracking-widest font-black bg-white/5 px-2 py-1 rounded border border-white/5">
+                   Auto-selected from Composition
+                  </span>
+                </div>
+                <input type="hidden" {...register('partyControlId')} />
              </div>
              <div>
                 <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Assembly Logo URL (Optional)</label>
@@ -1471,22 +1421,6 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
                   </p>
                 </div>
 
-                {/* Rules Banner */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 p-3 rounded-xl bg-white/[0.02] border border-white/10 text-[10px]">
-                  <div className="flex items-start gap-2">
-                    <span className="text-[#FFD700] font-black shrink-0">Rule 1:</span>
-                    <span className="text-gray-300">
-                      Only MLAs from government composition can be Chief Minister, Deputy CM, Speaker, or Deputy Speaker.
-                    </span>
-                  </div>
-                  <div className="flex items-start gap-2">
-                    <span className="text-cyan-400 font-black shrink-0">Rule 2:</span>
-                    <span className="text-gray-300">
-                      Only current members of respective assembly, except Chief Secretary (civil executive designation).
-                    </span>
-                  </div>
-                </div>
-
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {[
                     {
@@ -1494,7 +1428,7 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
                       title: 'Chief Minister',
                       isGovMlaOnly: true,
                       isAssemblyMemberOnly: true,
-                      badgeText: 'Govt MLA Only • Rule 1',
+                      badgeText: '',
                       badgeType: 'gold' as const,
                     },
                     {
@@ -1502,23 +1436,7 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
                       title: 'Deputy Chief Minister',
                       isGovMlaOnly: true,
                       isAssemblyMemberOnly: true,
-                      badgeText: 'Govt MLA Only • Rule 1',
-                      badgeType: 'gold' as const,
-                    },
-                    {
-                      key: 'leaderOfHouse',
-                      title: 'Leader of the House',
-                      isGovMlaOnly: true,
-                      isAssemblyMemberOnly: true,
-                      badgeText: 'Govt MLA Only • Rule 1',
-                      badgeType: 'gold' as const,
-                    },
-                    {
-                      key: 'deputyLeaderOfHouse',
-                      title: 'Deputy Leader of the House',
-                      isGovMlaOnly: true,
-                      isAssemblyMemberOnly: true,
-                      badgeText: 'Govt MLA Only • Rule 1',
+                      badgeText: '',
                       badgeType: 'gold' as const,
                     },
                     {
@@ -1526,7 +1444,7 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
                       title: 'Speaker of the House',
                       isGovMlaOnly: true,
                       isAssemblyMemberOnly: true,
-                      badgeText: 'Govt MLA Only • Rule 1',
+                      badgeText: '',
                       badgeType: 'amber' as const,
                     },
                     {
@@ -1534,7 +1452,7 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
                       title: 'Deputy Speaker',
                       isGovMlaOnly: true,
                       isAssemblyMemberOnly: true,
-                      badgeText: 'Govt MLA Only • Rule 1',
+                      badgeText: '',
                       badgeType: 'amber' as const,
                     },
                     {
@@ -1542,7 +1460,7 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
                       title: 'Leader of Opposition',
                       isGovMlaOnly: false,
                       isAssemblyMemberOnly: true,
-                      badgeText: 'Assembly MLA • Rule 2',
+                      badgeText: '',
                       badgeType: 'silver' as const,
                     },
                     {
@@ -1550,7 +1468,7 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
                       title: 'Deputy Leader of Opposition',
                       isGovMlaOnly: false,
                       isAssemblyMemberOnly: true,
-                      badgeText: 'Assembly MLA • Rule 2',
+                      badgeText: '',
                       badgeType: 'silver' as const,
                     },
                     {
@@ -1558,7 +1476,7 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
                       title: 'Chief Secretary',
                       isGovMlaOnly: false,
                       isAssemblyMemberOnly: false,
-                      badgeText: 'Executive Head • Rule 2 Exception',
+                      badgeText: '',
                       badgeType: 'blue' as const,
                     },
                   ].map((role) => {
@@ -1607,8 +1525,6 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
                           deputySpeaker: watch('deputySpeaker'),
                           chiefMinister: watch('chiefMinister'),
                           deputyChiefMinister: watch('deputyChiefMinister'),
-                          leaderOfHouse: watch('leaderOfHouse'),
-                          deputyLeaderOfHouse: watch('deputyLeaderOfHouse'),
                           leaderOfOpposition: watch('leaderOfOpposition'),
                           deputyLeaderOfOpposition: watch('deputyLeaderOfOpposition'),
                           chiefSecretary: watch('chiefSecretary'),
@@ -1625,26 +1541,25 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
              <div className="sm:col-span-2">
                 <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Designation Name</label>
-                <input {...register('name')} className="w-full bg-white/5 border border-white/10 rounded-xl p-3 focus:outline-none focus:border-[#FFD700]/50" required />
+                <input {...register('name')} className="w-full bg-white/5 border border-white/10 rounded-xl p-3 focus:outline-none focus:border-[#FFD700]/50" required disabled={editData?.id === 'governor'} />
              </div>
              <div>
                 <div className="flex items-center justify-between mb-1">
                   <label className="text-xs text-gray-500 uppercase font-bold tracking-wider block">Current Incumbent</label>
-                  {(isSpeakerOrDeputySpeakerRole(watch('name') || editData?.name || '') || isMinisterialRole(watch('name') || editData?.name || '')) && (
-                    <span className="text-[9px] text-[#FFD700] uppercase font-bold tracking-wider">Govt MLA only</span>
-                  )}
                 </div>
                 <select {...register('incumbentId')} className="w-full bg-white/5 border border-white/10 rounded-xl p-3 focus:outline-none focus:border-[#FFD700]/50 appearance-none">
                   {designationPersonOptions}
                 </select>
              </div>
-             <div>
-                <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Constituency</label>
-                <input {...register('constituency')} className="w-full bg-white/5 border border-white/10 rounded-xl p-3 focus:outline-none focus:border-[#FFD700]/50" />
-             </div>
-             <div className="sm:col-span-2">
+             {editData?.id !== 'governor' && (
+               <div>
+                  <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Constituency</label>
+                  <input {...register('constituency')} className="w-full bg-white/5 border border-white/10 rounded-xl p-3 focus:outline-none focus:border-[#FFD700]/50" />
+               </div>
+             )}
+             <div className={editData?.id === 'governor' ? "sm:col-span-2" : "sm:col-span-2"}>
                 <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Legislative Assembly</label>
-                <select {...register('assemblyId')} className="w-full bg-white/5 border border-white/10 rounded-xl p-3 focus:outline-none focus:border-[#FFD700]/50 appearance-none">
+                <select {...register('assemblyId')} className="w-full bg-white/5 border border-white/10 rounded-xl p-3 focus:outline-none focus:border-[#FFD700]/50 appearance-none" disabled={editData?.id === 'governor'}>
                   <option value="">None / Specific Board</option>
                   {assemblies.map(a => (
                     <option key={a.id} value={a.id}>
@@ -1742,6 +1657,7 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
                 <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Constituency Name</label>
                 <input {...register('name')} placeholder="Enter constituency name..." className="w-full bg-white/5 border border-white/10 rounded-xl p-3 focus:outline-none focus:border-[#FFD700]/50" required disabled={!activeAssembly && !editData} />
              </div>
+
              <p className="text-[10px] text-gray-500 mt-2 px-1 italic uppercase tracking-widest font-black">
                 {activeAssembly ? `Linked to ${activeAssembly.name}` : "Constituencies persist across all future assemblies."}
              </p>

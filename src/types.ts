@@ -20,7 +20,7 @@ export interface Person {
     role: string;
     assemblyId: string;
     date: number;
-    action: 'promotion' | 'resignation' | 'expiry';
+    action: 'promotion' | 'resignation' | 'expiry' | 'appointment';
   }[];
   constituencyName?: string;
   mlaStatusText?: string;
@@ -33,12 +33,14 @@ export interface Party {
   id: string;
   name: string;
   logoUrl: string;
+  flagUrl?: string;
   abbreviation: string;
-  founded: string;
+  founded?: string;
   chairman: string;
-  headquarters: string;
+  headquarters?: string;
   colors?: string[]; // list of hex colors
   allianceId: string; // 'independent' if none
+  eciStatus?: string;
   isSuspended?: boolean;
   updatedAt: number;
 }
@@ -51,10 +53,11 @@ export interface Alliance {
   leaderId: string;
   chairmanId: string;
   founderId: string;
-  foundedDate: string;
+  foundedDate?: string;
   colors: string[]; // list of hex colors
   highCommandIds?: string[]; // IDs of persons in high command
   leadingPartyId?: string;
+  eciStatus?: string;
   updatedAt: number;
 }
 
@@ -71,20 +74,18 @@ export interface Assembly {
   subName: string;
   logoUrl: string;
   termLimits: string;
-  history: AssemblyHistoryEntry[];
   description?: string;
   partyControlId: string;
   leaders: {
     speaker?: string;
     deputySpeaker?: string;
-    leaderOfHouse?: string;
     chiefMinister?: string;
-    deputyLeaderOfHouse?: string;
     deputyChiefMinister?: string;
     leaderOfOpposition?: string;
     deputyLeaderOfOpposition?: string;
     chiefSecretary?: string;
   };
+  leadershipDates?: {[roleKey: string]: number};
   updatedAt: number;
   isActive?: boolean;
   precededById?: string;
@@ -147,6 +148,18 @@ export interface Constituency {
   currentIncumbentId: string; // Reference to the person who is currently MLA
   currentAssemblyId?: string; // Current assembly this seat belongs to
   createdInAssemblyId?: string; // Assembly in which this constituency was created
+  imageUrl?: string;
+  imageCaption?: string;
+  country?: string;
+  region?: string;
+  state?: string;
+  district?: string;
+  established?: string;
+  totalElectors?: string;
+  electorsYear?: string;
+  reservation?: string; // e.g. "None" | "SC" | "ST"
+  localBodies?: string[]; // e.g. ["Vythiri", "Meppadi", "Pozhuthana", "Thariyode"]
+  electedYear?: string | number;
   lastElectionResult?: ElectionResult;
   history: {
     personId: string;

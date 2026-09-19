@@ -274,38 +274,6 @@ export const ReleaseOrderModal: React.FC<ReleaseOrderModalProps> = ({
           });
         }
       }
-
-      // Leader of the House
-      if (leaders.leaderOfHouse && leaders.leaderOfHouse !== 'vacant') {
-        const lohPerson = personsMap.get(leaders.leaderOfHouse);
-        if (lohPerson) {
-          addOption({
-            id: 'leader-leaderOfHouse',
-            name: "Leader of the House",
-            category: 'Legislative Leadership',
-            incumbentId: lohPerson.id,
-            incumbentName: lohPerson.name,
-            partyAbbr: partiesMap.get(lohPerson.partyId)?.abbreviation,
-            roleDescription: 'Leader of the House'
-          });
-        }
-      }
-
-      // Deputy Leader of the House
-      if (leaders.deputyLeaderOfHouse && leaders.deputyLeaderOfHouse !== 'vacant') {
-        const dlohPerson = personsMap.get(leaders.deputyLeaderOfHouse);
-        if (dlohPerson) {
-          addOption({
-            id: 'leader-deputyLeaderOfHouse',
-            name: "Deputy Leader of the House",
-            category: 'Legislative Leadership',
-            incumbentId: dlohPerson.id,
-            incumbentName: dlohPerson.name,
-            partyAbbr: partiesMap.get(dlohPerson.partyId)?.abbreviation,
-            roleDescription: 'Deputy Leader of the House'
-          });
-        }
-      }
     }
 
     // 5. Ministers (from assemblyRoles and designations)

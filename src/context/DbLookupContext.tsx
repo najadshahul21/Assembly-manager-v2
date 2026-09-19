@@ -26,58 +26,63 @@ export const DbLookupProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   }, []);
 
   const data = useLiveQuery(async () => {
-    const [rawParties, rawAlliances, assemblies, rawDesignations, rawPersons, constituencies] = await Promise.all([
-      db.parties.toArray(),
-      db.alliances.toArray(),
-      db.assemblies.toArray(),
-      db.designations.toArray(),
-      db.persons.toArray(),
-      db.constituencies.toArray(),
-    ]);
+    try {
+      const [rawParties, rawAlliances, assemblies, rawDesignations, rawPersons, constituencies] = await Promise.all([
+        db.parties.toArray(),
+        db.alliances.toArray(),
+        db.assemblies.toArray(),
+        db.designations.toArray(),
+        db.persons.toArray(),
+        db.constituencies.toArray(),
+      ]);
 
-    const parties = rawParties.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
-    const alliances = rawAlliances.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
-    const persons = rawPersons.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
-    const designations = rawDesignations.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
+      const parties = rawParties.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
+      const alliances = rawAlliances.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
+      const persons = rawPersons.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
+      const designations = rawDesignations.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
 
-    const partiesMap: Record<string, Party> = {};
-    parties.forEach(p => {
-      partiesMap[p.id] = p;
-    });
+      const partiesMap: Record<string, Party> = {};
+      parties.forEach(p => {
+        partiesMap[p.id] = p;
+      });
 
-    const alliancesMap: Record<string, Alliance> = {};
-    alliances.forEach(a => {
-      alliancesMap[a.id] = a;
-    });
+      const alliancesMap: Record<string, Alliance> = {};
+      alliances.forEach(a => {
+        alliancesMap[a.id] = a;
+      });
 
-    const assembliesMap: Record<string, Assembly> = {};
-    assemblies.forEach(a => {
-      assembliesMap[a.id] = a;
-    });
+      const assembliesMap: Record<string, Assembly> = {};
+      assemblies.forEach(a => {
+        assembliesMap[a.id] = a;
+      });
 
-    const personsMap: Record<string, Person> = {};
-    persons.forEach(p => {
-      personsMap[p.id] = p;
-    });
+      const personsMap: Record<string, Person> = {};
+      persons.forEach(p => {
+        personsMap[p.id] = p;
+      });
 
-    const constituenciesMap: Record<string, Constituency> = {};
-    constituencies.forEach(c => {
-      constituenciesMap[c.id] = c;
-    });
+      const constituenciesMap: Record<string, Constituency> = {};
+      constituencies.forEach(c => {
+        constituenciesMap[c.id] = c;
+      });
 
-    return {
-      parties,
-      alliances,
-      assemblies,
-      designations,
-      persons,
-      constituencies,
-      partiesMap,
-      alliancesMap,
-      assembliesMap,
-      personsMap,
-      constituenciesMap,
-    };
+      return {
+        parties,
+        alliances,
+        assemblies,
+        designations,
+        persons,
+        constituencies,
+        partiesMap,
+        alliancesMap,
+        assembliesMap,
+        personsMap,
+        constituenciesMap,
+      };
+    } catch (err) {
+      console.error("DbLookupContext query error:", err);
+      return null;
+    }
   }, []);
 
   const value: DbLookupContextType = {

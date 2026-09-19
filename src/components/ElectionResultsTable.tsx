@@ -74,7 +74,7 @@ export const ElectionResultsTable: React.FC<ElectionResultsTableProps> = ({
                       className="absolute left-0 top-0 bottom-0 w-1.5"
                       style={{ backgroundColor: barColor }}
                     />
-                    <span className="pl-2 font-bold text-blue-400 text-base sm:text-lg">
+                    <span className="pl-2 font-bold text-[#60a5fa] text-base sm:text-lg">
                       {cand.partyAbbreviation}
                     </span>
                   </td>
@@ -83,7 +83,7 @@ export const ElectionResultsTable: React.FC<ElectionResultsTableProps> = ({
                   <td className="py-3 px-4 border-r border-zinc-800">
                     <span
                       onClick={() => cand.personId && cand.personId !== 'nota' && onPersonClick?.(cand.personId)}
-                      className={`text-base sm:text-lg font-semibold text-blue-400 hover:text-blue-300 ${
+                      className={`text-base sm:text-lg font-semibold text-[#0ea5e9] hover:text-[#38bdf8] ${
                         cand.personId && cand.personId !== 'nota' ? 'cursor-pointer hover:underline' : ''
                       }`}
                     >
@@ -115,7 +115,7 @@ export const ElectionResultsTable: React.FC<ElectionResultsTableProps> = ({
             {/* Turnout Row */}
             <tr className="bg-[#18181b]/60">
               <td className="py-3 px-4 border-r border-zinc-800"></td>
-              <td className="py-3 px-4 border-r border-zinc-800 text-right pr-6 font-semibold text-blue-400 text-base sm:text-lg">
+              <td className="py-3 px-4 border-r border-zinc-800 text-right pr-6 font-semibold text-[#60a5fa] text-base sm:text-lg">
                 Turnout
               </td>
               <td className="py-3 px-4 text-right font-medium text-zinc-200 text-base sm:text-lg">
@@ -134,7 +134,7 @@ export const ElectionResultsTable: React.FC<ElectionResultsTableProps> = ({
                   {renderOutcomeText(outcomeText, result, winner)}
                 </div>
               </td>
-              <td className="py-3.5 px-4 text-right font-semibold text-blue-400 text-base sm:text-lg">
+              <td className="py-3.5 px-4 text-right font-semibold text-[#60a5fa] text-base sm:text-lg">
                 {result.swingText || 'Swing'}
               </td>
             </tr>
@@ -162,15 +162,15 @@ function renderOutcomeText(
     if (isGain) {
       return (
         <span>
-          <span className="text-blue-400 font-semibold">{winnerParty}</span>{' '}
+          <span className="text-[#60a5fa] font-semibold">{winnerParty}</span>{' '}
           <strong className="text-white font-black">gain</strong> from{' '}
-          <span className="text-blue-400 font-semibold">{prevParty || 'new constituency'}</span>
+          <span className="text-[#60a5fa] font-semibold">{prevParty || 'new constituency'}</span>
         </span>
       );
     } else {
       return (
         <span>
-          <span className="text-blue-400 font-semibold">{winnerParty}</span>{' '}
+          <span className="text-[#60a5fa] font-semibold">{winnerParty}</span>{' '}
           <strong className="text-white font-black">hold</strong>
         </span>
       );

@@ -25,7 +25,7 @@ function AppContent() {
   }
 
   const createOptions = [
-    { type: EntityType.PERSON, label: 'Create Person', icon: User, color: 'hover:bg-blue-500/10' },
+    { type: EntityType.PERSON, label: 'Create Person', icon: User, color: 'hover:bg-[#FFD700]/10' },
     { type: EntityType.PARTY, label: 'Create Party', icon: Flag, color: 'hover:bg-[#D32F2F]/10' },
     { type: EntityType.ALLIANCE, label: 'Create Alliance', icon: Shield, color: 'hover:bg-purple-500/10' },
     { type: EntityType.ASSEMBLY, label: 'Create Assembly', icon: Landmark, color: 'hover:bg-[#FFD700]/10' },

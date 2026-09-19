@@ -5,36 +5,7 @@ import { db } from '../db';
 import { Person, Assembly } from '../types';
 import { Landmark, UserMinus, ShieldCheck, Award, Users, Shield, Calendar, MapPin, ExternalLink, Crown } from 'lucide-react';
 import { LeadershipCouncilModal } from '../components/LeadershipCouncilModal';
-
-const prefixRole = (role: string): string => {
-  const trimmed = role.trim();
-  const lower = trimmed.toLowerCase();
-  
-  if (lower.startsWith("hon'ble") || lower.startsWith("honourable") || lower.startsWith("honorable")) {
-    return trimmed;
-  }
-
-  const isMinister = lower.includes("minister");
-  const isSpeaker = lower.includes("speaker");
-
-  if (isMinister || isSpeaker) {
-    let displayName = trimmed;
-    if (lower === "chiefminister" || lower === "chief minister") {
-      displayName = "Chief Minister";
-    } else if (lower === "deputychiefminister" || lower === "deputy chief minister") {
-      displayName = "Deputy Chief Minister";
-    } else if (lower === "speaker" || lower === "speaker of the house" || lower === "speaker of the assembly") {
-      displayName = "Speaker";
-    } else if (lower === "deputyspeaker" || lower === "deputy speaker" || lower === "deputy speaker of the assembly" || lower === "deputy speaker of the house") {
-      displayName = "Deputy Speaker";
-    } else {
-      displayName = trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
-    }
-    
-    return `Hon'ble ${displayName}`;
-  }
-  return trimmed;
-};
+import { prefixRole, formatPersonName } from '../utils/governmentUtils';
 
 export const CabinetPage: React.FC = () => {
   const navigate = useNavigate();
@@ -127,9 +98,7 @@ export const CabinetPage: React.FC = () => {
       for (const [role, pId] of Object.entries(currentAssembly.leaders)) {
         if (
           role === 'leaderOfOpposition' || 
-          role === 'deputyLeaderOfOpposition' || 
-          role === 'leaderOfHouse' || 
-          role === 'deputyLeaderOfHouse'
+          role === 'deputyLeaderOfOpposition'
         ) {
           continue;
         }
@@ -301,15 +270,6 @@ export const CabinetPage: React.FC = () => {
         </div>
 
         <div className="flex flex-wrap gap-3">
-          {activeAssembly.isActive && (
-            <button 
-              onClick={() => setIsLeadershipModalOpen(true)}
-              className="px-5 py-3 bg-[#FFD700] hover:bg-[#FFD700]/90 text-black rounded-2xl text-xs font-black uppercase tracking-widest transition-all flex items-center gap-2 shadow-lg shadow-[#FFD700]/20 cursor-pointer"
-            >
-              <Crown size={14} />
-              Appoint Leadership Council
-            </button>
-          )}
           <button 
             onClick={() => navigate(`/assembly/${activeAssembly.id}`)}
             className="px-6 py-3 bg-white/5 hover:bg-white/10 rounded-2xl text-xs font-bold uppercase tracking-widest transition-all flex items-center gap-2 cursor-pointer"
@@ -324,54 +284,63 @@ export const CabinetPage: React.FC = () => {
         {cabinetMembers.map((m, i) => (
           <div 
             key={m.person.id}
-            className="bg-[#111] border border-white/5 rounded-3xl overflow-hidden group hover:border-[#FFD700]/30 transition-all shadow-2xl hover:shadow-[#FFD700]/5"
+            className="bg-[#121212] border border-white/[0.03] rounded-[2rem] overflow-hidden group hover:border-[#FFD700]/20 transition-all duration-500 shadow-xl hover:shadow-[#FFD700]/[0.02]"
           >
-            <div className="p-6">
-              <div className="flex items-start gap-4 mb-6">
+            <div className="p-7">
+              <div className="flex items-start gap-5 mb-8">
                 <div 
                   onClick={() => navigate(`/person/${m.person.id}`)}
-                  className="w-16 h-16 rounded-2xl bg-black overflow-hidden border border-white/10 shrink-0 group-hover:border-[#FFD700]/30 transition-colors cursor-pointer flex-none"
+                  className="w-14 h-14 rounded-2xl bg-black overflow-hidden border border-white/[0.05] shrink-0 group-hover:border-[#FFD700]/30 transition-all duration-500 cursor-pointer flex-none shadow-inner"
                 >
                   {m.person.imageUrl ? (
                     <img 
                       src={m.person.imageUrl} 
-                      className="w-full h-full object-cover" 
+                      className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" 
                       referrerPolicy="no-referrer" 
                       alt={m.person.name}
                     />
                   ) : (
-                    <div className="w-full h-full flex items-center justify-center text-[#D32F2F] bg-white/5">
+                    <div className="w-full h-full flex items-center justify-center text-[#FFD700]/40 bg-white/[0.02]">
                       <Shield size={24} />
                     </div>
                   )}
                 </div>
-                <div className="flex-1 min-w-0 py-1">
+                <div className="flex-1 min-w-0">
                   <div onClick={() => navigate(`/person/${m.person.id}`)} className="cursor-pointer">
-                    <p className="text-xl font-black text-white uppercase tracking-tighter leading-tight group-hover:text-[#FFD700] transition-colors truncate">{m.person.name}</p>
-                    <p className="text-xs text-gray-500 font-bold uppercase tracking-widest mt-1">{m.allianceAbbreviation}</p>
+                    <h3 className="text-lg font-black text-white uppercase tracking-tight leading-tight group-hover:text-[#FFD700] transition-colors duration-300">
+                      {formatPersonName(m.person.name, m.person.gender)}
+                    </h3>
+                    <div className="flex items-center gap-2 mt-2">
+                      <span className="w-1.5 h-1.5 rounded-full bg-[#FFD700] opacity-40" />
+                      <p className="text-[10px] text-gray-500 font-black uppercase tracking-[0.15em]">{m.allianceAbbreviation}</p>
+                    </div>
                   </div>
                 </div>
-                <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-gray-400 group-hover:text-[#FFD700] transition-colors shrink-0">
-                  <Award size={18} />
+                <div className="w-9 h-9 rounded-xl bg-white/[0.03] flex items-center justify-center text-gray-600 group-hover:text-[#FFD700] transition-all duration-500 shrink-0 border border-white/[0.02]">
+                  <Award size={16} />
                 </div>
               </div>
 
-              <div className="space-y-2 mb-6">
+              <div className="flex flex-wrap gap-2 mb-8 min-h-[44px]">
                 {m.roles.map((roleObj, ri) => {
                   const role = prefixRole(roleObj.name);
                   const isSpecial = ['Chief Minister', 'Speaker', 'Secretary'].some(s => role.includes(s));
                   return (
-                    <div key={ri} className="flex items-center justify-between group/role">
-                      <div className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest flex-1 mr-2 ${isSpecial ? 'bg-[#FFD700] text-black shrink-0' : 'bg-white/5 text-gray-400'}`}>
+                    <div key={ri} className="flex items-center gap-1.5 group/role">
+                      <div className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all duration-300 ${
+                        isSpecial 
+                          ? 'bg-[#FFD700] text-black shadow-lg shadow-[#FFD700]/10' 
+                          : 'bg-white/[0.03] text-gray-400 border border-white/[0.02] hover:bg-white/[0.06] hover:text-gray-300'
+                      }`}>
                         {role}
                       </div>
                       {roleObj.canDemote && (
                         <button 
                           onClick={() => handleDemote(m.person, roleObj.name)}
-                          className="w-8 h-8 rounded-lg bg-red-500/10 text-red-500 flex items-center justify-center opacity-0 group-hover:opacity-100 group/role:opacity-100 hover:bg-red-500 transition-all hover:text-white"
+                          className="w-7 h-7 rounded-lg bg-red-500/[0.08] text-red-500/60 flex items-center justify-center opacity-0 group-hover:opacity-100 group/role:opacity-100 hover:bg-red-500 transition-all duration-300 hover:text-white hover:scale-110"
                           title="Demote"
                         >
-                          <UserMinus size={14} />
+                          <UserMinus size={12} />
                         </button>
                       )}
                     </div>
@@ -379,15 +348,19 @@ export const CabinetPage: React.FC = () => {
                 })}
               </div>
 
-              <div className="flex items-center gap-4 pt-4 border-t border-white/5">
-                <div className="flex-1">
-                   <div className="flex items-center gap-1 mb-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-lg shadow-emerald-500/50" />
-                      <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Clearance</span>
-                   </div>
-                   <p className="text-[10px] text-emerald-500 font-black uppercase">Verified Member</p>
+              <div className="flex items-center justify-between pt-6 border-t border-white/[0.03]">
+                <div className="flex items-center gap-3">
+                  <div className="flex flex-col">
+                    <span className="text-[9px] font-black text-gray-600 uppercase tracking-widest mb-0.5">Status</span>
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                      <span className="text-[10px] text-emerald-500/80 font-black uppercase tracking-wider">Active Portfolio</span>
+                    </div>
+                  </div>
                 </div>
-                <Users size={16} className="text-white/10" />
+                <div className="px-3 py-1 rounded-full bg-white/[0.02] border border-white/[0.02]">
+                  <Users size={12} className="text-gray-700" />
+                </div>
               </div>
             </div>
           </div>

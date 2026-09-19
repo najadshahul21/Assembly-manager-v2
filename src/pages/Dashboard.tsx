@@ -1,30 +1,17 @@
 import React from 'react';
 import { useNavigate } from 'react-router';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, clearAllData } from '../db';
+import { db } from '../db';
 import { EntityCard } from '../components/EntityCards';
 import { EntityType } from '../types';
 import { motion } from 'motion/react';
-import { Users, Flag, Shield, Landmark, Award, TrendingUp, AlertCircle, MapPin, User, Trash2 } from 'lucide-react';
+import { Users, Flag, Shield, Landmark, Award, TrendingUp, AlertCircle, MapPin, User } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { formatPersonName } from '../utils/governmentUtils';
 
 export const Dashboard: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const [isClearing, setIsClearing] = React.useState(false);
-
-  const handleClearDatabase = async () => {
-    if (window.confirm("Are you sure you want to delete all data from the database? This action cannot be undone.")) {
-      setIsClearing(true);
-      try {
-        await clearAllData();
-      } catch (err) {
-        console.error("Failed to clear database:", err);
-      } finally {
-        setIsClearing(false);
-      }
-    }
-  };
 
   const personCount = useLiveQuery(() => db.persons.count()) || 0;
   const partyCount = useLiveQuery(() => db.parties.count()) || 0;
@@ -48,7 +35,7 @@ export const Dashboard: React.FC = () => {
             name: "Hon'ble Governor",
             incumbentId: 'vacant',
             dateOfSigning: new Date().toISOString().split('T')[0],
-            constituency: 'Kerala State',
+            constituency: '',
             history: [],
             updatedAt: Date.now()
           });
@@ -60,13 +47,6 @@ export const Dashboard: React.FC = () => {
     ensureGovernor();
   }, []);
 
-  const formatShri = (name: string) => {
-    if (!name) return "";
-    let clean = name.trim();
-    clean = clean.replace(/^(hon['’]ble|honourable|shri|smt)\.?\s+/i, '');
-    return `Shri ${clean}`;
-  };
-
   const stateLeadership = useLiveQuery(async () => {
     // 1. Fetch Governor designation safely (non-mutating) with a fallback structure if not loaded yet
     const governorDesig = (await db.designations.get('governor')) || {
@@ -74,7 +54,7 @@ export const Dashboard: React.FC = () => {
       name: "Hon'ble Governor",
       incumbentId: 'vacant',
       dateOfSigning: new Date().toISOString().split('T')[0],
-      constituency: 'Kerala State',
+      constituency: '',
       history: [],
       updatedAt: Date.now()
     };
@@ -194,7 +174,7 @@ export const Dashboard: React.FC = () => {
   }, []);
 
   const stats = [
-    { label: 'Registered Politicians', value: personCount, icon: Users, color: 'text-blue-400' },
+    { label: 'Registered Politicians', value: personCount, icon: Users, color: 'text-[#FFD700]' },
     { label: 'Active Parties', value: partyCount, icon: Flag, color: 'text-[#D32F2F]' },
     { label: 'Vacancies', value: designations.filter(d => d.incumbentId === 'vacant').length, icon: AlertCircle, color: 'text-[#FFD700]' },
   ];
@@ -246,15 +226,6 @@ export const Dashboard: React.FC = () => {
             </h2>
             <p className="text-gray-400 max-w-2xl">Manage the legislative ecosystem of Kerala Niyamasabha. Monitor sessions, appointments, and party dynamics from your premium visual dashboard.</p>
           </div>
-          <motion.button
-            whileTap={{ scale: 0.95 }}
-            onClick={handleClearDatabase}
-            disabled={isClearing}
-            className="px-5 py-3 rounded-xl font-bold bg-red-600/20 hover:bg-red-600/30 border border-red-500/30 text-red-400 hover:text-red-300 uppercase tracking-wider text-xs flex items-center gap-2 shrink-0 cursor-pointer transition-colors z-10 disabled:opacity-50"
-          >
-            <Trash2 size={16} />
-            {isClearing ? 'DELETING...' : 'Delete All Data'}
-          </motion.button>
           <div className="absolute right-0 top-0 w-64 h-64 bg-[#D32F2F]/10 blur-[100px] -z-10" />
         </motion.div>
       </section>
@@ -318,7 +289,7 @@ export const Dashboard: React.FC = () => {
                     )}
                     <div className="min-w-0">
                       <p className="font-bold text-white text-base truncate">
-                        {formatShri(stateLeadership.governor.person.name)}
+                        {formatPersonName(stateLeadership.governor.person.name, stateLeadership.governor.person.gender)}
                       </p>
                       <p className="text-xs text-gray-400 mt-1 truncate">
                         {stateLeadership.governor.party 
@@ -343,7 +314,7 @@ export const Dashboard: React.FC = () => {
 
               <div className="mt-6 pt-4 border-t border-white/5 flex items-center justify-between text-[10px] font-mono text-gray-500 uppercase tracking-wider">
                 <span>Autonomous Post</span>
-                <span className="text-[#FFD700] group-hover:underline">Manage Designation →</span>
+                <span className="text-[#FFD700] group-hover:underline">View Designation →</span>
               </div>
             </div>
           </motion.div>
@@ -356,28 +327,28 @@ export const Dashboard: React.FC = () => {
               if (speakerId) {
                 navigate(`/person/${speakerId}`);
               } else if (stateLeadership?.speaker?.assembly?.id) {
-                navigate(`/assembly/${stateLeadership.speaker.assembly.id}`);
+                navigate(`/assembly/${stateLeadership?.speaker?.assembly?.id}`);
               } else {
                 navigate('/assemblies');
               }
             }}
-            className="p-6 rounded-[2rem] bg-gradient-to-b from-[#151518] to-[#0d0d0e] border border-white/5 flex flex-col justify-between group hover:border-blue-500/30 transition-all relative overflow-hidden shadow-xl min-h-[240px] cursor-pointer"
+            className="p-6 rounded-[2rem] bg-gradient-to-b from-[#151518] to-[#0d0d0e] border border-white/5 flex flex-col justify-between group hover:border-[#FFD700]/30 transition-all relative overflow-hidden shadow-xl min-h-[240px] cursor-pointer"
           >
             <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-25 transition-opacity pointer-events-none">
-              <Landmark size={120} className="text-blue-400" />
+              <Landmark size={120} className="text-[#FFD700]" />
             </div>
 
             <div className="relative z-10 flex flex-col h-full justify-between">
               <div className="flex items-start justify-between">
                 <div>
-                  <span className="text-[9px] font-mono text-blue-400 uppercase tracking-widest font-black bg-blue-500/5 border border-blue-500/10 px-2 py-0.5 rounded">
+                  <span className="text-[9px] font-mono text-[#FFD700] uppercase tracking-widest font-black bg-[#FFD700]/5 border border-[#FFD700]/10 px-2 py-0.5 rounded">
                     Presiding Officer
                   </span>
-                  <h4 className="text-lg font-black text-white mt-2 group-hover:text-blue-400 transition-colors leading-tight uppercase">
+                  <h4 className="text-lg font-black text-white mt-2 group-hover:text-[#FFD700] transition-colors leading-tight uppercase">
                     Hon'ble Speaker
                   </h4>
                 </div>
-                <div className="p-3 bg-white/5 rounded-2xl text-blue-400 shrink-0">
+                <div className="p-3 bg-white/5 rounded-2xl text-[#FFD700] shrink-0">
                   <Landmark size={20} />
                 </div>
               </div>
@@ -393,13 +364,13 @@ export const Dashboard: React.FC = () => {
                         className="w-16 h-16 rounded-2xl object-cover border border-white/10 shrink-0"
                       />
                     ) : (
-                      <div className="w-16 h-16 rounded-2xl bg-white/5 flex items-center justify-center text-blue-400/60 shrink-0">
+                      <div className="w-16 h-16 rounded-2xl bg-white/5 flex items-center justify-center text-[#FFD700]/60 shrink-0">
                         <User size={28} />
                       </div>
                     )}
                     <div className="min-w-0">
                       <p className="font-bold text-white text-base truncate">
-                        {formatShri(stateLeadership.speaker.person.name)}
+                        {formatPersonName(stateLeadership.speaker.person.name, stateLeadership.speaker.person.gender)}
                       </p>
                       <p className="text-xs text-gray-400 mt-1 truncate">
                         {stateLeadership.speaker.person.constituencyName 
@@ -418,7 +389,7 @@ export const Dashboard: React.FC = () => {
                     </p>
                     <p className="text-[11px] text-gray-500 mt-1">
                       {stateLeadership?.speaker?.assembly 
-                        ? `No Speaker assigned for ${stateLeadership.speaker.assembly.name}.`
+                        ? `No Speaker assigned for ${stateLeadership?.speaker?.assembly?.name || 'Assembly'}.`
                         : "No active legislative assembly recorded."
                       }
                     </p>
@@ -430,7 +401,7 @@ export const Dashboard: React.FC = () => {
                 <span className="truncate max-w-[150px]">
                   {stateLeadership?.speaker?.assembly?.name || "No Active Term"}
                 </span>
-                <span className="text-blue-400 group-hover:underline shrink-0">
+                <span className="text-[#FFD700] group-hover:underline shrink-0">
                   {stateLeadership?.speaker?.person ? "View Profile →" : "Configure Assembly →"}
                 </span>
               </div>
@@ -445,7 +416,7 @@ export const Dashboard: React.FC = () => {
               if (cmId) {
                 navigate(`/person/${cmId}`);
               } else if (stateLeadership?.chiefMinister?.assembly?.id) {
-                navigate(`/assembly/${stateLeadership.chiefMinister.assembly.id}`);
+                navigate(`/assembly/${stateLeadership?.chiefMinister?.assembly?.id}`);
               } else {
                 navigate('/assemblies');
               }
@@ -459,9 +430,6 @@ export const Dashboard: React.FC = () => {
             <div className="relative z-10 flex flex-col h-full justify-between">
               <div className="flex items-start justify-between">
                 <div>
-                  <span className="text-[9px] font-mono text-[#D32F2F] uppercase tracking-widest font-black bg-[#D32F2F]/5 border border-[#D32F2F]/10 px-2 py-0.5 rounded">
-                    Leader of the House
-                  </span>
                   <h4 className="text-lg font-black text-white mt-2 group-hover:text-[#D32F2F] transition-colors leading-tight uppercase">
                     Hon'ble Chief Minister
                   </h4>
@@ -488,7 +456,7 @@ export const Dashboard: React.FC = () => {
                     )}
                     <div className="min-w-0">
                       <p className="font-bold text-white text-base truncate">
-                        {formatShri(stateLeadership.chiefMinister.person.name)}
+                        {formatPersonName(stateLeadership.chiefMinister.person.name, stateLeadership.chiefMinister.person.gender)}
                       </p>
                       <p className="text-xs text-gray-400 mt-1 truncate">
                         {stateLeadership.chiefMinister.person.constituencyName 
@@ -507,7 +475,7 @@ export const Dashboard: React.FC = () => {
                     </p>
                     <p className="text-[11px] text-gray-500 mt-1">
                       {stateLeadership?.chiefMinister?.assembly 
-                        ? `No Chief Minister assigned for ${stateLeadership.chiefMinister.assembly.name}.`
+                        ? `No Chief Minister assigned for ${stateLeadership?.chiefMinister?.assembly?.name || 'Assembly'}.`
                         : "No active legislative assembly recorded."
                       }
                     </p>
@@ -582,7 +550,7 @@ export const Dashboard: React.FC = () => {
       {/* Quick Access Circles */}
       <section>
          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-lg font-bold uppercase tracking-widest text-gray-400">Quick Operations</h3>
+            <h3 className="text-lg font-bold uppercase tracking-widest text-white">Quick Operations</h3>
          </div>
          <div className="flex flex-wrap gap-6">
             {quickOps.map((item, i) => (
@@ -605,7 +573,7 @@ export const Dashboard: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
         <section>
           <div className="flex items-center justify-between mb-6">
-            <h3 className="text-lg font-bold uppercase tracking-widest text-[#D32F2F]">Recent Persons</h3>
+            <h3 className="text-lg font-bold uppercase tracking-widest text-white">Recent Persons</h3>
             <button className="text-xs gold-text hover:underline">View All</button>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -616,7 +584,7 @@ export const Dashboard: React.FC = () => {
 
         <section>
           <div className="flex items-center justify-between mb-6">
-            <h3 className="text-lg font-bold uppercase tracking-widest text-[#FFD700]">Legislative Parties</h3>
+            <h3 className="text-lg font-bold uppercase tracking-widest text-white">Legislative Parties</h3>
             <button className="text-xs gold-text hover:underline">View All</button>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
