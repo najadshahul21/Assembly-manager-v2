@@ -1,23 +1,25 @@
 import React from 'react';
 import { Assembly, Constituency, Designation, Person, Party, Alliance } from '../types';
 
-export interface LegislativeSessionRow {
-  id: string;
-  assemblyOrdinal: string; // e.g. "1st", "2nd", "5th"
-  assemblyName: string;
-  assemblyId?: string;
-  termLimits?: string;
+export interface LegislativeSessionMember {
   memberId?: string;
   memberName: string;
   partyId?: string;
   partyName: string;
   partyColor: string;
-  allianceId?: string;
-  allianceName?: string;
   reason?: string;
   isByelected?: boolean;
   electionDate?: number;
   removalDate?: number;
+}
+
+export interface LegislativeSessionRow {
+  id: string;
+  assemblyOrdinal: string; // e.g. "1st", "2nd", "5th"
+  assemblyName: string;
+  assemblyId?: string;
+  slNo?: number;
+  members: LegislativeSessionMember[];
 }
 
 interface LegislativeSessionsTableProps {
@@ -28,34 +30,7 @@ interface LegislativeSessionsTableProps {
   onNavigateParty?: (partyId: string) => void;
   onNavigateAlliance?: (allianceId: string) => void;
   onNavigateAssembly?: (assemblyId: string) => void;
-}
-
-interface SpanInfo {
-  render: boolean;
-  rowSpan: number;
-}
-
-// Compute independent row spans for columns
-function computeSpans<T>(items: T[], getKey: (item: T) => string): SpanInfo[] {
-  const result: SpanInfo[] = [];
-  let i = 0;
-  while (i < items.length) {
-    const key = getKey(items[i]);
-    let span = 1;
-    // Vacant or empty items shouldn't group together
-    const canGroup = key && key !== 'vacant' && key !== 'None' && key !== '';
-    if (canGroup) {
-      while (i + span < items.length && getKey(items[i + span]) === key) {
-        span++;
-      }
-    }
-    result.push({ render: true, rowSpan: span });
-    for (let j = 1; j < span; j++) {
-      result.push({ render: false, rowSpan: 1 });
-    }
-    i += span;
-  }
-  return result;
+  hideAssemblyColumn?: boolean;
 }
 
 export const LegislativeSessionsTable: React.FC<LegislativeSessionsTableProps> = ({
@@ -65,16 +40,8 @@ export const LegislativeSessionsTable: React.FC<LegislativeSessionsTableProps> =
   onNavigatePerson,
   onNavigateParty,
   onNavigateAssembly,
+  hideAssemblyColumn = false,
 }) => {
-  // Pre-calculate spans for Member (col 2) and Party (col 3)
-  const memberSpans = React.useMemo(() => {
-    return computeSpans<LegislativeSessionRow>(rows, (r: LegislativeSessionRow) => (r.memberId || r.memberName || '').trim().toLowerCase());
-  }, [rows]);
-
-  const partySpans = React.useMemo(() => {
-    return computeSpans<LegislativeSessionRow>(rows, (r: LegislativeSessionRow) => (r.partyName || r.partyId || '').trim().toLowerCase());
-  }, [rows]);
-
   if (!rows || rows.length === 0) {
     return (
       <div className="w-full max-w-2xl mx-auto p-8 bg-[#0d1117] border border-zinc-800 rounded-xl text-center">
@@ -82,6 +49,8 @@ export const LegislativeSessionsTable: React.FC<LegislativeSessionsTableProps> =
       </div>
     );
   }
+
+  const showAssembly = !hideAssemblyColumn && rows.some(r => r.assemblyOrdinal || r.assemblyName);
 
   return (
     <div className="w-full max-w-3xl mx-auto">
@@ -98,107 +67,119 @@ export const LegislativeSessionsTable: React.FC<LegislativeSessionsTableProps> =
 
       <div className="w-full overflow-x-auto rounded-lg border border-zinc-800 bg-[#0d1117] shadow-2xl">
         <table className="w-full border-collapse text-left font-sans">
+          <thead>
+            <tr className="bg-zinc-900/50 border-b border-zinc-800">
+              <th className="px-4 sm:px-6 py-3 text-[10px] sm:text-xs font-black text-zinc-500 uppercase tracking-widest border-r border-zinc-800/50">
+                Sl. No.
+              </th>
+              {showAssembly && (
+                <th className="px-4 sm:px-6 py-3 text-[10px] sm:text-xs font-black text-zinc-500 uppercase tracking-widest border-r border-zinc-800/50">
+                  Assembly Session
+                </th>
+              )}
+              <th className="px-4 sm:px-6 py-3 text-[10px] sm:text-xs font-black text-zinc-500 uppercase tracking-widest">
+                Member / Party Affiliation
+              </th>
+            </tr>
+          </thead>
           <tbody>
-            {rows.map((row, idx) => {
-              const memberSpan = memberSpans[idx];
-              const partySpan = partySpans[idx];
-
+            {rows.map((row) => {
               return (
                 <tr
-                  key={row.id || `${row.assemblyOrdinal}-${idx}`}
-                  className="hover:bg-white/[0.02] transition-colors"
+                  key={row.id}
+                  className="hover:bg-white/[0.02] transition-colors border-b border-zinc-800/50 last:border-0"
                 >
-                  {/* COLUMN 1: Assembly Session (1st, 2nd, 5th, etc.) */}
-                  <td className="w-24 sm:w-32 px-4 sm:px-6 py-4 border border-zinc-800/90 text-zinc-100 font-medium text-base sm:text-lg align-middle select-none">
-                    {row.assemblyId && onNavigateAssembly ? (
-                      <button
-                        type="button"
-                        onClick={() => onNavigateAssembly(row.assemblyId!)}
-                        className="hover:text-[#FFD700] hover:underline transition-colors cursor-pointer"
-                        title={row.assemblyName || row.assemblyOrdinal}
-                      >
-                        {row.assemblyOrdinal}
-                      </button>
-                    ) : (
-                      <span>{row.assemblyOrdinal}</span>
-                    )}
+                  {/* COLUMN 0: Sl. No. */}
+                  <td className="w-16 px-4 sm:px-6 py-4 border-r border-zinc-800/90 text-zinc-500 font-mono text-sm align-middle text-center bg-black/20">
+                    {(row.slNo || 0).toString().padStart(2, '0')}
                   </td>
 
-                  {/* COLUMN 2: Member / Incumbent */}
-                  {memberSpan.render && (
-                    <td
-                      rowSpan={memberSpan.rowSpan}
-                      className="px-4 sm:px-6 py-4 border border-zinc-800/90 text-[#FFD700] font-normal text-base sm:text-lg align-middle leading-snug"
-                    >
-                      <div className="flex flex-col gap-0.5">
-                        {row.memberId && row.memberId !== 'vacant' && onNavigatePerson ? (
-                          <button
-                            type="button"
-                            onClick={() => onNavigatePerson(row.memberId!)}
-                            className="text-left text-[#FFD700] hover:text-[#FFD700] hover:underline transition-colors cursor-pointer block"
-                          >
-                            {row.memberName}
-                          </button>
-                        ) : (
-                          <span
-                            className={
-                              row.memberName === 'Vacant' || !row.memberName
-                                ? 'text-zinc-500 italic block'
-                                : 'text-[#FFD700] block'
-                            }
-                          >
-                            {row.memberName || 'Vacant'}
-                          </span>
-                        )}
-                        
-                        {row.reason && row.reason !== 'appointment' && (
-                          <span className="text-[11px] text-red-500 font-bold leading-tight mt-1">
-                            ({row.reason}{row.removalDate ? ` on ${new Date(row.removalDate).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '-')}` : ''})
-                          </span>
-                        )}
-                        
-                        {row.isByelected && (
-                          <span className="text-[11px] text-emerald-500 font-bold leading-tight mt-1 italic">
-                            (Assumed office{row.electionDate ? ` on ${(() => {
-                              const d = new Date(row.electionDate);
-                              const day = d.getDate();
-                              const month = d.toLocaleString('en-GB', { month: 'long' });
-                              const year = d.getFullYear();
-                              const getOrdinal = (n: number) => {
-                                const s = ['th', 'st', 'nd', 'rd'];
-                                const v = n % 100;
-                                return n + (s[(v - 20) % 10] || s[v] || s[0]);
-                              };
-                              return `${getOrdinal(day)} ${month} ${year}`;
-                            })()}` : ' as Bye Elected'})
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                  )}
-
-                  {/* COLUMN 3: Party / Coalition with Vertical Left Color Strip */}
-                  {partySpan.render && (
-                    <td
-                      rowSpan={partySpan.rowSpan}
-                      style={{
-                        borderLeft: `5px solid ${row.partyColor || '#0284c7'}`,
-                      }}
-                      className="px-4 sm:px-6 py-4 border-t border-r border-b border-zinc-800/90 text-[#FFD700] font-normal text-base sm:text-lg align-middle leading-snug"
-                    >
-                      {row.partyId && row.partyId !== 'independent' && onNavigateParty ? (
+                  {/* COLUMN 1: Assembly Session */}
+                  {showAssembly && (
+                    <td className="w-24 sm:w-32 px-4 sm:px-6 py-4 border-r border-zinc-800/90 text-zinc-100 font-medium text-base sm:text-lg align-middle select-none">
+                      {row.assemblyId && onNavigateAssembly ? (
                         <button
                           type="button"
-                          onClick={() => onNavigateParty(row.partyId!)}
-                          className="text-left text-[#FFD700] hover:text-[#FFD700] hover:underline transition-colors cursor-pointer"
+                          onClick={() => onNavigateAssembly(row.assemblyId!)}
+                          className="hover:text-[#FFD700] hover:underline transition-colors cursor-pointer"
+                          title={row.assemblyName || row.assemblyOrdinal}
                         >
-                          {row.partyName}
+                          {row.assemblyOrdinal}
                         </button>
                       ) : (
-                        <span className="text-[#FFD700]">{row.partyName}</span>
+                        <span>{row.assemblyOrdinal}</span>
                       )}
                     </td>
                   )}
+
+                  {/* COLUMN 2: Members & Parties (Unified Column) */}
+                  <td colSpan={2} className="px-4 sm:px-6 py-4 align-top border-l border-zinc-800/50">
+                    <div className="flex flex-col gap-4">
+                      {row.members.map((m, mIdx) => (
+                        <div 
+                          key={`${row.id}-m-${mIdx}`} 
+                          className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${mIdx > 0 ? 'pt-4 border-t border-zinc-800/30' : ''}`}
+                        >
+                          {/* Member Info */}
+                          <div className="flex flex-col gap-0.5 flex-1 min-w-0">
+                            {m.memberId && m.memberId !== 'vacant' && onNavigatePerson ? (
+                              <button
+                                type="button"
+                                onClick={() => onNavigatePerson(m.memberId!)}
+                                className="text-left text-[#FFD700] font-bold text-base sm:text-lg hover:underline transition-colors cursor-pointer block truncate"
+                              >
+                                {m.memberName}
+                              </button>
+                            ) : (
+                              <span
+                                className={
+                                  m.memberName === 'Vacant' || !m.memberName
+                                    ? 'text-zinc-500 italic block font-medium'
+                                    : 'text-[#FFD700] block font-bold text-base sm:text-lg'
+                                }
+                              >
+                                {m.memberName || 'Vacant'}
+                              </span>
+                            )}
+                            
+                            {m.reason && m.reason !== 'appointment' && (
+                              <span className="text-[10px] sm:text-[11px] text-red-500 font-black uppercase tracking-wider leading-tight mt-0.5">
+                                ({m.reason}{m.removalDate ? ` • ${new Date(m.removalDate).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '-')}` : ''})
+                              </span>
+                            )}
+                            
+                            {m.isByelected && (
+                              <span className="text-[10px] sm:text-[11px] text-emerald-500 font-black uppercase tracking-wider leading-tight mt-0.5 italic">
+                                (Bye Elected{m.electionDate ? ` • ${(() => {
+                                  const d = new Date(m.electionDate);
+                                  return d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '-');
+                                })()}` : ''})
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Party Info */}
+                          <div className="flex items-center gap-2 sm:justify-end shrink-0">
+                            <div 
+                              className="w-1.5 h-6 rounded-full shrink-0" 
+                              style={{ backgroundColor: m.partyColor || '#666' }} 
+                            />
+                            {m.partyId && m.partyId !== 'independent' && onNavigateParty ? (
+                              <button
+                                type="button"
+                                onClick={() => onNavigateParty(m.partyId!)}
+                                className="text-xs sm:text-sm font-black text-zinc-400 hover:text-white uppercase tracking-widest transition-colors cursor-pointer"
+                              >
+                                {m.partyName}
+                              </button>
+                            ) : (
+                              <span className="text-xs sm:text-sm font-black text-zinc-500 uppercase tracking-widest">{m.partyName}</span>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </td>
                 </tr>
               );
             })}

@@ -27,6 +27,9 @@ export class LegislativeDB extends Dexie {
     this.version(7).stores({
       orders: 'id, slNo, orderName, date, timestamp, byDesignationId, byDesignationName, signerPersonId, *taggedPersonIds, updatedAt'
     });
+    this.version(8).stores({
+      assemblies: 'id, slNo, name, partyControlId, precededById, updatedAt'
+    });
 
     this.open().catch(err => {
       console.error("Failed to open database:", err);

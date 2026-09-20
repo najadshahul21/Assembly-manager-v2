@@ -11,14 +11,16 @@ import { LoginScreen } from './components/LoginScreen';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { EntityType } from './types';
 import { motion, AnimatePresence } from 'motion/react';
-import { User, Flag, Shield, Landmark, X, MapPin } from 'lucide-react';
+import { User, Flag, Shield, Landmark, X, MapPin, Award, Stamp } from 'lucide-react';
 import { DbLookupProvider } from './context/DbLookupContext';
+import { ReleaseOrderModal } from './components/ReleaseOrderModal';
 
 function AppContent() {
   const { user } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [isCreateMenuOpen, setCreateMenuOpen] = useState(false);
   const [activeCreateType, setActiveCreateType] = useState<EntityType | null>(null);
+  const [isReleaseOrderModalOpen, setIsReleaseOrderModalOpen] = useState(false);
 
   if (!user) {
     return <LoginScreen />;
@@ -30,6 +32,7 @@ function AppContent() {
     { type: EntityType.ALLIANCE, label: 'Create Alliance', icon: Shield, color: 'hover:bg-purple-500/10' },
     { type: EntityType.ASSEMBLY, label: 'Create Assembly', icon: Landmark, color: 'hover:bg-[#FFD700]/10' },
     { type: EntityType.CONSTITUENCY, label: 'Create Constituency', icon: MapPin, color: 'hover:bg-orange-500/10' },
+    { type: EntityType.ORDER, label: 'Release Order', icon: Stamp, color: 'hover:bg-amber-500/10' },
   ];
 
   return (
@@ -78,7 +81,11 @@ function AppContent() {
                     <button
                       key={opt.type}
                       onClick={() => {
-                        setActiveCreateType(opt.type);
+                        if (opt.type === EntityType.ORDER) {
+                          setIsReleaseOrderModalOpen(true);
+                        } else {
+                          setActiveCreateType(opt.type);
+                        }
                         setCreateMenuOpen(false);
                       }}
                       className={`w-full flex items-center gap-4 p-4 rounded-2xl transition-all ${opt.color} group`}
@@ -100,6 +107,11 @@ function AppContent() {
         type={activeCreateType}
         isOpen={activeCreateType !== null}
         onClose={() => setActiveCreateType(null)}
+      />
+
+      <ReleaseOrderModal
+        isOpen={isReleaseOrderModalOpen}
+        onClose={() => setIsReleaseOrderModalOpen(false)}
       />
     </BrowserRouter>
   );

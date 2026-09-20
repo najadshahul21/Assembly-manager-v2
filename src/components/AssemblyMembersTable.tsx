@@ -12,6 +12,7 @@ import {
   CheckCircle2,
   AlertCircle,
   Sparkles,
+  Zap,
 } from "lucide-react";
 import {
   prefixRole,
@@ -33,13 +34,14 @@ interface AssemblyMembersTableProps {
   assembly: Assembly;
   seats: AssemblySeatItem[];
   designationsList?: Designation[];
+  alliancesList?: Alliance[];
   isDissolved?: boolean;
   government?: any;
   onPromote?: (personId: string, personName: string) => void;
   onSupportAlliance?: (personId: string, personName: string) => void;
 }
 
-type SortColumn = "no" | "constituency" | "name" | "party" | "alliance" | "remarks";
+type SortColumn = "no" | "constituency" | "name" | "party" | "alliance" | "remarks" | "actions";
 type SortDirection = "asc" | "desc";
 
 interface ProcessedRow {
@@ -62,6 +64,7 @@ interface ProcessedRow {
     isByelected?: boolean;
     remarks: string[];
     hasMinisterRole: boolean;
+    isSupportingAlliance: boolean;
   }[];
   party?: {
     id: string;
@@ -78,12 +81,15 @@ interface ProcessedRow {
   remarks: string[];
   hasMinisterRole: boolean;
   isGovernmentMember: boolean;
+  isSupportingAlliance: boolean;
+  politicianId?: string;
 }
 
 export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
   assembly,
   seats,
   designationsList = [],
+  alliancesList = [],
   isDissolved = false,
   government,
   onPromote,
@@ -196,6 +202,7 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
         const p = inc.person;
         const isIndependent = p.partyId === "independent";
         const { remarks, hasMinisterRole } = getRemarksForPolitician(p);
+        const isSupportingAlliance = !!(assembly.independentSupports?.[p.id]);
         
         return {
           id: p.id,
@@ -206,7 +213,8 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
           reason: inc.reason,
           isByelected: inc.isByelected,
           remarks,
-          hasMinisterRole
+          hasMinisterRole,
+          isSupportingAlliance
         };
       });
 
@@ -242,6 +250,8 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
       let allianceObj: ProcessedRow["alliance"] = undefined;
       if (primaryInc) {
         const primarySeatInc = seat.incumbents[seat.incumbents.length - 1];
+        const supId = assembly.independentSupports?.[primaryInc.id];
+        
         if (primarySeatInc.alliance && primarySeatInc.alliance.id !== "independent") {
           allianceObj = {
             id: primarySeatInc.alliance.id,
@@ -249,14 +259,14 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
             abbreviation: primarySeatInc.alliance.abbreviation || primarySeatInc.alliance.name,
             color: primarySeatInc.alliance.colors?.[0] || "#3b82f6",
           };
-        } else if (assembly.independentSupports?.[primaryInc.id]) {
-          const supId = assembly.independentSupports[primaryInc.id];
-          if (primarySeatInc.alliance && primarySeatInc.alliance.id === supId) {
+        } else if (supId) {
+          const supAlliance = alliancesList.find(a => a.id === supId);
+          if (supAlliance) {
             allianceObj = {
-              id: primarySeatInc.alliance.id,
-              name: primarySeatInc.alliance.name,
-              abbreviation: primarySeatInc.alliance.abbreviation || primarySeatInc.alliance.name,
-              color: primarySeatInc.alliance.colors?.[0] || "#3b82f6",
+              id: supAlliance.id,
+              name: supAlliance.name,
+              abbreviation: supAlliance.abbreviation || supAlliance.name,
+              color: supAlliance.colors?.[0] || "#3b82f6",
             };
           }
         }
@@ -296,6 +306,8 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
         }
       }
 
+      const isSupportingAlliance = !!(primaryInc && primaryInc.isIndependent && assembly.independentSupports?.[primaryInc.id]);
+
       return {
         index: idx,
         slNo,
@@ -312,6 +324,8 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
         remarks: incumbents.flatMap(inc => inc.remarks),
         hasMinisterRole: incumbents.some(inc => inc.hasMinisterRole),
         isGovernmentMember,
+        isSupportingAlliance,
+        politicianId: primaryInc?.id,
       };
     });
   }, [seats, assembly, designationsList, government]);
@@ -606,7 +620,7 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
                   </div>
                 </th>
 
-                {/* Alliance Column */}
+                    {/* Alliance Column */}
                 <th
                   onClick={() => handleSort("alliance")}
                   className="w-28 min-w-[100px] px-3 py-3 border-r border-[#2d323c] cursor-pointer hover:bg-white/5 transition-colors select-none"
@@ -624,7 +638,7 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
                 {/* Remarks Column */}
                 <th
                   onClick={() => handleSort("remarks")}
-                  className="min-w-[240px] px-4 py-3 cursor-pointer hover:bg-white/5 transition-colors select-none"
+                  className="min-w-[240px] px-4 py-3 border-r border-[#2d323c] cursor-pointer hover:bg-white/5 transition-colors select-none"
                 >
                   <div className="flex items-center gap-1.5">
                     <span>Remarks</span>
@@ -634,6 +648,11 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
                       <ArrowUpDown size={11} className="text-gray-500 opacity-60" />
                     )}
                   </div>
+                </th>
+
+                {/* Actions Column */}
+                <th className="w-20 min-w-[80px] px-3 py-3 text-center transition-colors select-none">
+                  Actions
                 </th>
               </tr>
             </thead>
@@ -646,7 +665,7 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
 
                 return (
                   <tr
-                    key={`${row.constituency.id}-${row.politician?.id || "vacant"}-${idx}`}
+                    key={`${row.constituency.id}-${row.politicianId || "vacant"}-${idx}`}
                     className="border-b border-[#242832] hover:bg-white/[0.025] transition-colors group"
                   >
                     {/* 1. No. Cell */}
@@ -698,18 +717,10 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
                                     {formatPersonName(inc.name, inc.gender)}
                                   </button>
                                   
-                                  {isPrimary && !isDissolved && inc.isIndependent && onSupportAlliance && (
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        onSupportAlliance(inc.id, inc.name);
-                                      }}
-                                      className="opacity-0 group-hover:opacity-100 text-[10px] bg-white/5 hover:bg-[#FFD700]/20 text-[#FFD700] px-1.5 py-0.5 rounded border border-[#FFD700]/30 transition-all"
-                                      title="Set alliance support"
-                                    >
-                                      Support Alliance
-                                    </button>
+                                  {isPrimary && row.isSupportingAlliance && row.alliance && (
+                                    <div className="text-[9px] text-[#FFD700] font-black uppercase tracking-widest bg-[#FFD700]/10 border border-[#FFD700]/20 px-2 py-0.5 rounded-md shadow-[0_0_10px_rgba(255,215,0,0.1)]">
+                                      Supporting {row.alliance.name}
+                                    </div>
                                   )}
                                 </div>
                                 
@@ -797,9 +808,9 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
                     )}
 
                     {/* 6. Remarks Cell */}
-                    <td className="px-4 py-2.5 text-xs sm:text-sm text-gray-300 font-normal">
-                      <div className="flex items-center justify-between gap-3 min-h-[32px] w-full">
-                        {row.remarks.length > 0 ? (
+                    <td className="px-4 py-2.5 text-xs sm:text-sm text-gray-300 font-normal border-r border-[#242832]">
+                      <div className="flex flex-col gap-0.5 min-h-[32px] w-full">
+                        {row.remarks.length > 0 && (
                           <div className="space-y-0.5 flex-1">
                             {row.remarks.map((remark, rIdx) => {
                               const isOppLeader = remark.toLowerCase().includes("opposition");
@@ -827,10 +838,31 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
                               );
                             })}
                           </div>
-                        ) : (
-                          <div className="flex-1">
-                            <span className="text-transparent select-none">—</span>
-                          </div>
+                        )}
+                      </div>
+                    </td>
+
+                    {/* 7. Actions Cell */}
+                    <td className="px-3 py-2.5 text-center">
+                      <div className="flex items-center justify-center gap-2">
+                        {/* Support Alliance Action (Only for Independent MLAs) */}
+                        {!isDissolved && row.incumbents.length > 0 && row.incumbents[row.incumbents.length - 1].isIndependent && onSupportAlliance && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const primary = row.incumbents[row.incumbents.length - 1];
+                              onSupportAlliance(primary.id, primary.name);
+                            }}
+                            className={`p-1.5 rounded-lg transition-all border shrink-0 ${
+                              row.isSupportingAlliance 
+                                ? "bg-yellow-500/20 border-yellow-500/40 text-yellow-500 hover:bg-yellow-500/30" 
+                                : "bg-white/5 border-white/10 text-gray-400 hover:bg-white/10 hover:text-white"
+                            }`}
+                            title={row.alliance ? `Supporting ${row.alliance.name}` : "Set alliance support"}
+                          >
+                            <Zap size={12} fill={row.isSupportingAlliance ? "currentColor" : "none"} />
+                          </button>
                         )}
 
                         {/* Promote to Cabinet / Add Portfolio action button (Only for Government MLAs) */}
@@ -844,7 +876,7 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
                               const primary = row.incumbents[row.incumbents.length - 1];
                               onPromote(primary.id, primary.name);
                             }}
-                            className="flex items-center justify-center w-8 h-8 rounded-lg bg-blue-600 hover:bg-blue-500 text-white border border-blue-400/30 transition-all shrink-0 shadow-lg cursor-pointer z-10"
+                            className="flex items-center justify-center w-8 h-8 rounded-lg bg-blue-600 hover:bg-blue-500 text-white border border-blue-400/30 transition-all shrink-0 shadow-lg cursor-pointer"
                             title="Promote to Cabinet / Assign Portfolio"
                           >
                             <ArrowUp size={14} strokeWidth={3} />
@@ -859,7 +891,7 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
               {/* Empty state if search or filters return 0 rows */}
               {filteredAndSortedRows.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="py-16 text-center text-gray-500 italic">
+                  <td colSpan={7} className="py-16 text-center text-gray-500 italic">
                     <p className="text-sm">No members matching the current criteria.</p>
                     {searchTerm && (
                       <button

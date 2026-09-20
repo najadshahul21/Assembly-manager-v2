@@ -2,6 +2,7 @@ import React from 'react';
 import { Landmark, Shield, History as HistoryIcon, Award, User, ExternalLink, Calendar } from 'lucide-react';
 import { Assembly, Person, Party, Alliance } from '../types';
 import { formatPersonName } from '../utils/governmentUtils';
+import { getOrdinal } from '../data/legislativeHistoryData';
 
 interface AssemblyInfoboxTableProps {
   assembly: Assembly;
@@ -131,6 +132,15 @@ export const AssemblyInfoboxTable: React.FC<AssemblyInfoboxTableProps> = ({
 
       {/* Sections */}
       <div className="divide-y divide-zinc-800/80">
+        <div className="flex flex-col sm:flex-row hover:bg-white/[0.015] transition-colors border-b border-zinc-800/80">
+          <div className="w-full sm:w-48 shrink-0 px-5 py-3 sm:py-3.5 font-bold text-zinc-100 select-none">
+            Sl. No.
+          </div>
+          <div className="px-5 pb-3 sm:py-3.5 text-zinc-300 flex-1 font-mono font-bold text-blue-400">
+            {assembly.slNo ? getOrdinal(assembly.slNo) : (assembly.name ? assembly.name.match(/^\d+/)?.[0] ? getOrdinal(assembly.name.match(/^\d+/)?.[0] || "") : "N/A" : "N/A")}
+          </div>
+        </div>
+
         <div className="flex flex-col sm:flex-row hover:bg-white/[0.015] transition-colors border-b border-zinc-800/80">
           <div className="w-full sm:w-48 shrink-0 px-5 py-3 sm:py-3.5 font-bold text-zinc-100 select-none">
             Term limits

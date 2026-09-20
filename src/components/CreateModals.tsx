@@ -16,6 +16,7 @@ import {
   isMinisterialRole,
   getConstituencyCreationAssembly
 } from '../utils/governmentUtils';
+import { getOrdinal } from '../data/legislativeHistoryData';
 import { SearchableLeaderSelect } from './SearchableLeaderSelect';
 
 interface CreateModalsProps {
@@ -193,6 +194,18 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
       setValue('partyControlId', assemblyGovComposition.government.id);
     }
   }, [type, assemblyGovComposition.government?.id, setValue, editData]);
+
+  // Auto-fill Assembly name with next Sl. No. ordinal
+  React.useEffect(() => {
+    if (isOpen && !editData && type === EntityType.ASSEMBLY) {
+      const nextNum = assemblies.length + 1;
+      const ordinal = getOrdinal(nextNum);
+      const currentName = watch('name');
+      if (!currentName) {
+        setValue('name', `${ordinal} Legislative Assembly`);
+      }
+    }
+  }, [isOpen, editData, type, assemblies.length, setValue, watch]);
   
   const memberParties = React.useMemo(() => {
     if (!editData || type !== EntityType.ALLIANCE) return [];
@@ -719,8 +732,12 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
           }
         }
 
+        const assembliesCount = assemblies.length;
+        const nextSlNo = isEdit ? (editData.slNo || assembliesCount) : (assembliesCount + 1);
+
         const payload = {
           id,
+          slNo: nextSlNo,
           name: data.name,
           subName: data.subName,
           logoUrl: data.logoUrl || `https://api.dicebear.com/7.x/identicon/svg?seed=${data.name}`,

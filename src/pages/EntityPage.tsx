@@ -1528,7 +1528,14 @@ export const EntityPage: React.FC = () => {
 
     const assemblyObj = await db.assemblies.get(id);
     if (assemblyObj && !assemblyObj.isActive && assemblyObj.composition?.seatingLayout) {
-      return assemblyObj.composition.seatingLayout;
+      return assemblyObj.composition.seatingLayout.map((s: any) => ({
+        ...s,
+        incumbents: s.incumbents || (s.politician ? [{ 
+          person: s.politician, 
+          party: s.party, 
+          alliance: s.alliance 
+        }] : [])
+      }));
     }
 
     const constituencies = await db.constituencies.toArray();
@@ -1633,9 +1640,15 @@ export const EntityPage: React.FC = () => {
           isByelected: index > 0
         }));
 
+        const lastInc = finalizedIncumbents[finalizedIncumbents.length - 1];
+        const isCurrentlyOccupied = lastInc && !lastInc.removalDate;
+
         return {
           constituency: c,
-          incumbents: finalizedIncumbents
+          incumbents: finalizedIncumbents,
+          politician: isCurrentlyOccupied ? lastInc.person : undefined,
+          party: isCurrentlyOccupied ? lastInc.party : undefined,
+          alliance: isCurrentlyOccupied ? lastInc.alliance : undefined,
         };
       }),
     );
@@ -1684,6 +1697,23 @@ export const EntityPage: React.FC = () => {
     entityType,
     assemblyPerformance,
   ]);
+
+  const alliancesInAssembly = React.useMemo(() => {
+    if (entityType !== EntityType.ASSEMBLY || !assemblySeats) return [];
+    const allianceIds = new Set<string>();
+    assemblySeats.forEach((seat: any) => {
+      seat.incumbents.forEach((inc: any) => {
+        if (inc.alliance && inc.alliance.id !== 'independent') {
+          allianceIds.add(inc.alliance.id);
+        }
+        // Also check party's alliance directly in case it's not in inc.alliance for some reason
+        if (inc.party && inc.party.allianceId && inc.party.allianceId !== 'independent') {
+          allianceIds.add(inc.party.allianceId);
+        }
+      });
+    });
+    return alliancesList.filter(a => allianceIds.has(a.id));
+  }, [entityType, assemblySeats, alliancesList]);
 
   // Lazy snapshot for dissolved assemblies
   React.useEffect(() => {
@@ -5232,6 +5262,7 @@ export const EntityPage: React.FC = () => {
                         assembly={entity as Assembly}
                         seats={assemblySeats || []}
                         designationsList={designationsList}
+                        alliancesList={alliancesList}
                         isDissolved={isDissolvedRecord}
                         government={assemblyPerformance?.government}
                         onPromote={
@@ -5277,7 +5308,11 @@ export const EntityPage: React.FC = () => {
                           const slB = parseInt(b.constituency.slNo) || 9999;
                           return slA - slB;
                         });
-                        const vacant = seats.filter((s) => !s.politician);
+                        const vacant = seats.filter((s) => {
+                          if (s.incumbents.length === 0) return true;
+                          const lastInc = s.incumbents[s.incumbents.length - 1];
+                          return !!lastInc.removalDate;
+                        });
 
                         if (vacant.length === 0) {
                           return (
@@ -5648,6 +5683,10 @@ export const EntityPage: React.FC = () => {
                       onNavigateParty={(partyId) => navigate(`/party/${partyId}`)}
                       onNavigateAlliance={(allianceId) => navigate(`/alliance/${allianceId}`)}
                       onNavigateAssembly={(assemblyId) => navigate(`/assembly/${assemblyId}`)}
+                      hideAssemblyColumn={
+                        (entity as Designation)?.name?.toLowerCase().includes('governor') || 
+                        (entity as Designation)?.id?.toLowerCase().includes('governor')
+                      }
                     />
                   </div>
                 )}
@@ -5891,7 +5930,7 @@ export const EntityPage: React.FC = () => {
                   </button>
 
                   {/* Alliances */}
-                  {alliancesList.map((alliance) => {
+                  {alliancesInAssembly.map((alliance) => {
                     const isSelected =
                       (entity as Assembly)?.independentSupports?.[
                         showSupportAlliancePopup.personId

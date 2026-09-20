@@ -20,12 +20,12 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSearch, onPlusClick 
 
   const navItems = [
     { title: 'Dashboard', icon: Home, path: '/' },
+    { title: 'Assemblies', icon: Landmark, path: '/assemblies' },
+    { title: 'Cabinet', icon: Award, path: '/cabinet' },
     { title: 'Orders', icon: Stamp, path: '/orders' },
     { title: 'Persons', icon: Users, path: '/persons' },
-    { title: 'Parties', icon: Flag, path: '/parties' },
     { title: 'Alliances', icon: Shield, path: '/alliances' },
-    { title: 'Cabinet', icon: Landmark, path: '/cabinet' },
-    { title: 'Assemblies', icon: Landmark, path: '/assemblies' },
+    { title: 'Parties', icon: Flag, path: '/parties' },
     { title: 'Constituencies', icon: MapPin, path: '/constituencies' },
   ];
 

@@ -23,29 +23,6 @@ export const Dashboard: React.FC = () => {
     const list = await db.parties.orderBy('updatedAt').reverse().toArray();
     return list.filter(p => !p.isSuspended).slice(0, 4);
   }) || [];
-  const designations = useLiveQuery(() => db.designations.toArray()) || [];
-
-  React.useEffect(() => {
-    const ensureGovernor = async () => {
-      try {
-        const governorDesig = await db.designations.get('governor');
-        if (!governorDesig) {
-          await db.designations.put({
-            id: 'governor',
-            name: "Hon'ble Governor",
-            incumbentId: 'vacant',
-            dateOfSigning: new Date().toISOString().split('T')[0],
-            constituency: '',
-            history: [],
-            updatedAt: Date.now()
-          });
-        }
-      } catch (err) {
-        console.error("Failed to ensure governor designation exists in db:", err);
-      }
-    };
-    ensureGovernor();
-  }, []);
 
   const stateLeadership = useLiveQuery(async () => {
     // 1. Fetch Governor designation safely (non-mutating) with a fallback structure if not loaded yet
@@ -130,6 +107,17 @@ export const Dashboard: React.FC = () => {
     const activeAssemblyIds = new Set(activeAssemblies.map(a => a.id));
     const activeConstituencies = allConstituencies.filter(c => c.currentAssemblyId && activeAssemblyIds.has(c.currentAssemblyId));
 
+    const vacantDesignations = allDesignations.filter(d => 
+      d.incumbentId === 'vacant' && 
+      (!d.assemblyId || activeAssemblyIds.has(d.assemblyId))
+    ).length;
+    
+    const vacantConstituencies = activeConstituencies.filter(c => 
+      c.currentIncumbentId === 'vacant'
+    ).length;
+    
+    const totalVacancies = vacantDesignations + vacantConstituencies;
+
     const partyLegCounts: Record<string, number> = {};
     activeConstituencies.forEach(c => {
       if (c.currentIncumbentId && c.currentIncumbentId !== 'vacant') {
@@ -170,13 +158,14 @@ export const Dashboard: React.FC = () => {
       leadingParty: leadingParty ? { name: leadingParty.abbreviation || leadingParty.name, count: partyLegCounts[leadingPartyId!] } : null,
       largestAlliance: lgAlliance ? { name: lgAlliance.abbreviation || lgAlliance.name, count: alliancePartyCounts[lgAllianceId!] } : null,
       strongestAlliance: strAlliance ? { name: strAlliance.abbreviation || strAlliance.name, count: allianceLegCounts[strAllianceId!] } : null,
+      totalVacancies
     };
   }, []);
 
   const stats = [
     { label: 'Registered Politicians', value: personCount, icon: Users, color: 'text-[#FFD700]' },
     { label: 'Active Parties', value: partyCount, icon: Flag, color: 'text-[#D32F2F]' },
-    { label: 'Vacancies', value: designations.filter(d => d.incumbentId === 'vacant').length, icon: AlertCircle, color: 'text-[#FFD700]' },
+    { label: 'Vacancies', value: dashboardStats?.totalVacancies || 0, icon: AlertCircle, color: 'text-[#FFD700]' },
   ];
 
   const insightStats = [

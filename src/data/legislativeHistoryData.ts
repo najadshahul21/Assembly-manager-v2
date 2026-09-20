@@ -1,4 +1,4 @@
-import { LegislativeSessionRow } from '../components/LegislativeSessionsTable';
+import { LegislativeSessionRow, LegislativeSessionMember } from '../components/LegislativeSessionsTable';
 import { Assembly, Constituency, Designation, Person, Party, Alliance, EntityType } from '../types';
 
 export const getOrdinal = (n: number | string): string => {
@@ -133,20 +133,24 @@ export const buildLegislativeSessionsList = ({
 
   if (entityType === EntityType.CONSTITUENCY) {
     const con = entity as Constituency;
+    
+    // Group all historical and current data by Assembly
+    const assemblyGroups: Record<string, LegislativeSessionMember[]> = {};
+    const assemblyInfo: Record<string, { ordinal: string; name: string; id: string }> = {};
+
+    // 1. Process known historical dataset
     const cleanKey = (con.name || con.id || '')
       .toLowerCase()
       .replace(/^con-/, '')
       .replace(/[^a-z0-9]/g, '');
 
-    // 1. Check known historical dataset for this constituency
     const matchedHistoryKey = Object.keys(KNOWN_CONSTITUENCY_SESSIONS).find((k) =>
       cleanKey.includes(k) || k.includes(cleanKey)
     );
 
     if (matchedHistoryKey) {
       const historicalList = KNOWN_CONSTITUENCY_SESSIONS[matchedHistoryKey];
-      historicalList.forEach((item, idx) => {
-        // Resolve person ID if in our database
+      historicalList.forEach((item) => {
         let memberId = item.memberId;
         if (!memberId) {
           const found = persons.find(
@@ -155,9 +159,8 @@ export const buildLegislativeSessionsList = ({
           if (found) memberId = found.id;
         }
 
-        // Resolve assembly ID if in our database
         const numMatch = item.assemblyOrdinal.match(/\d+/);
-        let assemblyId: string | undefined;
+        let assemblyId = `asm-${numMatch ? numMatch[0] : 'unknown'}`;
         if (numMatch) {
           const asm = assemblies.find((a) =>
             a.name.toLowerCase().includes(`${numMatch[0]}th`) || a.id.includes(numMatch[0])
@@ -165,97 +168,94 @@ export const buildLegislativeSessionsList = ({
           if (asm) assemblyId = asm.id;
         }
 
-        rows.push({
-          id: `seed-${idx}-${item.assemblyOrdinal}`,
-          assemblyOrdinal: item.assemblyOrdinal,
-          assemblyName: `${item.assemblyOrdinal} Kerala Legislative Assembly`,
-          assemblyId,
+        if (!assemblyGroups[assemblyId]) assemblyGroups[assemblyId] = [];
+        assemblyGroups[assemblyId].push({
           memberName: item.memberName,
           memberId,
           partyName: item.partyName,
           partyColor: item.partyColor,
           partyId: item.partyId
         });
+        assemblyInfo[assemblyId] = {
+          ordinal: item.assemblyOrdinal,
+          name: `${item.assemblyOrdinal} Legislative Assembly`,
+          id: assemblyId
+        };
       });
     }
 
-    // 2. Incorporate records from `con.history`
+    // 2. Process con.history
     if (Array.isArray(con.history)) {
-      const conHistory = con.history.sort((a, b) => a.date - b.date);
-      const processedAsmPersons = new Set<string>();
-
-      conHistory.forEach((h, idx) => {
-        const asm = h.assemblyId ? assembliesMap[h.assemblyId] : null;
-        const ordinal = asm ? extractOrdinal(asm.name, idx) : extractOrdinal(h.assemblyId || "", idx);
-        
-        // We only care about people who were elected/appointed
+      const conHistory = [...con.history].sort((a, b) => a.date - b.date);
+      conHistory.forEach((h) => {
         if (h.reason === "election" || h.reason === "appointment") {
+          const asm = h.assemblyId ? assembliesMap[h.assemblyId] : null;
+          const asmId = asm?.id || h.assemblyId || "unknown";
+          const ordinal = asm ? extractOrdinal(asm.name) : extractOrdinal(h.assemblyId || "");
+          
           const person = h.personId ? personsMap[h.personId] : null;
           const partyDetails = resolvePartyDetails(person?.partyId, partiesMap, alliancesMap);
           
-          const asmId = asm?.id || h.assemblyId;
-          const asmKey = `${asmId}-${h.personId}`;
+          const previousInAsm = conHistory.find(prev => 
+            prev.assemblyId === h.assemblyId && 
+            prev.date < h.date && 
+            (prev.reason === "election" || prev.reason === "appointment")
+          );
+
+          const removal = conHistory.find(rem => 
+            rem.assemblyId === h.assemblyId && 
+            rem.personId === h.personId && 
+            rem.date >= h.date &&
+            rem.reason !== "election" && rem.reason !== "appointment"
+          );
+
+          if (!assemblyGroups[asmId]) assemblyGroups[asmId] = [];
           
-          if (!processedAsmPersons.has(asmKey)) {
-            processedAsmPersons.add(asmKey);
-            
-            // Check if this is a by-election (not the first election in this assembly)
-            const previousInAsm = conHistory.find(prev => 
-              prev.assemblyId === h.assemblyId && 
-              prev.date < h.date && 
-              (prev.reason === "election" || prev.reason === "appointment")
-            );
-
-            // Find removal reason for THIS person in THIS assembly
-            const removal = conHistory.find(rem => 
-              rem.assemblyId === h.assemblyId && 
-              rem.personId === h.personId && 
-              rem.date >= h.date &&
-              rem.reason !== "election" && rem.reason !== "appointment"
-            );
-
-            rows.push({
-              id: `hist-${idx}-${ordinal}`,
-              assemblyOrdinal: ordinal || `${idx + 1}th`,
-              assemblyName: asm?.name || `${ordinal} Legislative Assembly`,
-              assemblyId: asmId,
+          // Avoid duplicate person entries in the same assembly unless it's a distinct term (rare)
+          const alreadyListed = assemblyGroups[asmId].some(m => m.memberId === h.personId);
+          if (!alreadyListed) {
+            assemblyGroups[asmId].push({
               memberName: person?.name || (h.personId && h.personId !== "vacant" ? h.personId : "Vacant"),
               memberId: person?.id || h.personId,
               partyName: partyDetails.partyName,
               partyColor: partyDetails.partyColor,
               partyId: person?.partyId,
-              reason: removal?.reason, // Show removal reason if they left
+              reason: removal?.reason,
               electionDate: h.date,
+              removalDate: removal?.date,
               isByelected: !!previousInAsm
             });
+          }
+
+          if (!assemblyInfo[asmId]) {
+            assemblyInfo[asmId] = {
+              ordinal: ordinal || "Unknown",
+              name: asm?.name || `${ordinal} Legislative Assembly`,
+              id: asmId
+            };
           }
         }
       });
     }
 
-    // 3. Current active incumbent if not already in history
-    if (con.currentAssemblyId) {
-      const currentAsm = assembliesMap[con.currentAssemblyId];
-      const ordinal = currentAsm ? extractOrdinal(currentAsm.name, 14) : "15th";
-      const currentPerson = con.currentIncumbentId ? personsMap[con.currentIncumbentId] : null;
-      
-      const exists = rows.some(r => r.assemblyId === con.currentAssemblyId && r.memberId === con.currentIncumbentId);
-      
-      if (!exists && con.currentIncumbentId !== "vacant") {
-        const partyDetails = resolvePartyDetails(currentPerson?.partyId, partiesMap, alliancesMap);
-        
-        // Check if there was any previous incumbent in this assembly
+    // 3. Process Current Incumbent
+    if (con.currentAssemblyId && con.currentIncumbentId !== "vacant") {
+      const asmId = con.currentAssemblyId;
+      const asm = assembliesMap[asmId];
+      const ordinal = asm ? extractOrdinal(asm.name) : "15th";
+      const currentPerson = personsMap[con.currentIncumbentId];
+      const partyDetails = resolvePartyDetails(currentPerson?.partyId, partiesMap, alliancesMap);
+
+      if (!assemblyGroups[asmId]) assemblyGroups[asmId] = [];
+      const alreadyListed = assemblyGroups[asmId].some(m => m.memberId === con.currentIncumbentId);
+      if (!alreadyListed) {
         const previousInAsm = con.history?.some(h => 
-          h.assemblyId === con.currentAssemblyId && 
+          h.assemblyId === asmId && 
           (h.reason === "election" || h.reason === "appointment") &&
           h.personId !== con.currentIncumbentId
         );
 
-        rows.push({
-          id: `current-${con.id}`,
-          assemblyOrdinal: ordinal,
-          assemblyName: currentAsm?.name || `${ordinal} Legislative Assembly`,
-          assemblyId: currentAsm?.id || con.currentAssemblyId,
+        assemblyGroups[asmId].push({
           memberName: currentPerson?.name || con.currentIncumbentId,
           memberId: currentPerson?.id || con.currentIncumbentId,
           partyName: partyDetails.partyName,
@@ -265,38 +265,170 @@ export const buildLegislativeSessionsList = ({
           isByelected: !!previousInAsm
         });
       }
+
+      if (!assemblyInfo[asmId]) {
+        assemblyInfo[asmId] = {
+          ordinal,
+          name: asm?.name || `${ordinal} Legislative Assembly`,
+          id: asmId
+        };
+      }
     }
 
-    // Fallback if no history exists at all
+    // Convert Groups to Rows and Sort
+    const sortedAssemblyIds = Object.keys(assemblyGroups).sort((a, b) => {
+      const ordA = assemblyInfo[a]?.ordinal || "";
+      const ordB = assemblyInfo[b]?.ordinal || "";
+      const numA = parseInt(ordA.replace(/\D/g, ''), 10) || 0;
+      const numB = parseInt(ordB.replace(/\D/g, ''), 10) || 0;
+      return numA - numB;
+    });
+
+    sortedAssemblyIds.forEach((asmId) => {
+      const info = assemblyInfo[asmId];
+      const assemblyNumber = parseInt(info.ordinal.replace(/\D/g, ''), 10);
+      
+      rows.push({
+        id: `con-row-${asmId}`,
+        assemblyOrdinal: info.ordinal,
+        assemblyName: info.name,
+        assemblyId: info.id,
+        slNo: isNaN(assemblyNumber) ? undefined : assemblyNumber,
+        members: assemblyGroups[asmId].sort((a, b) => (a.electionDate || 0) - (b.electionDate || 0))
+      });
+    });
+
+    // Fallback if empty
     if (rows.length === 0) {
       const currentPerson = con.currentIncumbentId ? personsMap[con.currentIncumbentId] : null;
       const partyDetails = resolvePartyDetails(currentPerson?.partyId, partiesMap, alliancesMap);
       rows.push({
-        id: `current-${con.id}`,
+        id: `fallback-${con.id}`,
         assemblyOrdinal: '15th',
         assemblyName: '15th Kerala Legislative Assembly',
         assemblyId: con.currentAssemblyId || '15th-assembly',
-        memberName: currentPerson?.name || 'Vacant',
-        memberId: currentPerson?.id,
-        partyName: partyDetails.partyName,
-        partyColor: partyDetails.partyColor,
-        partyId: currentPerson?.partyId
+        slNo: 1,
+        members: [{
+          memberName: currentPerson?.name || 'Vacant',
+          memberId: currentPerson?.id,
+          partyName: partyDetails.partyName,
+          partyColor: partyDetails.partyColor,
+          partyId: currentPerson?.partyId
+        }]
       });
     }
   } else if (entityType === EntityType.DESIGNATION) {
     const desig = entity as Designation;
+    const isGovernor = desig.name?.toLowerCase().includes('governor') || desig.id?.toLowerCase().includes('governor');
+
+    if (isGovernor) {
+      // Special logic for Governor: No assembly grouping, sequential slNo based on incumbents
+      let governorSeq = 0;
+      
+      // 1. Process known historical dataset
+      const cleanName = (desig.name || desig.id || '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, '-');
+
+      const matchedHistoryKey = Object.keys(KNOWN_DESIGNATION_SESSIONS).find((k) =>
+        cleanName.includes(k) || k.includes(cleanName)
+      );
+
+      if (matchedHistoryKey) {
+        const historicalList = KNOWN_DESIGNATION_SESSIONS[matchedHistoryKey];
+        historicalList.forEach((item) => {
+          governorSeq++;
+          let memberId = item.memberId;
+          if (!memberId) {
+            const found = persons.find(
+              (p) => p.name.trim().toLowerCase() === item.memberName.trim().toLowerCase()
+            );
+            if (found) memberId = found.id;
+          }
+
+          rows.push({
+            id: `gov-seed-${governorSeq}`,
+            assemblyOrdinal: "", // No assembly for governor
+            assemblyName: "",
+            slNo: governorSeq,
+            members: [{
+              memberName: item.memberName,
+              memberId,
+              partyName: item.partyName,
+              partyColor: item.partyColor,
+              partyId: item.partyId
+            }]
+          });
+        });
+      }
+
+      // 2. Process desig.history
+      if (Array.isArray(desig.history)) {
+        const sortedHistory = [...desig.history].sort((a, b) => a.date - b.date);
+        sortedHistory.forEach((h, idx) => {
+          governorSeq++;
+          const person = h.personId ? personsMap[h.personId] : null;
+          const partyDetails = resolvePartyDetails(person?.partyId, partiesMap, alliancesMap);
+          
+          rows.push({
+            id: `gov-hist-${idx}`,
+            assemblyOrdinal: "",
+            assemblyName: "",
+            slNo: governorSeq,
+            members: [{
+              memberName: person?.name || (h.personId && h.personId !== 'vacant' ? h.personId : 'Vacant'),
+              memberId: person?.id || h.personId,
+              partyName: partyDetails.partyName,
+              partyColor: partyDetails.partyColor,
+              partyId: person?.partyId
+            }]
+          });
+        });
+      }
+
+      // 3. Current incumbent
+      if (desig.incumbentId && desig.incumbentId !== 'vacant') {
+        const alreadyListed = rows.some(r => r.members.some(m => m.memberId === desig.incumbentId));
+        if (!alreadyListed) {
+          governorSeq++;
+          const currentPerson = personsMap[desig.incumbentId];
+          const partyDetails = resolvePartyDetails(currentPerson?.partyId, partiesMap, alliancesMap);
+          
+          rows.push({
+            id: `gov-current-${desig.id}`,
+            assemblyOrdinal: "",
+            assemblyName: "",
+            slNo: governorSeq,
+            members: [{
+              memberName: currentPerson?.name || desig.incumbentId,
+              memberId: currentPerson?.id || desig.incumbentId,
+              partyName: partyDetails.partyName,
+              partyColor: partyDetails.partyColor,
+              partyId: currentPerson?.partyId
+            }]
+          });
+        }
+      }
+      
+      return rows; // Return early for governor
+    }
+
+    // Existing assembly grouping logic for other designations
+    const assemblyGroups: Record<string, LegislativeSessionMember[]> = {};
+    const assemblyInfo: Record<string, { ordinal: string; name: string; id: string }> = {};
+
+    // 1. Known historical dataset
     const cleanName = (desig.name || desig.id || '')
       .toLowerCase()
       .replace(/[^a-z0-9]/g, '-');
 
-    // 1. Check known historical dataset for this designation
     const matchedHistoryKey = Object.keys(KNOWN_DESIGNATION_SESSIONS).find((k) =>
       cleanName.includes(k) || k.includes(cleanName)
     );
 
     if (matchedHistoryKey) {
       const historicalList = KNOWN_DESIGNATION_SESSIONS[matchedHistoryKey];
-      historicalList.forEach((item, idx) => {
+      historicalList.forEach((item) => {
         let memberId = item.memberId;
         if (!memberId) {
           const found = persons.find(
@@ -306,7 +438,7 @@ export const buildLegislativeSessionsList = ({
         }
 
         const numMatch = item.assemblyOrdinal.match(/\d+/);
-        let assemblyId: string | undefined;
+        let assemblyId = `asm-${numMatch ? numMatch[0] : 'unknown'}`;
         if (numMatch) {
           const asm = assemblies.find((a) =>
             a.name.toLowerCase().includes(`${numMatch[0]}th`) || a.id.includes(numMatch[0])
@@ -314,105 +446,104 @@ export const buildLegislativeSessionsList = ({
           if (asm) assemblyId = asm.id;
         }
 
-        rows.push({
-          id: `desig-seed-${idx}-${item.assemblyOrdinal}`,
-          assemblyOrdinal: item.assemblyOrdinal,
-          assemblyName: `${item.assemblyOrdinal} Legislative Session`,
-          assemblyId,
+        if (!assemblyGroups[assemblyId]) assemblyGroups[assemblyId] = [];
+        assemblyGroups[assemblyId].push({
           memberName: item.memberName,
           memberId,
           partyName: item.partyName,
           partyColor: item.partyColor,
           partyId: item.partyId
         });
+        assemblyInfo[assemblyId] = {
+          ordinal: item.assemblyOrdinal,
+          name: `${item.assemblyOrdinal} Legislative Session`,
+          id: assemblyId
+        };
       });
     }
 
-    // 2. Add records from `desig.history`
+    // 2. desig.history
     if (Array.isArray(desig.history)) {
       desig.history.forEach((h, idx) => {
         const person = h.personId ? personsMap[h.personId] : null;
         const partyDetails = resolvePartyDetails(person?.partyId, partiesMap, alliancesMap);
-        const ordinal = (h as any).assemblyId
-          ? extractOrdinal((h as any).assemblyId, idx)
-          : getOrdinal(idx + 1);
+        const asmId = (h as any).assemblyId || "unknown";
+        const asm = assembliesMap[asmId];
+        const ordinal = asm ? extractOrdinal(asm.name) : extractOrdinal(asmId, idx);
 
-        const existingIdx = rows.findIndex(
-          (r) => r.assemblyOrdinal.toLowerCase() === ordinal.toLowerCase()
-        );
+        if (!assemblyGroups[asmId]) assemblyGroups[asmId] = [];
+        const alreadyListed = assemblyGroups[asmId].some(m => m.memberId === h.personId);
+        if (!alreadyListed) {
+          assemblyGroups[asmId].push({
+            memberName: person?.name || (h.personId && h.personId !== 'vacant' ? h.personId : 'Vacant'),
+            memberId: person?.id || h.personId,
+            partyName: partyDetails.partyName,
+            partyColor: partyDetails.partyColor,
+            partyId: person?.partyId
+          });
+        }
 
-        const newRow: LegislativeSessionRow = {
-          id: `desig-hist-${idx}-${ordinal}`,
-          assemblyOrdinal: ordinal,
-          assemblyName: `${ordinal} Legislative Session`,
-          assemblyId: (h as any).assemblyId,
-          memberName: person?.name || (h.personId && h.personId !== 'vacant' ? h.personId : 'Vacant'),
-          memberId: person?.id || h.personId,
-          partyName: partyDetails.partyName,
-          partyColor: partyDetails.partyColor,
-          partyId: person?.partyId
-        };
-
-        if (existingIdx >= 0) {
-          rows[existingIdx] = newRow;
-        } else {
-          rows.push(newRow);
+        if (!assemblyInfo[asmId]) {
+          assemblyInfo[asmId] = {
+            ordinal,
+            name: asm?.name || `${ordinal} Legislative Session`,
+            id: asmId
+          };
         }
       });
     }
 
-    // 3. Current incumbent for this designation
+    // 3. Current incumbent
     if (desig.assemblyId || desig.incumbentId) {
-      const currentAsm = desig.assemblyId ? assembliesMap[desig.assemblyId] : null;
-      const ordinal = currentAsm ? extractOrdinal(currentAsm.name, 14) : '15th';
+      const asmId = desig.assemblyId || "current";
+      const asm = assembliesMap[asmId];
+      const ordinal = asm ? extractOrdinal(asm.name) : '15th';
       const currentPerson = desig.incumbentId ? personsMap[desig.incumbentId] : null;
       const partyDetails = resolvePartyDetails(currentPerson?.partyId, partiesMap, alliancesMap);
 
-      const existingIdx = rows.findIndex(
-        (r) => r.assemblyOrdinal.toLowerCase() === ordinal.toLowerCase()
-      );
+      if (!assemblyGroups[asmId]) assemblyGroups[asmId] = [];
+      const alreadyListed = assemblyGroups[asmId].some(m => m.memberId === desig.incumbentId);
+      if (!alreadyListed) {
+        assemblyGroups[asmId].push({
+          memberName: currentPerson?.name || (desig.incumbentId && desig.incumbentId !== 'vacant' ? desig.incumbentId : 'Vacant'),
+          memberId: currentPerson?.id || desig.incumbentId,
+          partyName: partyDetails.partyName,
+          partyColor: partyDetails.partyColor,
+          partyId: currentPerson?.partyId
+        });
+      }
 
-      const currentRow: LegislativeSessionRow = {
-        id: `current-desig-${desig.id}`,
-        assemblyOrdinal: ordinal,
-        assemblyName: currentAsm?.name || `${ordinal} Legislative Session`,
-        assemblyId: currentAsm?.id || desig.assemblyId,
-        memberName: currentPerson?.name || (desig.incumbentId && desig.incumbentId !== 'vacant' ? desig.incumbentId : 'Vacant'),
-        memberId: currentPerson?.id || desig.incumbentId,
-        partyName: partyDetails.partyName,
-        partyColor: partyDetails.partyColor,
-        partyId: currentPerson?.partyId
-      };
-
-      if (existingIdx >= 0) {
-        rows[existingIdx] = currentRow;
-      } else {
-        rows.push(currentRow);
+      if (!assemblyInfo[asmId]) {
+        assemblyInfo[asmId] = {
+          ordinal,
+          name: asm?.name || `${ordinal} Legislative Session`,
+          id: asmId
+        };
       }
     }
 
-    // Fallback if empty
-    if (rows.length === 0) {
-      const currentPerson = desig.incumbentId ? personsMap[desig.incumbentId] : null;
-      const partyDetails = resolvePartyDetails(currentPerson?.partyId, partiesMap, alliancesMap);
+    const sortedAssemblyIds = Object.keys(assemblyGroups).sort((a, b) => {
+      const ordA = assemblyInfo[a]?.ordinal || "";
+      const ordB = assemblyInfo[b]?.ordinal || "";
+      const numA = parseInt(ordA.replace(/\D/g, ''), 10) || 0;
+      const numB = parseInt(ordB.replace(/\D/g, ''), 10) || 0;
+      return numA - numB;
+    });
+
+    sortedAssemblyIds.forEach((asmId) => {
+      const info = assemblyInfo[asmId];
+      const assemblyNumber = parseInt(info.ordinal.replace(/\D/g, ''), 10);
+
       rows.push({
-        id: `current-desig-${desig.id}`,
-        assemblyOrdinal: '15th',
-        assemblyName: '15th Legislative Session',
-        assemblyId: desig.assemblyId || '15th-assembly',
-        memberName: currentPerson?.name || 'Vacant',
-        memberId: currentPerson?.id,
-        partyName: partyDetails.partyName,
-        partyColor: partyDetails.partyColor,
-        partyId: currentPerson?.partyId
+        id: `desig-row-${asmId}`,
+        assemblyOrdinal: info.ordinal,
+        assemblyName: info.name,
+        assemblyId: info.id,
+        slNo: isNaN(assemblyNumber) ? undefined : assemblyNumber,
+        members: assemblyGroups[asmId]
       });
-    }
+    });
   }
 
-  // Sort rows chronologically by ordinal number (e.g. 1st, 2nd, 5th, 6th, ... 15th)
-  return rows.sort((a, b) => {
-    const numA = parseInt(a.assemblyOrdinal.replace(/\D/g, ''), 10) || 0;
-    const numB = parseInt(b.assemblyOrdinal.replace(/\D/g, ''), 10) || 0;
-    return numA - numB;
-  });
+  return rows;
 };

@@ -70,6 +70,7 @@ export interface AssemblyHistoryEntry {
 
 export interface Assembly {
   id: string;
+  slNo?: number;
   name: string;
   subName: string;
   logoUrl: string;

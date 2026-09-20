@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db';
 import { Person, Assembly } from '../types';
-import { Landmark, UserMinus, ShieldCheck, Award, Users, Shield, Calendar, MapPin, ExternalLink, Crown } from 'lucide-react';
+import { Landmark, ArrowDown, UserMinus, ShieldCheck, Award, Users, Shield, Calendar, MapPin, ExternalLink, Crown, Settings2 } from 'lucide-react';
 import { LeadershipCouncilModal } from '../components/LeadershipCouncilModal';
 import { prefixRole, formatPersonName } from '../utils/governmentUtils';
 
@@ -12,6 +12,7 @@ export const CabinetPage: React.FC = () => {
   const [demoteConfirm, setDemoteConfirm] = React.useState<{ person: Person; role: string } | null>(null);
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
   const [isLeadershipModalOpen, setIsLeadershipModalOpen] = React.useState(false);
+  const [isAdjustMode, setIsAdjustMode] = React.useState(false);
 
   const constituencies = useLiveQuery(() => db.constituencies.toArray()) || [];
   const parties = useLiveQuery(() => db.parties.toArray()) || [];
@@ -47,8 +48,6 @@ export const CabinetPage: React.FC = () => {
       const r = role.toLowerCase();
       return (r.includes('chief minister') && !r.includes('deputy')) ||
              r.includes('deputy chief minister') ||
-             r.includes('speaker') ||
-             r.includes('deputy speaker') ||
              r.includes('chief secretary');
     };
 
@@ -271,8 +270,19 @@ export const CabinetPage: React.FC = () => {
 
         <div className="flex flex-wrap gap-3">
           <button 
+            onClick={() => setIsAdjustMode(!isAdjustMode)}
+            className={`px-6 py-3 rounded-2xl text-xs font-bold uppercase tracking-widest transition-all flex items-center gap-2 cursor-pointer border ${
+              isAdjustMode 
+                ? 'bg-[#FFD700] text-black border-[#FFD700] shadow-lg shadow-[#FFD700]/20' 
+                : 'bg-white/5 hover:bg-white/10 text-white border-white/10'
+            }`}
+          >
+            <Settings2 size={14} />
+            {isAdjustMode ? 'Finish Adjusting' : 'Adjust Portfolios'}
+          </button>
+          <button 
             onClick={() => navigate(`/assembly/${activeAssembly.id}`)}
-            className="px-6 py-3 bg-white/5 hover:bg-white/10 rounded-2xl text-xs font-bold uppercase tracking-widest transition-all flex items-center gap-2 cursor-pointer"
+            className="px-6 py-3 bg-white/5 hover:bg-white/10 rounded-2xl text-xs font-bold uppercase tracking-widest transition-all flex items-center gap-2 cursor-pointer border border-white/10"
           >
             <Landmark size={14} />
             Assembly View
@@ -334,13 +344,13 @@ export const CabinetPage: React.FC = () => {
                       }`}>
                         {role}
                       </div>
-                      {roleObj.canDemote && (
+                      {roleObj.canDemote && isAdjustMode && (
                         <button 
                           onClick={() => handleDemote(m.person, roleObj.name)}
-                          className="w-7 h-7 rounded-lg bg-red-500/[0.08] text-red-500/60 flex items-center justify-center opacity-0 group-hover:opacity-100 group/role:opacity-100 hover:bg-red-500 transition-all duration-300 hover:text-white hover:scale-110"
+                          className="w-7 h-7 rounded-lg bg-red-500/10 text-red-500 flex items-center justify-center hover:bg-red-500 transition-all duration-300 hover:text-white hover:scale-110 shadow-sm border border-red-500/20 animate-in fade-in zoom-in duration-300"
                           title="Demote"
                         >
-                          <UserMinus size={12} />
+                          <ArrowDown size={14} />
                         </button>
                       )}
                     </div>
@@ -381,7 +391,7 @@ export const CabinetPage: React.FC = () => {
           <div className="bg-[#181a20] border border-white/10 rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-4">
             <div className="flex items-center gap-3 text-amber-400">
               <div className="w-10 h-10 rounded-full bg-amber-400/10 flex items-center justify-center">
-                <UserMinus size={20} />
+                <ArrowDown size={20} />
               </div>
               <h3 className="text-lg font-bold text-white">Remove Portfolio Role</h3>
             </div>
