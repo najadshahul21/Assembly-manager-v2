@@ -96,7 +96,7 @@ export const LegislativeSessionsTable: React.FC<LegislativeSessionsTableProps> =
 
                   {/* COLUMN 1: Assembly Session */}
                   {showAssembly && (
-                    <td className="w-24 sm:w-32 px-4 sm:px-6 py-4 border-r border-zinc-800/90 text-zinc-100 font-medium text-base sm:text-lg align-middle select-none">
+                    <td className="w-40 sm:w-56 px-4 sm:px-6 py-4 border-r border-zinc-800/90 text-zinc-100 font-medium text-base sm:text-lg align-middle select-none">
                       {row.assemblyId && onNavigateAssembly ? (
                         <button
                           type="button"
@@ -104,10 +104,10 @@ export const LegislativeSessionsTable: React.FC<LegislativeSessionsTableProps> =
                           className="hover:text-[#FFD700] hover:underline transition-colors cursor-pointer"
                           title={row.assemblyName || row.assemblyOrdinal}
                         >
-                          {row.assemblyOrdinal}
+                          {row.assemblyName || row.assemblyOrdinal}
                         </button>
                       ) : (
-                        <span>{row.assemblyOrdinal}</span>
+                        <span>{row.assemblyName || row.assemblyOrdinal}</span>
                       )}
                     </td>
                   )}
