@@ -14,6 +14,7 @@ interface PartyInfoboxTableProps {
   onNavigatePerson: (personId: string) => void;
   onNavigateAlliance: (allianceId: string) => void;
   onNavigateAssembly?: (assemblyId: string) => void;
+  onUpdateLegislativeLeader?: (leaderId: string | null) => void;
   isDissolved?: boolean;
 }
 
@@ -125,8 +126,10 @@ export const PartyInfoboxTable: React.FC<PartyInfoboxTableProps> = ({
   onNavigatePerson,
   onNavigateAlliance,
   onNavigateAssembly,
+  onUpdateLegislativeLeader,
   isDissolved = false,
 }) => {
+  const [showAdjustLeader, setShowAdjustLeader] = React.useState(false);
   // Primary party color
   const colorsList = React.useMemo(() => {
     if (Array.isArray(party.colors) && party.colors.length > 0) {
@@ -205,6 +208,18 @@ export const PartyInfoboxTable: React.FC<PartyInfoboxTableProps> = ({
       ) || null
     );
   }, [party.chairman, personsList]);
+
+  // Find legislative leaders from this party in the active assembly - ONLY manual selection
+  const legislativeLeaders = React.useMemo(() => {
+    if (!activeAssembly || !party.legislativeLeaderId) return [];
+
+    const person = personsList.find(p => p.id === party.legislativeLeaderId);
+    if (person) {
+      return [{ person, title: 'Legislative Leader' }];
+    }
+
+    return [];
+  }, [activeAssembly, personsList, party.legislativeLeaderId]);
 
   return (
     <div className="w-full bg-[#0d1117] border border-zinc-800 rounded-xl overflow-hidden shadow-2xl font-sans">
@@ -320,6 +335,111 @@ export const PartyInfoboxTable: React.FC<PartyInfoboxTableProps> = ({
               </div>
             ) : (
               <span className="text-zinc-400 italic">Independent / Unaligned</span>
+            )}
+          </div>
+        </div>
+
+        {/* 7. Legislative Leader (New Position: Below Alliance) */}
+        <div className="flex flex-col sm:flex-row hover:bg-white/[0.015] transition-colors relative">
+          <div className="w-full sm:w-56 shrink-0 px-5 py-3 sm:py-3.5 font-bold text-white select-none flex items-center justify-between">
+            <span>Legislative Leader</span>
+            {onUpdateLegislativeLeader && !isDissolved && (
+              <button
+                type="button"
+                onClick={() => setShowAdjustLeader(!showAdjustLeader)}
+                className="text-[10px] uppercase font-black px-2 py-0.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white rounded transition-colors border border-zinc-700/50"
+              >
+                Adjust
+              </button>
+            )}
+          </div>
+          <div className="px-5 pb-3 sm:py-3.5 text-zinc-100 flex-1">
+            {showAdjustLeader && assemblyStats && (
+              <div className="mb-4 p-3 bg-zinc-900/50 border border-zinc-800 rounded-lg animate-in fade-in slide-in-from-top-1 duration-200">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider">Select Legislative Leader</span>
+                  <button 
+                    onClick={() => setShowAdjustLeader(false)}
+                    className="text-zinc-500 hover:text-white"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+                <div className="max-h-48 overflow-y-auto space-y-1 pr-1 custom-scrollbar">
+                  {party.legislativeLeaderId && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onUpdateLegislativeLeader(null);
+                        setShowAdjustLeader(false);
+                      }}
+                      className="w-full text-left px-2 py-1.5 text-xs font-bold text-rose-400 hover:bg-rose-400/10 rounded transition-colors flex items-center justify-between group"
+                    >
+                      <span>Remove Current Leader</span>
+                      <X size={12} className="opacity-0 group-hover:opacity-100" />
+                    </button>
+                  )}
+                  {assemblyStats.mlasFromParty.map((mla) => {
+                    const isSelected = mla.person.id === party.legislativeLeaderId;
+                    return (
+                      <button
+                        key={mla.person.id}
+                        type="button"
+                        onClick={() => {
+                          onUpdateLegislativeLeader(mla.person.id);
+                          setShowAdjustLeader(false);
+                        }}
+                        className={`w-full text-left px-2 py-1.5 text-xs rounded transition-colors flex items-center justify-between group ${
+                          isSelected 
+                            ? 'bg-blue-500/20 text-blue-400 font-bold' 
+                            : 'text-zinc-300 hover:bg-white/5'
+                        }`}
+                      >
+                        <div className="flex flex-col">
+                          <span className="truncate">{mla.person.name}</span>
+                          <span className="text-[9px] text-zinc-500 font-normal">MLA for {mla.constituencyName}</span>
+                        </div>
+                        {isSelected && <Check size={12} />}
+                      </button>
+                    );
+                  })}
+                  {assemblyStats.mlasFromParty.length === 0 && (
+                    <div className="py-4 text-center text-xs text-zinc-500 italic">
+                      No MLAs found in current assembly
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {legislativeLeaders.length > 0 ? (
+              <ul className="space-y-2">
+                {legislativeLeaders.map((lead, idx) => {
+                  const isGoldRole = lead.title.toLowerCase().includes('chief minister');
+                  const nameColorClass = isGoldRole 
+                    ? "text-[#FFD700] hover:text-[#FFD700]" 
+                    : "text-white hover:text-white";
+                  return (
+                    <li key={idx} className="flex items-start gap-2.5">
+                      <span className="text-zinc-400 select-none text-base leading-tight mt-0.5">•</span>
+                      <div>
+                        <button
+                          type="button"
+                          onClick={() => onNavigatePerson(lead.person.id)}
+                          className={`${nameColorClass} hover:underline font-semibold text-left transition-colors`}
+                        >
+                          {lead.person.name}
+                        </button>
+                        <span className="text-zinc-400 text-xs sm:text-sm ml-1.5 font-medium">
+                          ({lead.title})
+                        </span>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <span className="text-zinc-500 italic">None designated in active house</span>
             )}
           </div>
         </div>

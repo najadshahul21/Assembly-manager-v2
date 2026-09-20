@@ -41,6 +41,7 @@ export interface Party {
   colors?: string[]; // list of hex colors
   allianceId: string; // 'independent' if none
   eciStatus?: string;
+  legislativeLeaderId?: string;
   isSuspended?: boolean;
   updatedAt: number;
 }

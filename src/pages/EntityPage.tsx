@@ -3612,6 +3612,14 @@ export const EntityPage: React.FC = () => {
                 onNavigatePerson={(personId) => navigate(`/person/${personId}`)}
                 onNavigateAlliance={(allianceId) => navigate(`/alliance/${allianceId}`)}
                 onNavigateAssembly={(assemblyId) => navigate(`/assembly/${assemblyId}`)}
+                onUpdateLegislativeLeader={async (leaderId) => {
+                  if (entityType === EntityType.PARTY && id) {
+                    await db.parties.update(id, {
+                      legislativeLeaderId: leaderId === null ? undefined : leaderId,
+                      updatedAt: Date.now()
+                    });
+                  }
+                }}
                 isDissolved={isDissolvedRecord}
               />
             </div>
