@@ -223,8 +223,10 @@ export const EntityCard: React.FC<CardProps> = ({ entity, type, onDelete, onProm
           }
         }
 
+        const hasDesignation = activeRoles.length > 0 || (entity.constituencyName && entity.constituencyName !== 'Special Role');
+
         return {
-          title: formatPersonName(entity.name, entity.gender),
+          title: formatPersonName(entity.name, entity.gender, !!hasDesignation),
           subtitle,
           image: entity.imageUrl,
           icon: User,

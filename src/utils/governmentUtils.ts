@@ -463,10 +463,17 @@ export const formatCommaSeparatedRoles = (rolesStr: string): string => {
 
 /**
  * Formats a person's name with Shri/Smt prefix based on gender.
+ * Only adds the prefix if hasDesignation is true.
  */
-export const formatPersonName = (name: string, gender?: string): string => {
+export const formatPersonName = (name: string, gender?: string, hasDesignation: boolean = true): string => {
   if (!name) return "";
   const trimmedName = name.trim();
+  
+  if (!hasDesignation) {
+    // If we shouldn't have a prefix, try to remove it if it exists
+    return trimmedName.replace(/^(Shri\s+|Smt\.\s+|Shri\.\s+|Smt\s+)/i, '');
+  }
+
   const prefix = gender?.toLowerCase() === 'female' ? 'Smt.' : 'Shri';
   
   // Check if already has prefix

@@ -612,6 +612,41 @@ export const EntityPage: React.FC = () => {
     return { leader, chairman, founder };
   }, [entity, entityType]);
 
+  const personHasActiveDesignation = React.useMemo(() => {
+    if (entityType !== EntityType.PERSON || !entity) return false;
+    const person = entity as Person;
+    
+    // Check if MLA (has constituencyName)
+    if (person.constituencyName && person.constituencyName !== 'Special Role') return true;
+    
+    // Check if holds any roles in active assemblies
+    const activeAssemblyIds = new Set(assembliesList.filter(a => a.isActive !== false).map(a => a.id));
+    
+    // Check assemblyRoles
+    if (person.assemblyRoles) {
+      for (const aId of Object.keys(person.assemblyRoles)) {
+        if (activeAssemblyIds.has(aId)) return true;
+      }
+    }
+    
+    // Check designations
+    if (person.designations && person.designations.length > 0) {
+      // We assume if they have designations listed, they might be active, 
+      // but to be sure we should check if they are the incumbent of those designations
+      // However, designations in person object are usually IDs of active designations
+      return true;
+    }
+    
+    // Check if leader in any active assembly
+    for (const a of assembliesList) {
+      if (a.isActive !== false && a.leaders) {
+        if (Object.values(a.leaders).includes(person.id)) return true;
+      }
+    }
+
+    return false;
+  }, [entity, entityType, assembliesList]);
+
   const highCommandMembers = useLiveQuery(async () => {
     if (entityType !== EntityType.ALLIANCE || !entity || !id) return [];
     const alliance = entity as Alliance;
@@ -3278,7 +3313,7 @@ export const EntityPage: React.FC = () => {
               </div>
               <h1 className="text-4xl sm:text-5xl font-black uppercase tracking-tight mb-2">
                 {entityType === EntityType.PERSON 
-                  ? formatPersonName((entity as Person).name, (entity as Person).gender)
+                  ? formatPersonName((entity as Person).name, (entity as Person).gender, personHasActiveDesignation)
                   : (entity as any).name
                 }
                 {entityType === EntityType.PERSON && (entity as Person).isSuspended && (
