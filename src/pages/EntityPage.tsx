@@ -3081,7 +3081,6 @@ export const EntityPage: React.FC = () => {
           await db.persons.update(incumbentIdBeforeVacating, {
             assemblyRoles: pAssemblyRoles,
             roleHistory: pRoleHistory,
-            constituencyId: undefined,
             constituencyName: undefined,
             mlaStatusText: reason,
             updatedAt: now

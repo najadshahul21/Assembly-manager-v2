@@ -1,5 +1,5 @@
 import React from 'react';
-import { Flag, Shield, ExternalLink, Users, Award, Landmark } from 'lucide-react';
+import { Flag, Shield, ExternalLink, Users, Award, Landmark, X, Check } from 'lucide-react';
 import { Party, Alliance, Person, Assembly, Constituency } from '../types';
 
 interface PartyInfoboxTableProps {
@@ -206,53 +206,6 @@ export const PartyInfoboxTable: React.FC<PartyInfoboxTableProps> = ({
     );
   }, [party.chairman, personsList]);
 
-  // Find legislative leaders from this party in the active assembly
-  const legislativeLeaders = React.useMemo(() => {
-    if (!activeAssembly) return [];
-
-    const leadersList: { person: Person; title: string }[] = [];
-    const addedIds = new Set<string>();
-
-    const checkAndAdd = (personId: string | undefined, title: string) => {
-      if (!personId || addedIds.has(personId)) return;
-      const person = personsList.find((p) => p.id === personId);
-      if (person && person.partyId === party.id) {
-        leadersList.push({ person, title });
-        addedIds.add(personId);
-      }
-    };
-
-    if (activeAssembly.leaders) {
-      checkAndAdd(activeAssembly.leaders.chiefMinister, 'Chief Minister');
-      checkAndAdd(activeAssembly.leaders.deputyChiefMinister, 'Deputy Chief Minister');
-      checkAndAdd(activeAssembly.leaders.leaderOfOpposition, 'Leader of Opposition');
-      checkAndAdd(activeAssembly.leaders.deputyLeaderOfOpposition, 'Deputy Leader of Opposition');
-      checkAndAdd(activeAssembly.leaders.speaker, 'Speaker');
-      checkAndAdd(activeAssembly.leaders.deputySpeaker, 'Deputy Speaker');
-    }
-
-    // Check ministerial roles in assemblyRoles
-    relatedPersons.forEach((person) => {
-      if (addedIds.has(person.id)) return;
-      const role = person.assemblyRoles?.[activeAssembly.id];
-      if (typeof role === 'string' && role) {
-        leadersList.push({ person, title: role });
-        addedIds.add(person.id);
-      }
-    });
-
-    // If no executive/cabinet leader found, pick senior-most MLA
-    if (leadersList.length === 0 && assemblyStats && assemblyStats.mlasFromParty.length > 0) {
-      const firstMla = assemblyStats.mlasFromParty[0];
-      leadersList.push({
-        person: firstMla.person,
-        title: `MLA for ${firstMla.constituencyName}`,
-      });
-    }
-
-    return leadersList;
-  }, [activeAssembly, personsList, party.id, relatedPersons, assemblyStats]);
-
   return (
     <div className="w-full bg-[#0d1117] border border-zinc-800 rounded-xl overflow-hidden shadow-2xl font-sans">
       {/* Top Banner with Party Name and Colored Accent Lines (Exact Match to Screenshot) */}
@@ -337,44 +290,6 @@ export const PartyInfoboxTable: React.FC<PartyInfoboxTableProps> = ({
               <span className="font-semibold text-zinc-100">{party.chairman}</span>
             ) : (
               <span className="text-zinc-500 italic">Not designated</span>
-            )}
-          </div>
-        </div>
-
-        {/* 3. Legislative Assembly Leader(s) (Matching Rajya Sabha / Lok Sabha Leader style) */}
-        <div className="flex flex-col sm:flex-row hover:bg-white/[0.015] transition-colors">
-          <div className="w-full sm:w-56 shrink-0 px-5 py-3 sm:py-3.5 font-bold text-white select-none">
-            Legislative Leader
-          </div>
-          <div className="px-5 pb-3 sm:py-3.5 text-zinc-100 flex-1">
-            {legislativeLeaders.length > 0 ? (
-              <ul className="space-y-2">
-                {legislativeLeaders.map((lead, idx) => {
-                  const isGoldRole = lead.title.toLowerCase().includes('chief minister');
-                  const nameColorClass = isGoldRole 
-                    ? "text-[#FFD700] hover:text-[#FFD700]" 
-                    : "text-white hover:text-white";
-                  return (
-                    <li key={idx} className="flex items-start gap-2.5">
-                      <span className="text-zinc-400 select-none text-base leading-tight mt-0.5">•</span>
-                      <div>
-                        <button
-                          type="button"
-                          onClick={() => onNavigatePerson(lead.person.id)}
-                          className={`${nameColorClass} hover:underline font-semibold text-left transition-colors`}
-                        >
-                          {lead.person.name}
-                        </button>
-                        <span className="text-zinc-400 text-xs sm:text-sm ml-1.5 font-medium">
-                          ({lead.title})
-                        </span>
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            ) : (
-              <span className="text-zinc-500 italic">None designated in active house</span>
             )}
           </div>
         </div>
