@@ -1792,7 +1792,7 @@ export const EntityPage: React.FC = () => {
         }
       }
     }
-  }, [assemblySeats]);
+  }, [assemblySeats, inspectorSeat]);
 
   const [showAddPartyModal, setShowAddPartyModal] = useState(false);
   const [showAddPersonModal, setShowAddPersonModal] = useState(false);
@@ -4629,6 +4629,7 @@ export const EntityPage: React.FC = () => {
                                 className="cursor-pointer group/speaker"
                                 onMouseEnter={() => setInspectorSeat(null)}
                                 onClick={() => {
+                                  setInspectorSeat(null);
                                   const speakerId = (entity as Assembly).leaders?.speaker;
                                   if (speakerId) navigate(`/person/${speakerId}`);
                                 }}
@@ -4690,6 +4691,10 @@ export const EntityPage: React.FC = () => {
                                         : undefined,
                                     }}
                                     onMouseEnter={() => setInspectorSeat(seat)}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setInspectorSeat(seat);
+                                    }}
                                   />
                                 );
                               })}
