@@ -714,7 +714,7 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
                                     onClick={() => navigate(`/person/${inc.id}`)}
                                     className="text-[#0ea5e9] hover:text-[#38bdf8] transition-colors text-left"
                                   >
-                                    {formatPersonName(inc.name, inc.gender)}
+                                    {formatPersonName(inc.name, inc.gender, !isDissolved)}
                                   </button>
                                   
                                   {isPrimary && row.isSupportingAlliance && row.alliance && (

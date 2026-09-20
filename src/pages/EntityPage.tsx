@@ -2334,10 +2334,18 @@ export const EntityPage: React.FC = () => {
               }
             }
 
+            // Also clear MLA fields if they were an MLA in THIS assembly
+            const isMlaInThisAssembly = relatedConstituencies.some(c => c.currentIncumbentId === personId);
+
             await db.persons.update(personId, {
               assemblyRoles: newAssemblyRoles,
               roleHistory: newHistory,
               updatedAt: now,
+              ...(isMlaInThisAssembly ? {
+                constituencyId: undefined,
+                constituencyName: undefined,
+                mlaStatusText: undefined,
+              } : {})
             });
           }
 
@@ -3073,6 +3081,7 @@ export const EntityPage: React.FC = () => {
           await db.persons.update(incumbentIdBeforeVacating, {
             assemblyRoles: pAssemblyRoles,
             roleHistory: pRoleHistory,
+            constituencyId: undefined,
             constituencyName: undefined,
             mlaStatusText: reason,
             updatedAt: now

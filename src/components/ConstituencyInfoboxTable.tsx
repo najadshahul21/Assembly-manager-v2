@@ -137,7 +137,7 @@ export const ConstituencyInfoboxTable: React.FC<ConstituencyInfoboxTableProps> =
               onClick={() => onNavigatePerson(incumbentPerson.id)}
               className="text-lg sm:text-xl font-bold text-[#0ea5e9] hover:text-[#38bdf8] hover:underline tracking-tight transition-colors cursor-pointer flex items-center justify-center gap-1.5"
             >
-              <span>{formatPersonName(incumbentPerson.name, incumbentPerson.gender)}</span>
+              <span>{formatPersonName(incumbentPerson.name, incumbentPerson.gender, !isDissolved)}</span>
             </button>
           ) : (
             <div className="flex flex-col items-center gap-1.5 mt-1">

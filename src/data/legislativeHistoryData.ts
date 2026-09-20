@@ -1,5 +1,6 @@
 import { LegislativeSessionRow, LegislativeSessionMember } from '../components/LegislativeSessionsTable';
 import { Assembly, Constituency, Designation, Person, Party, Alliance, EntityType } from '../types';
+import { formatPersonName } from '../utils/governmentUtils';
 
 export const getOrdinal = (n: number | string): string => {
   const num = typeof n === 'string' ? parseInt(n.replace(/\D/g, ''), 10) : n;
@@ -215,7 +216,7 @@ export const buildLegislativeSessionsList = ({
           const alreadyListed = assemblyGroups[asmId].some(m => m.memberId === h.personId);
           if (!alreadyListed) {
             assemblyGroups[asmId].push({
-              memberName: person?.name || (h.personId && h.personId !== "vacant" ? h.personId : "Vacant"),
+              memberName: person ? formatPersonName(person.name, person.gender, !!asm?.isActive) : (h.personId && h.personId !== "vacant" ? h.personId : "Vacant"),
               memberId: person?.id || h.personId,
               partyName: partyDetails.partyName,
               partyColor: partyDetails.partyColor,
@@ -238,16 +239,17 @@ export const buildLegislativeSessionsList = ({
       });
     }
 
-    // 3. Process Current Incumbent
-    if (con.currentAssemblyId && con.currentIncumbentId !== "vacant") {
+    // 3. Process Current Assembly Session (even if vacant)
+    if (con.currentAssemblyId) {
       const asmId = con.currentAssemblyId;
       const asm = assembliesMap[asmId];
       const ordinal = asm ? extractOrdinal(asm.name) : "15th";
-      const currentPerson = personsMap[con.currentIncumbentId];
+      const currentPerson = con.currentIncumbentId && con.currentIncumbentId !== "vacant" ? personsMap[con.currentIncumbentId] : null;
       const partyDetails = resolvePartyDetails(currentPerson?.partyId, partiesMap, alliancesMap);
 
       if (!assemblyGroups[asmId]) assemblyGroups[asmId] = [];
       const alreadyListed = assemblyGroups[asmId].some(m => m.memberId === con.currentIncumbentId);
+      
       if (!alreadyListed) {
         const previousInAsm = con.history?.some(h => 
           h.assemblyId === asmId && 
@@ -256,7 +258,7 @@ export const buildLegislativeSessionsList = ({
         );
 
         assemblyGroups[asmId].push({
-          memberName: currentPerson?.name || con.currentIncumbentId,
+          memberName: currentPerson?.name || (con.currentIncumbentId === 'vacant' ? 'Vacant' : con.currentIncumbentId),
           memberId: currentPerson?.id || con.currentIncumbentId,
           partyName: partyDetails.partyName,
           partyColor: partyDetails.partyColor,
@@ -299,17 +301,20 @@ export const buildLegislativeSessionsList = ({
     });
 
     // Fallback if empty
-    if (rows.length === 0) {
-      const currentPerson = con.currentIncumbentId ? personsMap[con.currentIncumbentId] : null;
+    if (rows.length === 0 && con.currentAssemblyId) {
+      const asm = assembliesMap[con.currentAssemblyId];
+      const ordinal = asm ? extractOrdinal(asm.name) : extractOrdinal(con.currentAssemblyId);
+      const currentPerson = con.currentIncumbentId && con.currentIncumbentId !== 'vacant' ? personsMap[con.currentIncumbentId] : null;
       const partyDetails = resolvePartyDetails(currentPerson?.partyId, partiesMap, alliancesMap);
+      
       rows.push({
         id: `fallback-${con.id}`,
-        assemblyOrdinal: '15th',
-        assemblyName: '15th Kerala Legislative Assembly',
-        assemblyId: con.currentAssemblyId || '15th-assembly',
-        slNo: 1,
+        assemblyOrdinal: ordinal,
+        assemblyName: asm?.name || `${ordinal} Kerala Legislative Assembly`,
+        assemblyId: con.currentAssemblyId,
+        slNo: parseInt(ordinal.replace(/\D/g, ''), 10) || 1,
         members: [{
-          memberName: currentPerson?.name || 'Vacant',
+          memberName: currentPerson ? formatPersonName(currentPerson.name, currentPerson.gender, !!asm?.isActive) : 'Vacant',
           memberId: currentPerson?.id,
           partyName: partyDetails.partyName,
           partyColor: partyDetails.partyColor,
@@ -475,7 +480,7 @@ export const buildLegislativeSessionsList = ({
         const alreadyListed = assemblyGroups[asmId].some(m => m.memberId === h.personId);
         if (!alreadyListed) {
           assemblyGroups[asmId].push({
-            memberName: person?.name || (h.personId && h.personId !== 'vacant' ? h.personId : 'Vacant'),
+            memberName: person ? formatPersonName(person.name, person.gender, !!asm?.isActive) : (h.personId && h.personId !== 'vacant' ? h.personId : 'Vacant'),
             memberId: person?.id || h.personId,
             partyName: partyDetails.partyName,
             partyColor: partyDetails.partyColor,
@@ -497,7 +502,7 @@ export const buildLegislativeSessionsList = ({
     if (desig.assemblyId || desig.incumbentId) {
       const asmId = desig.assemblyId || "current";
       const asm = assembliesMap[asmId];
-      const ordinal = asm ? extractOrdinal(asm.name) : '15th';
+      const ordinal = asm ? extractOrdinal(asm.name) : extractOrdinal(asmId);
       const currentPerson = desig.incumbentId ? personsMap[desig.incumbentId] : null;
       const partyDetails = resolvePartyDetails(currentPerson?.partyId, partiesMap, alliancesMap);
 
@@ -505,7 +510,7 @@ export const buildLegislativeSessionsList = ({
       const alreadyListed = assemblyGroups[asmId].some(m => m.memberId === desig.incumbentId);
       if (!alreadyListed) {
         assemblyGroups[asmId].push({
-          memberName: currentPerson?.name || (desig.incumbentId && desig.incumbentId !== 'vacant' ? desig.incumbentId : 'Vacant'),
+          memberName: currentPerson ? formatPersonName(currentPerson.name, currentPerson.gender, !!asm?.isActive) : (desig.incumbentId && desig.incumbentId !== 'vacant' ? desig.incumbentId : 'Vacant'),
           memberId: currentPerson?.id || desig.incumbentId,
           partyName: partyDetails.partyName,
           partyColor: partyDetails.partyColor,

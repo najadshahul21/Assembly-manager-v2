@@ -318,7 +318,7 @@ export const CabinetPage: React.FC = () => {
                 <div className="flex-1 min-w-0">
                   <div onClick={() => navigate(`/person/${m.person.id}`)} className="cursor-pointer">
                     <h3 className="text-lg font-black text-white uppercase tracking-tight leading-tight group-hover:text-[#FFD700] transition-colors duration-300">
-                      {formatPersonName(m.person.name, m.person.gender)}
+                      {formatPersonName(m.person.name, m.person.gender, !!activeAssembly?.isActive)}
                     </h3>
                     <div className="flex items-center gap-2 mt-2">
                       <span className="w-1.5 h-1.5 rounded-full bg-[#FFD700] opacity-40" />
