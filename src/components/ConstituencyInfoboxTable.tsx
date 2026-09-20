@@ -126,31 +126,32 @@ export const ConstituencyInfoboxTable: React.FC<ConstituencyInfoboxTableProps> =
       </div>
 
       {/* Incumbent Subsection */}
-      <div className="py-4 px-4 bg-[#0d1117] text-center border-b border-zinc-800">
-        <div className="text-sm font-bold text-white select-none tracking-wide">
+      <div className="py-5 px-4 bg-[#0d1117] flex flex-col items-center text-center border-b border-zinc-800">
+        <div className="text-xs sm:text-sm font-bold text-zinc-400 uppercase select-none tracking-widest mb-2">
           Incumbent
         </div>
-        <div className="mt-1">
+        <div className="w-full flex justify-center">
           {incumbentPerson && constituency.currentIncumbentId !== 'vacant' ? (
             <button
               type="button"
               onClick={() => onNavigatePerson(incumbentPerson.id)}
-              className="text-lg sm:text-xl font-bold text-[#0ea5e9] hover:text-[#38bdf8] hover:underline tracking-tight transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+              className="text-xl sm:text-2xl font-black text-[#0ea5e9] hover:text-[#38bdf8] hover:underline tracking-tighter transition-all cursor-pointer flex items-center justify-center gap-2 group"
             >
-              <span>{formatPersonName(incumbentPerson.name, incumbentPerson.gender, !isDissolved)}</span>
+              <span className="leading-tight">{formatPersonName(incumbentPerson.name, incumbentPerson.gender, !isDissolved)}</span>
             </button>
           ) : (
-            <div className="flex flex-col items-center gap-1.5 mt-1">
-              <span className="text-base font-bold text-rose-400 italic">
+            <div className="flex flex-col items-center gap-3">
+              <span className="text-lg font-bold text-rose-500/90 italic tracking-tight">
                 Vacant (No active MLA)
               </span>
               {!isDissolved && onElectMla && (
                 <button
                   type="button"
                   onClick={onElectMla}
-                  className="px-3 py-1 bg-amber-400/10 hover:bg-amber-400/20 text-amber-400 text-xs font-bold rounded-lg border border-amber-400/30 transition-all cursor-pointer flex items-center gap-1"
+                  className="px-4 py-1.5 bg-amber-400/10 hover:bg-amber-400/20 text-amber-400 text-xs font-black uppercase rounded-full border border-amber-400/30 transition-all cursor-pointer flex items-center gap-2"
                 >
-                  <Vote size={13} /> Conduct Election / Appoint
+                  <Vote size={14} className="opacity-80" /> 
+                  <span>Conduct Election</span>
                 </button>
               )}
             </div>
