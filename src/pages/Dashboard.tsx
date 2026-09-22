@@ -40,35 +40,72 @@ export const Dashboard: React.FC = () => {
     let governorParty = null;
     if (governorDesig && governorDesig.incumbentId && governorDesig.incumbentId !== 'vacant') {
       governorPerson = await db.persons.get(governorDesig.incumbentId);
+      if (governorPerson && governorPerson.isSuspended) {
+        governorPerson = null;
+      }
       if (governorPerson && governorPerson.partyId && governorPerson.partyId !== 'independent') {
         governorParty = await db.parties.get(governorPerson.partyId);
       }
     }
 
-    // 2. Fetch current active assembly
+    // 2. Fetch current active assembly (only an active assembly isActive !== false can hold office)
     const allAssemblies = await db.assemblies.toArray();
-    const activeAssembly = allAssemblies.find(a => a.isActive) || allAssemblies.sort((a, b) => b.updatedAt - a.updatedAt)[0];
+    const activeAssembly = allAssemblies.find(a => a.isActive !== false) || null;
 
     let speakerPerson = null;
     let speakerParty = null;
     let cmPerson = null;
     let cmParty = null;
+    let isAssemblyVacant = false;
 
-    if (activeAssembly && activeAssembly.leaders) {
-      const speakerId = activeAssembly.leaders.speaker;
-      const cmId = activeAssembly.leaders.chiefMinister;
+    if (activeAssembly) {
+      // Fetch all constituencies belonging to this active assembly
+      const assemblyConstituencies = await db.constituencies
+        .where('currentAssemblyId')
+        .equals(activeAssembly.id)
+        .toArray();
 
-      if (speakerId && speakerId !== 'vacant') {
-        speakerPerson = await db.persons.get(speakerId);
-        if (speakerPerson && speakerPerson.partyId && speakerPerson.partyId !== 'independent') {
-          speakerParty = await db.parties.get(speakerPerson.partyId);
+      // Collect all active MLA IDs (who hold a non-vacant seat in this assembly)
+      const activeMlaMap = new Map<string, string>(); // personId -> constituencyName
+      assemblyConstituencies.forEach(c => {
+        if (c.currentIncumbentId && c.currentIncumbentId !== 'vacant') {
+          activeMlaMap.set(c.currentIncumbentId, c.name);
         }
-      }
+      });
 
-      if (cmId && cmId !== 'vacant') {
-        cmPerson = await db.persons.get(cmId);
-        if (cmPerson && cmPerson.partyId && cmPerson.partyId !== 'independent') {
-          cmParty = await db.parties.get(cmPerson.partyId);
+      // If there are no active MLAs elected to this assembly, the assembly is considered vacant
+      if (activeMlaMap.size === 0) {
+        isAssemblyVacant = true;
+      } else if (activeAssembly.leaders) {
+        const speakerId = activeAssembly.leaders.speaker;
+        const cmId = activeAssembly.leaders.chiefMinister;
+
+        // Speaker MUST be an active elected MLA in this active assembly and not suspended
+        if (speakerId && speakerId !== 'vacant' && activeMlaMap.has(speakerId)) {
+          const person = await db.persons.get(speakerId);
+          if (person && !person.isSuspended) {
+            speakerPerson = {
+              ...person,
+              constituencyName: activeMlaMap.get(speakerId) || person.constituencyName
+            };
+            if (speakerPerson.partyId && speakerPerson.partyId !== 'independent') {
+              speakerParty = await db.parties.get(speakerPerson.partyId);
+            }
+          }
+        }
+
+        // Chief Minister MUST be an active elected MLA in this active assembly and not suspended
+        if (cmId && cmId !== 'vacant' && activeMlaMap.has(cmId)) {
+          const person = await db.persons.get(cmId);
+          if (person && !person.isSuspended) {
+            cmPerson = {
+              ...person,
+              constituencyName: activeMlaMap.get(cmId) || person.constituencyName
+            };
+            if (cmPerson.partyId && cmPerson.partyId !== 'independent') {
+              cmParty = await db.parties.get(cmPerson.partyId);
+            }
+          }
         }
       }
     }
@@ -82,12 +119,14 @@ export const Dashboard: React.FC = () => {
       speaker: {
         assembly: activeAssembly,
         person: speakerPerson,
-        party: speakerParty
+        party: speakerParty,
+        isAssemblyVacant
       },
       chiefMinister: {
         assembly: activeAssembly,
         person: cmPerson,
-        party: cmParty
+        party: cmParty,
+        isAssemblyVacant
       }
     };
   }, []);
@@ -378,7 +417,9 @@ export const Dashboard: React.FC = () => {
                     </p>
                     <p className="text-[11px] text-gray-500 mt-1">
                       {stateLeadership?.speaker?.assembly 
-                        ? `No Speaker assigned for ${stateLeadership?.speaker?.assembly?.name || 'Assembly'}.`
+                        ? (stateLeadership?.speaker?.isAssemblyVacant
+                            ? `Assembly seats are vacant for ${stateLeadership?.speaker?.assembly?.name || 'Assembly'}.`
+                            : `No Speaker assigned for ${stateLeadership?.speaker?.assembly?.name || 'Assembly'}.`)
                         : "No active legislative assembly recorded."
                       }
                     </p>
@@ -464,7 +505,9 @@ export const Dashboard: React.FC = () => {
                     </p>
                     <p className="text-[11px] text-gray-500 mt-1">
                       {stateLeadership?.chiefMinister?.assembly 
-                        ? `No Chief Minister assigned for ${stateLeadership?.chiefMinister?.assembly?.name || 'Assembly'}.`
+                        ? (stateLeadership?.chiefMinister?.isAssemblyVacant
+                            ? `Assembly seats are vacant for ${stateLeadership?.chiefMinister?.assembly?.name || 'Assembly'}.`
+                            : `No Chief Minister assigned for ${stateLeadership?.chiefMinister?.assembly?.name || 'Assembly'}.`)
                         : "No active legislative assembly recorded."
                       }
                     </p>

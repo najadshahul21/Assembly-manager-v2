@@ -771,12 +771,29 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
           }
         }
 
-        // Auto-vacate designations if current one is dissolving
+        // Auto-vacate designations and ministers if current one is dissolving
         if (isDissolving) {
           await freezeAssembly(id);
-          const relatedDesignations = await db.designations.where('assemblyId').equals(id).toArray();
+
+          // Reset assembly leaders to vacant
+          await db.assemblies.update(id, {
+            leaders: {
+              chiefMinister: 'vacant',
+              deputyChiefMinister: 'vacant',
+              speaker: 'vacant',
+              deputySpeaker: 'vacant',
+              leaderOfOpposition: 'vacant',
+              deputyLeaderOfOpposition: 'vacant',
+              chiefSecretary: 'vacant',
+            },
+            updatedAt: now
+          });
+
+          // Vacate designations tied to this assembly or ministerial designations
+          const allDesignations = await db.designations.toArray();
+          const relatedDesignations = allDesignations.filter(d => d.assemblyId === id || isMinisterialRole(d.name));
           for (const d of relatedDesignations) {
-            if (d.incumbentId !== 'vacant') {
+            if (d.incumbentId && d.incumbentId !== 'vacant') {
               await db.designations.update(d.id, {
                 incumbentId: 'vacant',
                 history: [...(d.history || []), { personId: d.incumbentId, reason: 'expiry', date: now }],
@@ -788,7 +805,7 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
           // Also vacate all constituencies belonging to this assembly
           const relatedConstituencies = await db.constituencies.where('currentAssemblyId').equals(id).toArray();
           for (const con of relatedConstituencies) {
-            if (con.currentIncumbentId !== 'vacant') {
+            if (con.currentIncumbentId && con.currentIncumbentId !== 'vacant') {
               await db.constituencies.update(con.id, {
                 currentIncumbentId: 'vacant',
                 history: [...(con.history || []), { 
@@ -798,6 +815,36 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
                   reason: 'expiry' 
                 }],
                 updatedAt: now
+              });
+            }
+          }
+
+          // Also expire roles for all persons in this assembly
+          const allPersons = await db.persons.toArray();
+          for (const p of allPersons) {
+            if (p.assemblyRoles && p.assemblyRoles[id]) {
+              const expiringRoles = p.assemblyRoles[id].split(', ');
+              const newAssemblyRoles = { ...p.assemblyRoles };
+              delete newAssemblyRoles[id];
+              const newHistory = [...(p.roleHistory || [])];
+              for (const role of expiringRoles) {
+                newHistory.push({
+                  role,
+                  assemblyId: id,
+                  date: now,
+                  action: 'expiry' as const,
+                });
+              }
+              const isMlaInThisAssembly = relatedConstituencies.some(c => c.currentIncumbentId === p.id);
+              await db.persons.update(p.id, {
+                assemblyRoles: newAssemblyRoles,
+                roleHistory: newHistory,
+                updatedAt: now,
+                ...(isMlaInThisAssembly ? {
+                  constituencyId: undefined,
+                  constituencyName: undefined,
+                  mlaStatusText: undefined,
+                } : {})
               });
             }
           }

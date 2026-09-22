@@ -27,6 +27,8 @@ export interface AssemblySeatItem {
     alliance?: Alliance;
     reason?: string;
     isByelected?: boolean;
+    removalDate?: number;
+    electionDate?: number;
   }[];
 }
 
@@ -62,6 +64,8 @@ interface ProcessedRow {
     isIndependent: boolean;
     reason?: string;
     isByelected?: boolean;
+    removalDate?: number;
+    electionDate?: number;
     remarks: string[];
     hasMinisterRole: boolean;
     isSupportingAlliance: boolean;
@@ -109,22 +113,49 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
     deputyChiefMinister: "Deputy Chief Minister",
     leaderOfOpposition: "Leader of the Opposition",
     deputyLeaderOfOpposition: "Deputy Leader of the Opposition",
+    oppositionLeader: "Leader of the Opposition",
+    deputyOppositionLeader: "Deputy Leader of the Opposition",
     chiefWhip: "Chief Whip",
+    governmentChiefWhip: "Chief Whip",
     chiefSecretary: "Chief Secretary",
+  };
+
+  // Check if a designation or role assembly ID matches the current assembly
+  const isMatchingAssembly = (aId?: string) => {
+    if (!aId) return assembly.isActive !== false;
+    if (aId === assembly.id) return true;
+    if (aId.toLowerCase() === assembly.id.toLowerCase()) return true;
+    const cleanA = assembly.id.replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
+    const cleanTarget = aId.replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
+    return cleanA === cleanTarget || cleanA.includes(cleanTarget) || cleanTarget.includes(cleanA);
   };
 
   // Pre-compute designations map for faster lookups in the loop
   const designationsByIncumbentMap = useMemo(() => {
     const map = new Map<string, Designation[]>();
-    (designationsList || []).forEach(d => {
-      if (d.assemblyId === assembly.id && d.incumbentId && d.incumbentId !== 'vacant') {
-        const existing = map.get(d.incumbentId) || [];
-        existing.push(d);
-        map.set(d.incumbentId, existing);
+    (designationsList || []).forEach((d) => {
+      if (isMatchingAssembly(d.assemblyId)) {
+        if (d.incumbentId && d.incumbentId !== "vacant") {
+          const existing = map.get(d.incumbentId) || [];
+          existing.push(d);
+          map.set(d.incumbentId, existing);
+        }
+        // Also map prior holders if recorded in designation history for this assembly
+        if (Array.isArray(d.history)) {
+          d.history.forEach((h) => {
+            if (h.personId && h.personId !== "vacant") {
+              const existing = map.get(h.personId) || [];
+              if (!existing.some((item) => item.id === d.id)) {
+                existing.push(d);
+                map.set(h.personId, existing);
+              }
+            }
+          });
+        }
       }
     });
     return map;
-  }, [designationsList, assembly.id]);
+  }, [designationsList, assembly.id, assembly.isActive]);
 
   // Helper to extract roles/remarks for a politician in this assembly
   const getRemarksForPolitician = (p?: Person): { remarks: string[]; hasMinisterRole: boolean } => {
@@ -134,47 +165,101 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
     let hasMinister = false;
 
     // 1. Leader roles on Assembly
-    if (assembly.leaders) {
-      Object.entries(assembly.leaders).forEach(([key, leaderId]) => {
-        if (leaderId === p.id) {
+    const leadersSource = assembly.leaders || (assembly as any).preDissolutionLeaders;
+    if (leadersSource) {
+      Object.entries(leadersSource).forEach(([key, leaderVal]) => {
+        const lId = typeof leaderVal === "object" && leaderVal ? (leaderVal as any).id : String(leaderVal || "");
+        if (lId === p.id) {
           const title = leaderRoleTitles[key] || key.replace(/([A-Z])/g, " $1").trim();
-          // Filter out "Leader of the House"
           if (title.toLowerCase() !== "leader of the house") {
-            remarksSet.add(title);
+            const formatted = title.charAt(0).toUpperCase() + title.slice(1);
+            remarksSet.add(formatted);
           }
         }
       });
     }
 
-    // 2. Custom assembly roles
-    if (p.assemblyRoles && p.assemblyRoles[assembly.id]) {
-      const customRoles = p.assemblyRoles[assembly.id].split(", ");
+    // 2. Custom assembly roles (check direct key or any matching assembly key)
+    if (p.assemblyRoles) {
+      let customRoles: string[] = [];
+      if (p.assemblyRoles[assembly.id]) {
+        customRoles = p.assemblyRoles[assembly.id].split(/[,;\n|]+/);
+      } else {
+        for (const [key, val] of Object.entries(p.assemblyRoles)) {
+          if (val && isMatchingAssembly(key)) {
+            customRoles.push(...val.split(/[,;\n|]+/));
+          }
+        }
+      }
+
       customRoles.forEach((r) => {
         const trimmed = r.trim();
         if (!trimmed) return;
-        
-        // Filter out "Leader of the House"
-        if (trimmed.toLowerCase() === "leader of the house") {
-          return;
-        }
-        if (trimmed.toLowerCase().includes("minister")) {
+        if (trimmed.toLowerCase() === "leader of the house") return;
+        if (trimmed.toLowerCase().includes("minister") && !trimmed.toLowerCase().includes("former")) {
           hasMinister = true;
         }
         remarksSet.add(trimmed);
       });
     }
 
-    // 3. Designations in the assembly (using optimized map)
-    const personDesignations = designationsByIncumbentMap.get(p.id) || [];
+    // 3. Designations in the assembly (using map and direct person designations reference)
+    const personDesignations = [...(designationsByIncumbentMap.get(p.id) || [])];
+    if (Array.isArray(p.designations) && p.designations.length > 0) {
+      (designationsList || []).forEach((d) => {
+        if (p.designations.includes(d.id) && isMatchingAssembly(d.assemblyId)) {
+          if (!personDesignations.some((item) => item.id === d.id)) {
+            personDesignations.push(d);
+          }
+        }
+      });
+    }
+
     personDesignations.forEach((d) => {
       const trimmed = d.name.trim();
-      if (!trimmed.toLowerCase().startsWith("mla for")) {
-        if (trimmed.toLowerCase().includes("minister")) {
+      if (!trimmed.toLowerCase().startsWith("mla for") && !trimmed.toLowerCase().endsWith(" mla")) {
+        if (trimmed.toLowerCase().includes("minister") && !trimmed.toLowerCase().includes("former")) {
           hasMinister = true;
         }
         remarksSet.add(trimmed);
       }
     });
+
+    // 4. Role history for this assembly (e.g. ministerial appointments/promotions)
+    if (Array.isArray(p.roleHistory)) {
+      p.roleHistory.forEach((rh) => {
+        if (isMatchingAssembly(rh.assemblyId) && rh.role) {
+          const trimmed = rh.role.trim();
+          if (
+            trimmed &&
+            !trimmed.toLowerCase().startsWith("mla for") &&
+            !trimmed.toLowerCase().endsWith(" mla") &&
+            trimmed.toLowerCase() !== "leader of the house"
+          ) {
+            if (trimmed.toLowerCase().includes("minister") && !trimmed.toLowerCase().includes("former")) {
+              hasMinister = true;
+            }
+            remarksSet.add(trimmed);
+          }
+        }
+      });
+    }
+
+    // Deduplicate near-identical role titles
+    const currentList = Array.from(remarksSet);
+    if (currentList.includes("Leader of the Opposition") && currentList.includes("Leader of Opposition")) {
+      remarksSet.delete("Leader of Opposition");
+    }
+    if (
+      currentList.includes("Deputy Leader of the Opposition") &&
+      (currentList.includes("Opposition Deputy Leader") || currentList.includes("Deputy Leader of Opposition"))
+    ) {
+      remarksSet.delete("Opposition Deputy Leader");
+      remarksSet.delete("Deputy Leader of Opposition");
+    }
+    if (currentList.includes("Chief Whip") && currentList.includes("Government Chief Whip")) {
+      remarksSet.delete("Government Chief Whip");
+    }
 
     const remarks = Array.from(remarksSet);
     return { remarks, hasMinisterRole: hasMinister };
@@ -198,12 +283,25 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
         baseName = baseName.replace(tagMatch[0], "").trim();
       }
 
-      const incumbents = (seat.incumbents || []).map(inc => {
+      const rawIncumbents =
+        seat.incumbents && seat.incumbents.length > 0
+          ? seat.incumbents
+          : (seat as any).politician
+          ? [
+              {
+                person: (seat as any).politician,
+                party: (seat as any).party,
+                alliance: (seat as any).alliance,
+              },
+            ]
+          : [];
+
+      const incumbents = rawIncumbents.map((inc) => {
         const p = inc.person;
         const isIndependent = p.partyId === "independent";
         const { remarks, hasMinisterRole } = getRemarksForPolitician(p);
         const isSupportingAlliance = !!(assembly.independentSupports?.[p.id]);
-        
+
         return {
           id: p.id,
           name: p.name,
@@ -212,9 +310,11 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
           isIndependent,
           reason: inc.reason,
           isByelected: inc.isByelected,
+          removalDate: inc.removalDate,
+          electionDate: inc.electionDate,
           remarks,
           hasMinisterRole,
-          isSupportingAlliance
+          isSupportingAlliance,
         };
       });
 
@@ -578,7 +678,7 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
                 {/* Constituency Column */}
                 <th
                   onClick={() => handleSort("constituency")}
-                  className="min-w-[160px] px-4 py-3 border-r border-[#2d323c] cursor-pointer hover:bg-white/5 transition-colors select-none"
+                  className="min-w-[150px] sm:min-w-[170px] px-4 py-3 border-r border-[#2d323c] cursor-pointer hover:bg-white/5 transition-colors select-none text-left"
                 >
                   <div className="flex items-center gap-1.5">
                     <span>Constituency</span>
@@ -590,10 +690,10 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
                   </div>
                 </th>
 
-                {/* Name Column */}
+                {/* Name Column - Dynamic space for full names without clipping */}
                 <th
                   onClick={() => handleSort("name")}
-                  className="min-w-[200px] px-4 py-3 border-r border-[#2d323c] cursor-pointer hover:bg-white/5 transition-colors select-none"
+                  className="min-w-[220px] sm:min-w-[270px] lg:min-w-[300px] px-4 py-3 border-r border-[#2d323c] cursor-pointer hover:bg-white/5 transition-colors select-none text-left"
                 >
                   <div className="flex items-center gap-1.5">
                     <span>Name</span>
@@ -608,9 +708,9 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
                 {/* Party Column */}
                 <th
                   onClick={() => handleSort("party")}
-                  className="w-28 min-w-[100px] px-3 py-3 border-r border-[#2d323c] cursor-pointer hover:bg-white/5 transition-colors select-none"
+                  className="w-24 sm:w-28 min-w-[90px] px-3 py-3 text-center border-r border-[#2d323c] cursor-pointer hover:bg-white/5 transition-colors select-none"
                 >
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center justify-center gap-1.5">
                     <span>Party</span>
                     {sortColumn === "party" ? (
                       sortDirection === "asc" ? <ArrowUp size={12} className="text-[#FFD700]" /> : <ArrowDown size={12} className="text-[#FFD700]" />
@@ -620,12 +720,12 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
                   </div>
                 </th>
 
-                    {/* Alliance Column */}
+                {/* Alliance Column */}
                 <th
                   onClick={() => handleSort("alliance")}
-                  className="w-28 min-w-[100px] px-3 py-3 border-r border-[#2d323c] cursor-pointer hover:bg-white/5 transition-colors select-none"
+                  className="w-24 sm:w-28 min-w-[90px] px-3 py-3 text-center border-r border-[#2d323c] cursor-pointer hover:bg-white/5 transition-colors select-none"
                 >
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center justify-center gap-1.5">
                     <span>Alliance</span>
                     {sortColumn === "alliance" ? (
                       sortDirection === "asc" ? <ArrowUp size={12} className="text-[#FFD700]" /> : <ArrowDown size={12} className="text-[#FFD700]" />
@@ -638,7 +738,7 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
                 {/* Remarks Column */}
                 <th
                   onClick={() => handleSort("remarks")}
-                  className="min-w-[240px] px-4 py-3 border-r border-[#2d323c] cursor-pointer hover:bg-white/5 transition-colors select-none"
+                  className="min-w-[200px] sm:min-w-[240px] px-4 py-3 border-r border-[#2d323c] cursor-pointer hover:bg-white/5 transition-colors select-none text-left"
                 >
                   <div className="flex items-center gap-1.5">
                     <span>Remarks</span>
@@ -674,27 +774,27 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
                     </td>
 
                     {/* 2. Constituency Cell */}
-                    <td className="px-4 py-2.5 text-xs sm:text-sm font-medium border-r border-[#242832]">
-                      <div className="flex items-center flex-wrap gap-1">
+                    <td className="px-4 py-2.5 text-xs sm:text-sm font-medium border-r border-[#242832] text-left break-words whitespace-normal">
+                      <div className="flex items-center flex-wrap gap-1.5">
                         <button
                           type="button"
                           onClick={() => navigate(`/constituency/${row.constituency.id}`)}
-                          className="text-[#60a5fa] hover:text-[#93c5fd] transition-colors text-left"
+                          className="text-[#60a5fa] hover:text-[#93c5fd] transition-colors text-left font-semibold break-words whitespace-normal leading-snug"
                         >
                           {row.constituency.baseName}
                         </button>
                         {row.constituency.categoryTag && (
-                          <span className="text-gray-400 font-normal">
+                          <span className="text-gray-400 font-normal whitespace-nowrap">
                             {row.constituency.categoryTag}
                           </span>
                         )}
                       </div>
                     </td>
 
-                    {/* 3. Name Cell */}
-                    <td className="px-4 py-2.5 text-xs sm:text-sm font-medium border-r border-[#242832]">
+                    {/* 3. Name Cell - Flexible layout with full name visibility without clipping */}
+                    <td className="px-4 py-2.5 text-xs sm:text-sm font-medium border-r border-[#242832] text-left">
                       {row.incumbents.length > 0 ? (
-                        <div className="flex flex-col gap-2">
+                        <div className="flex flex-col gap-2.5">
                           {row.incumbents.map((inc, iIdx) => {
                             const isPrimary = iIdx === row.incumbents.length - 1;
                             const rawReason = inc.reason || '';
@@ -707,31 +807,31 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
                             const assuDateStr = inc.electionDate ? ` on ${new Date(inc.electionDate).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '-')}` : '';
                             
                             return (
-                              <div key={inc.id} className="flex flex-col">
-                                <div className="flex items-center justify-between gap-2">
+                              <div key={inc.id} className="flex flex-col gap-1">
+                                <div className="flex flex-wrap sm:flex-nowrap items-baseline sm:items-center justify-between gap-2">
                                   <button
                                     type="button"
                                     onClick={() => navigate(`/person/${inc.id}`)}
-                                    className="text-[#0ea5e9] hover:text-[#38bdf8] transition-colors text-left"
+                                    className="text-[#0ea5e9] hover:text-[#38bdf8] transition-colors text-left font-semibold break-words whitespace-normal leading-snug flex-1 min-w-0"
                                   >
                                     {formatPersonName(inc.name, inc.gender, !isDissolved)}
                                   </button>
                                   
                                   {isPrimary && row.isSupportingAlliance && row.alliance && (
-                                    <div className="text-[9px] text-[#FFD700] font-black uppercase tracking-widest bg-[#FFD700]/10 border border-[#FFD700]/20 px-2 py-0.5 rounded-md shadow-[0_0_10px_rgba(255,215,0,0.1)]">
+                                    <div className="text-[9px] text-[#FFD700] font-black uppercase tracking-widest bg-[#FFD700]/10 border border-[#FFD700]/20 px-2 py-0.5 rounded-md shadow-[0_0_10px_rgba(255,215,0,0.1)] shrink-0 self-start sm:self-auto whitespace-nowrap">
                                       Supporting {row.alliance.name}
                                     </div>
                                   )}
                                 </div>
                                 
                                 {reasonLabel && (
-                                  <span className="text-[10px] text-red-500 font-bold leading-none mt-1">
+                                  <span className="text-[10px] text-red-500 font-bold leading-tight break-words whitespace-normal">
                                     ({reasonLabel}{dateStr})
                                   </span>
                                 )}
                                 
                                 {inc.isByelected && (
-                                  <span className="text-[10px] text-emerald-500 font-bold leading-none mt-1 italic">
+                                  <span className="text-[10px] text-emerald-500 font-bold leading-tight italic break-words whitespace-normal">
                                     (Assumed office{inc.electionDate ? ` on ${(() => {
                                       const d = new Date(inc.electionDate);
                                       const day = d.getDate();
@@ -757,23 +857,23 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
                       )}
                     </td>
 
-                    {/* 4. Party Cell (with vertical color strip & RowSpan) */}
+                    {/* 4. Party Cell (with vertical color strip & RowSpan, centered) */}
                     {partySpan > 0 && (
                       <td
                         rowSpan={partySpan}
                         style={{
-                          borderLeft: row.party ? `8px solid ${row.party.color}` : "8px solid transparent",
+                          borderLeft: row.party ? `6px solid ${row.party.color}` : "6px solid transparent",
                         }}
-                        className="px-3 py-2.5 text-xs sm:text-sm font-bold text-gray-300 border-r border-[#242832] bg-[#0d1117] align-middle"
+                        className="px-2.5 py-2.5 text-xs sm:text-sm font-bold text-gray-300 border-r border-[#242832] bg-[#0d1117] align-middle text-center"
                       >
                         {row.party ? (
                           row.party.id === "independent" ? (
-                            <span className="text-gray-400">IND</span>
+                            <span className="text-gray-400 font-mono">IND</span>
                           ) : (
                             <button
                               type="button"
                               onClick={() => navigate(`/party/${row.party!.id}`)}
-                              className="text-gray-200 hover:text-white hover:underline transition-colors text-left"
+                              className="text-gray-200 hover:text-white hover:underline transition-colors text-center inline-block"
                             >
                               {row.party.abbreviation}
                             </button>
@@ -784,20 +884,20 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
                       </td>
                     )}
 
-                    {/* 5. Alliance Cell (with vertical color strip & RowSpan) */}
+                    {/* 5. Alliance Cell (with vertical color strip & RowSpan, centered) */}
                     {allianceSpan > 0 && (
                       <td
                         rowSpan={allianceSpan}
                         style={{
-                          borderLeft: row.alliance ? `8px solid ${row.alliance.color}` : "8px solid transparent",
+                          borderLeft: row.alliance ? `6px solid ${row.alliance.color}` : "6px solid transparent",
                         }}
-                        className="px-3 py-2.5 text-xs sm:text-sm font-bold text-gray-300 border-r border-[#242832] bg-[#0d1117] align-middle"
+                        className="px-2.5 py-2.5 text-xs sm:text-sm font-bold text-gray-300 border-r border-[#242832] bg-[#0d1117] align-middle text-center"
                       >
                         {row.alliance ? (
                           <button
                             type="button"
                             onClick={() => navigate(`/alliance/${row.alliance!.id}`)}
-                            className="text-gray-200 hover:text-white hover:underline transition-colors text-left"
+                            className="text-gray-200 hover:text-white hover:underline transition-colors text-center inline-block"
                           >
                             {row.alliance.abbreviation}
                           </button>
@@ -808,38 +908,50 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
                     )}
 
                     {/* 6. Remarks Cell */}
-                    <td className="px-4 py-2.5 text-xs sm:text-sm text-gray-300 font-normal border-r border-[#242832]">
-                      <div className="flex flex-col gap-0.5 min-h-[32px] w-full">
-                        {row.remarks.length > 0 && (
-                          <div className="space-y-0.5 flex-1">
-                            {row.remarks.map((remark, rIdx) => {
-                              const isOppLeader = remark.toLowerCase().includes("opposition");
-                              const isHouseLeader = remark.toLowerCase().includes("leader of the house") || remark.toLowerCase().includes("chief minister");
-                              const isSpeaker = remark.toLowerCase().includes("speaker");
-                              const isMinister = remark.toLowerCase().includes("minister");
-
-                              if (isOppLeader || isHouseLeader || isSpeaker || isMinister) {
-                                return (
-                                  <div
-                                    key={rIdx}
-                                    className={`font-medium transition-colors ${
-                                      isMinister ? "text-cyan-400" : "text-[#60a5fa]"
-                                    }`}
-                                  >
-                                    {remark}
-                                  </div>
-                                );
-                              }
-
+                    <td className="px-4 py-2.5 text-xs sm:text-sm text-gray-300 font-normal border-r border-[#242832] text-left break-words whitespace-normal">
+                      {row.incumbents.length > 0 ? (
+                        <div className="flex flex-col gap-2 min-h-[32px] w-full">
+                          {row.incumbents.map((inc, iIdx) => {
+                            if (!inc.remarks || inc.remarks.length === 0) {
                               return (
-                                <div key={rIdx} className="text-gray-200">
-                                  {remark}
+                                <div key={inc.id || iIdx} className="flex items-center min-h-[28px]">
+                                  <span className="text-gray-500 font-normal select-none">—</span>
                                 </div>
                               );
-                            })}
-                          </div>
-                        )}
-                      </div>
+                            }
+
+                            return (
+                              <div key={inc.id || iIdx} className="flex flex-col gap-0.5 min-h-[28px] justify-center">
+                                {inc.remarks.map((remark, rIdx) => {
+                                  const isOppLeader = remark.toLowerCase().includes("opposition");
+                                  const isHouseLeader =
+                                    remark.toLowerCase().includes("leader of the house") ||
+                                    remark.toLowerCase().includes("chief minister");
+                                  const isSpeaker = remark.toLowerCase().includes("speaker");
+                                  const isMinister = remark.toLowerCase().includes("minister");
+
+                                  return (
+                                    <div
+                                      key={rIdx}
+                                      className={`font-medium transition-colors break-words whitespace-normal leading-snug ${
+                                        isMinister
+                                          ? "text-cyan-400"
+                                          : isOppLeader || isHouseLeader || isSpeaker
+                                          ? "text-[#60a5fa]"
+                                          : "text-gray-200"
+                                      }`}
+                                    >
+                                      {remark}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <span className="text-gray-500 font-normal select-none">—</span>
+                      )}
                     </td>
 
                     {/* 7. Actions Cell */}

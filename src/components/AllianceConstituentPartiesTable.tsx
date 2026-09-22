@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { 
   ChevronUp, 
   ChevronDown, 
@@ -13,6 +13,7 @@ import {
   Vote
 } from "lucide-react";
 import { Alliance, Party, Assembly, Constituency, Person } from "../types";
+import { getActiveAssembly } from "../utils/governmentUtils";
 
 interface AllianceConstituentPartiesTableProps {
   alliance: Alliance;
@@ -289,43 +290,113 @@ export const AllianceConstituentPartiesTable: React.FC<AllianceConstituentPartie
   const [sortField, setSortField] = useState<SortField>("seats");
   const [sortDir, setSortDir] = useState<SortDirection>("desc");
   const [searchQuery, setSearchQuery] = useState<string>("");
-  const [selectedAssemblyId, setSelectedAssemblyId] = useState<string>(activeAssembly?.id || "");
 
-  // Active target assembly
+  // Resolve current active assembly as primary default
+  const defaultActiveAssembly = useMemo(() => {
+    return getActiveAssembly(assembliesList) || activeAssembly;
+  }, [assembliesList, activeAssembly]);
+
+  const [selectedAssemblyId, setSelectedAssemblyId] = useState<string>(
+    activeAssembly?.id || defaultActiveAssembly?.id || ""
+  );
+
+  // Sync selected assembly with active assembly once loaded
+  useEffect(() => {
+    if (!selectedAssemblyId && defaultActiveAssembly?.id) {
+      setSelectedAssemblyId(defaultActiveAssembly.id);
+    }
+  }, [defaultActiveAssembly?.id, selectedAssemblyId]);
+
+  // Current active assembly targeted by table
   const currentAssembly = useMemo(() => {
     if (selectedAssemblyId) {
       const match = assembliesList.find((a) => a.id === selectedAssemblyId);
       if (match) return match;
     }
-    return activeAssembly || assembliesList.find((a) => a.isActive !== false) || assembliesList[0];
-  }, [selectedAssemblyId, assembliesList, activeAssembly]);
+    return defaultActiveAssembly || activeAssembly;
+  }, [selectedAssemblyId, assembliesList, defaultActiveAssembly, activeAssembly]);
 
   // Compute seats won by each constituent party in the target assembly
   const partyStatsMap = useMemo(() => {
     const stats: Record<string, { seats: number }> = {};
-    const targetConstituencies = constituenciesList.filter(
-      (c) => !currentAssembly || !c.creationAssemblyId || c.creationAssemblyId <= currentAssembly.id
-    );
-
     relatedParties.forEach((p) => {
       stats[p.id] = { seats: 0 };
     });
 
-    targetConstituencies.forEach((c) => {
-      if (c.currentIncumbentId && c.currentIncumbentId !== "vacant") {
-        const person = personsList.find((per) => per.id === c.currentIncumbentId);
-        if (person && stats[person.partyId]) {
-          stats[person.partyId].seats += 1;
-        }
-      }
-    });
+    const isTargetActive =
+      !currentAssembly ||
+      currentAssembly.isActive !== false ||
+      (defaultActiveAssembly && currentAssembly.id === defaultActiveAssembly.id);
 
-    // Supplementary check: if all are 0, check if persons have constituency names recorded in raw data
+    // 1. Direct composition check if present on the assembly
+    if (currentAssembly?.composition?.parties && currentAssembly.composition.parties.length > 0) {
+      let compositionFound = false;
+      currentAssembly.composition.parties.forEach((cp) => {
+        if (stats[cp.id] !== undefined) {
+          stats[cp.id].seats = cp.seats || 0;
+          compositionFound = true;
+        }
+      });
+      if (compositionFound) {
+        return stats;
+      }
+    }
+
+    // 2. Count from constituenciesList
+    if (constituenciesList && constituenciesList.length > 0) {
+      constituenciesList.forEach((c) => {
+        if (isTargetActive) {
+          // For active assembly, verify active incumbent
+          const belongsToActive =
+            !c.currentAssemblyId ||
+            !currentAssembly ||
+            c.currentAssemblyId === currentAssembly.id;
+
+          if (belongsToActive && c.currentIncumbentId && c.currentIncumbentId !== "vacant") {
+            const person = personsList.find((per) => per.id === c.currentIncumbentId);
+            if (person && stats[person.partyId] !== undefined) {
+              stats[person.partyId].seats += 1;
+            }
+          }
+        } else {
+          // Historical assembly: check history records
+          let personId: string | undefined;
+          if (c.history && Array.isArray(c.history)) {
+            const hist = c.history.find(
+              (h) => h.assemblyId === currentAssembly.id && h.personId && h.personId !== "vacant"
+            );
+            if (hist) {
+              personId = hist.personId;
+            }
+          }
+          if (
+            !personId &&
+            c.currentAssemblyId === currentAssembly.id &&
+            c.currentIncumbentId &&
+            c.currentIncumbentId !== "vacant"
+          ) {
+            personId = c.currentIncumbentId;
+          }
+          if (personId) {
+            const person = personsList.find((per) => per.id === personId);
+            if (person && stats[person.partyId] !== undefined) {
+              stats[person.partyId].seats += 1;
+            }
+          }
+        }
+      });
+    }
+
+    // 3. Fallback check: if all counts are 0, check personsList directly
     const totalCount = Object.values(stats).reduce((acc, s) => acc + s.seats, 0);
     if (totalCount === 0) {
       relatedParties.forEach((p) => {
         const partyPersonsWithSeats = personsList.filter(
-          (per) => per.partyId === p.id && (per.constituencyName || per.mlaStatusText)
+          (per) =>
+            per.partyId === p.id &&
+            ((currentAssembly && per.assemblyRoles?.[currentAssembly.id]) ||
+              per.constituencyName ||
+              per.mlaStatusText)
         );
         if (partyPersonsWithSeats.length > 0) {
           stats[p.id].seats = partyPersonsWithSeats.length;
@@ -334,7 +405,7 @@ export const AllianceConstituentPartiesTable: React.FC<AllianceConstituentPartie
     }
 
     return stats;
-  }, [relatedParties, constituenciesList, personsList, currentAssembly]);
+  }, [relatedParties, constituenciesList, personsList, currentAssembly, defaultActiveAssembly]);
 
   // Process rows with initial index and filter
   const processedRows = useMemo(() => {
@@ -417,11 +488,14 @@ export const AllianceConstituentPartiesTable: React.FC<AllianceConstituentPartie
     );
   };
 
-  // Assembly seat column title matching user's instruction
-  // ("don't copy heads and information from it just the way of data represented and implement it in app")
-  const seatColumnHeader = currentAssembly
-    ? `MLAs in ${currentAssembly.name.replace("Assembly", "").trim() || "Assembly"}`
-    : "MLAs in Legislative Assembly";
+  // Assembly seat column title matching user's instruction:
+  // "Change that and make it show how many seats do the respective parties have in the current active assembly"
+  const seatColumnHeader = useMemo(() => {
+    if (currentAssembly) {
+      return `Seats in ${currentAssembly.name}`;
+    }
+    return "Seats in Active Assembly";
+  }, [currentAssembly]);
 
   return (
     <div className="w-full max-w-4xl mx-auto space-y-4">
@@ -451,7 +525,7 @@ export const AllianceConstituentPartiesTable: React.FC<AllianceConstituentPartie
               >
                 {assembliesList.map((a) => (
                   <option key={a.id} value={a.id} className="bg-zinc-900 text-white">
-                    {a.name} {a.isActive !== false ? "(Active)" : ""}
+                    {a.name} {a.id === defaultActiveAssembly?.id || a.isActive === true ? "(Active)" : ""}
                   </option>
                 ))}
               </select>
@@ -512,8 +586,8 @@ export const AllianceConstituentPartiesTable: React.FC<AllianceConstituentPartie
                 {/* 5. MLAs / Seats Header */}
                 <th
                   onClick={() => handleSort("seats")}
-                  className="w-28 sm:w-36 px-3 py-3.5 text-center font-bold cursor-pointer hover:bg-white/5 transition-colors"
-                  title="Sort by seats"
+                  className="w-32 sm:w-44 px-3 py-3.5 text-center font-bold cursor-pointer hover:bg-white/5 transition-colors"
+                  title="Sort by seats in active assembly"
                 >
                   <div className="flex items-center justify-center gap-1">
                     <span className="leading-tight">{seatColumnHeader}</span>
@@ -554,17 +628,17 @@ export const AllianceConstituentPartiesTable: React.FC<AllianceConstituentPartie
                       </td>
 
                       {/* 2. Party Name Cell */}
-                      <td className="px-4 py-3 border-r border-zinc-700/60">
+                      <td className="px-4 py-3 border-r border-zinc-700/60 min-w-[180px] break-words whitespace-normal">
                         <div className="flex items-center flex-wrap gap-2">
                           <button
                             type="button"
                             onClick={() => onNavigateParty(party.id)}
-                            className="text-[#FFD700] hover:text-[#FFD700] hover:underline font-semibold text-left transition-colors cursor-pointer text-sm sm:text-base leading-snug"
+                            className="text-[#FFD700] hover:text-[#FFD700] hover:underline font-semibold text-left transition-colors cursor-pointer text-sm sm:text-base leading-snug break-words whitespace-normal"
                           >
                             {party.name}
                           </button>
                           {isLeadParty && (
-                            <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-[#FFD700]/15 text-[#FFD700] border border-[#FFD700]/30 select-none">
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-[#FFD700]/15 text-[#FFD700] border border-[#FFD700]/30 select-none whitespace-nowrap">
                               Lead Party
                             </span>
                           )}
@@ -586,7 +660,7 @@ export const AllianceConstituentPartiesTable: React.FC<AllianceConstituentPartie
                       </td>
 
                       {/* 5. MLAs / Seats Cell (zero-padded, centered as in screenshot) */}
-                      <td className="w-28 sm:w-36 px-3 py-3 text-center font-bold font-mono text-sm sm:text-base text-zinc-100">
+                      <td className="w-32 sm:w-44 px-3 py-3 text-center font-bold font-mono text-sm sm:text-base text-zinc-100">
                         <span className={seats > 0 ? "text-white" : "text-zinc-500"}>
                           {formattedSeats}
                         </span>

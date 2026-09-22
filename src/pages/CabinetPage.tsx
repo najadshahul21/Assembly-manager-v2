@@ -21,7 +21,7 @@ export const CabinetPage: React.FC = () => {
 
   const activeAssembly = useLiveQuery(async () => {
     const all = await db.assemblies.toArray();
-    return all.find(a => a.isActive) || all.sort((a, b) => b.updatedAt - a.updatedAt)[0];
+    return all.find(a => a.isActive !== false) || null;
   });
 
   const cabinetMembers = useLiveQuery(async () => {

@@ -346,6 +346,49 @@ export function getConstituencyCreationAssembly(
 }
 
 /**
+ * Resolves the currently active assembly from a list of assemblies.
+ * Correctly prioritizes:
+ * 1. An assembly with explicit `isActive === true`
+ * 2. An assembly that is not marked inactive (`isActive !== false`), sorted by highest ordinal/slNo (e.g. 15th > 1st)
+ * 3. The highest numbered/latest assembly in the list
+ */
+export const getActiveAssembly = (assemblies?: Assembly[] | null): Assembly | undefined => {
+  if (!assemblies || assemblies.length === 0) return undefined;
+
+  // 1. Explicitly active
+  const explicitlyActive = assemblies.find((a) => a && a.isActive === true);
+  if (explicitlyActive) return explicitlyActive;
+
+  // Helper to extract ordinal/numeric number from assembly
+  const getAssemblyNum = (a: Assembly): number => {
+    if (a.slNo) {
+      const parsed = parseInt(String(a.slNo), 10);
+      if (!isNaN(parsed)) return parsed;
+    }
+    const match = a.name?.match(/\b(\d+)(?:st|nd|rd|th)?\b/i);
+    if (match) {
+      const parsed = parseInt(match[1], 10);
+      if (!isNaN(parsed)) return parsed;
+    }
+    const idMatch = a.id?.match(/\b(\d+)\b/);
+    if (idMatch) {
+      const parsed = parseInt(idMatch[1], 10);
+      if (!isNaN(parsed)) return parsed;
+    }
+    return 0;
+  };
+
+  // 2. Candidates where isActive !== false
+  const candidates = assemblies.filter((a) => a && a.isActive !== false);
+  if (candidates.length > 0) {
+    return [...candidates].sort((a, b) => getAssemblyNum(b) - getAssemblyNum(a))[0];
+  }
+
+  // 3. Fallback: highest numeric ordinal in the entire list
+  return [...assemblies].sort((a, b) => getAssemblyNum(b) - getAssemblyNum(a))[0];
+};
+
+/**
  * Extracts a normalized Unix millisecond timestamp from an order for chronological sorting.
  * Handles ISO dates (YYYY-MM-DD), slash/dot dates (DD/MM/YYYY or YYYY/MM/DD), fallback timestamps and creation time.
  */

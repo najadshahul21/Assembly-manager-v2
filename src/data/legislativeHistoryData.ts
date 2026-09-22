@@ -185,97 +185,162 @@ export const buildLegislativeSessionsList = ({
       });
     }
 
-    // 2. Process con.history
+    // 2. Process con.history and current incumbents chronologically per assembly
+    const toTime = (d: any) =>
+      typeof d === "number" ? d : d ? new Date(d).getTime() : 0;
+
+    // Collect all assembly IDs related to this constituency
+    const relevantAssemblyIds = new Set<string>();
+    if (con.currentAssemblyId) relevantAssemblyIds.add(con.currentAssemblyId);
     if (Array.isArray(con.history)) {
-      const conHistory = [...con.history].sort((a, b) => a.date - b.date);
-      conHistory.forEach((h) => {
-        if (h.reason === "election" || h.reason === "appointment") {
-          const asm = h.assemblyId ? assembliesMap[h.assemblyId] : null;
-          const asmId = asm?.id || h.assemblyId || "unknown";
-          const ordinal = asm ? extractOrdinal(asm.name) : extractOrdinal(h.assemblyId || "");
-          
-          const person = h.personId ? personsMap[h.personId] : null;
-          const partyDetails = resolvePartyDetails(person?.partyId, partiesMap, alliancesMap);
-          
-          const previousInAsm = conHistory.find(prev => 
-            prev.assemblyId === h.assemblyId && 
-            prev.date < h.date && 
-            (prev.reason === "election" || prev.reason === "appointment")
-          );
-
-          const removal = conHistory.find(rem => 
-            rem.assemblyId === h.assemblyId && 
-            rem.personId === h.personId && 
-            rem.date >= h.date &&
-            rem.reason !== "election" && rem.reason !== "appointment"
-          );
-
-          if (!assemblyGroups[asmId]) assemblyGroups[asmId] = [];
-          
-          // Avoid duplicate person entries in the same assembly unless it's a distinct term (rare)
-          const alreadyListed = assemblyGroups[asmId].some(m => m.memberId === h.personId);
-          if (!alreadyListed) {
-            assemblyGroups[asmId].push({
-              memberName: person ? formatPersonName(person.name, person.gender, !!asm?.isActive) : (h.personId && h.personId !== "vacant" ? h.personId : "Vacant"),
-              memberId: person?.id || h.personId,
-              partyName: partyDetails.partyName,
-              partyColor: partyDetails.partyColor,
-              partyId: person?.partyId,
-              reason: removal?.reason,
-              electionDate: h.date,
-              removalDate: removal?.date,
-              isByelected: !!previousInAsm
-            });
-          }
-
-          if (!assemblyInfo[asmId]) {
-            assemblyInfo[asmId] = {
-              ordinal: ordinal || "Unknown",
-              name: asm?.name || `${ordinal} Legislative Assembly`,
-              id: asmId
-            };
-          }
-        }
+      con.history.forEach((h) => {
+        const asmId = h.assemblyId || con.currentAssemblyId || "15th-assembly";
+        relevantAssemblyIds.add(asmId);
       });
     }
 
-    // 3. Process Current Assembly Session (even if vacant)
-    if (con.currentAssemblyId) {
-      const asmId = con.currentAssemblyId;
+    relevantAssemblyIds.forEach((asmId) => {
       const asm = assembliesMap[asmId];
-      const ordinal = asm ? extractOrdinal(asm.name) : "15th";
-      const currentPerson = con.currentIncumbentId && con.currentIncumbentId !== "vacant" ? personsMap[con.currentIncumbentId] : null;
-      const partyDetails = resolvePartyDetails(currentPerson?.partyId, partiesMap, alliancesMap);
+      const ordinal = asm
+        ? extractOrdinal(asm.name)
+        : extractOrdinal(asmId || "15th");
 
-      if (!assemblyGroups[asmId]) assemblyGroups[asmId] = [];
-      const alreadyListed = assemblyGroups[asmId].some(m => m.memberId === con.currentIncumbentId);
-      
-      if (!alreadyListed) {
-        const previousInAsm = con.history?.some(h => 
-          h.assemblyId === asmId && 
-          (h.reason === "election" || h.reason === "appointment") &&
-          h.personId !== con.currentIncumbentId
+      const asmHistory = (con.history || [])
+        .filter((h) => (h.assemblyId || con.currentAssemblyId || "15th-assembly") === asmId)
+        .sort((a, b) => toTime(a.date) - toTime(b.date));
+
+      // Collect all unique persons who held this constituency in this assembly
+      const personIdsSet = new Set<string>();
+      asmHistory.forEach((h) => {
+        if (h.personId && h.personId !== "vacant") {
+          personIdsSet.add(h.personId);
+        }
+      });
+      if (
+        con.currentAssemblyId === asmId &&
+        con.currentIncumbentId &&
+        con.currentIncumbentId !== "vacant"
+      ) {
+        personIdsSet.add(con.currentIncumbentId);
+      }
+
+      // Build data for each person in this assembly
+      const personDataList = Array.from(personIdsSet).map((pId) => {
+        const person = personsMap[pId] || null;
+        const partyDetails = resolvePartyDetails(
+          person?.partyId,
+          partiesMap,
+          alliancesMap
         );
 
-        assemblyGroups[asmId].push({
-          memberName: currentPerson?.name || (con.currentIncumbentId === 'vacant' ? 'Vacant' : con.currentIncumbentId),
-          memberId: currentPerson?.id || con.currentIncumbentId,
-          partyName: partyDetails.partyName,
-          partyColor: partyDetails.partyColor,
-          partyId: currentPerson?.partyId,
-          electionDate: con.updatedAt,
-          isByelected: !!previousInAsm
-        });
+        const personEntries = asmHistory.filter((h) => h.personId === pId);
+        const electionOrAppt = personEntries.filter(
+          (h) => h.reason === "election" || h.reason === "appointment"
+        );
+        const removal = personEntries.find(
+          (h) =>
+            h.reason &&
+            h.reason !== "election" &&
+            h.reason !== "appointment"
+        );
+
+        const isActiveIncumbent =
+          con.currentAssemblyId === asmId &&
+          con.currentIncumbentId === pId;
+
+        let startDate = 0;
+        if (electionOrAppt.length > 0) {
+          startDate = Math.min(...electionOrAppt.map((e) => toTime(e.date)));
+        } else if (removal) {
+          // If they only have a removal record (e.g. initial sitting MLA who expired),
+          // their term started prior to their removal
+          startDate = toTime(removal.date) - 1;
+        } else if (isActiveIncumbent) {
+          startDate = toTime(con.updatedAt);
+        } else if (personEntries.length > 0) {
+          startDate = Math.min(...personEntries.map((e) => toTime(e.date)));
+        }
+
+        return {
+          personId: pId,
+          person,
+          partyDetails,
+          startDate,
+          electionDate:
+            electionOrAppt.length > 0
+              ? startDate
+              : isActiveIncumbent
+              ? toTime(con.updatedAt)
+              : undefined,
+          removalDate:
+            !isActiveIncumbent && removal ? toTime(removal.date) : undefined,
+          reason: !isActiveIncumbent && removal ? removal.reason : undefined,
+        };
+      });
+
+      // Sort persons chronologically by term start date
+      personDataList.sort((a, b) => {
+        if (a.startDate !== b.startDate) return a.startDate - b.startDate;
+        if (a.removalDate && !b.removalDate) return -1;
+        if (!a.removalDate && b.removalDate) return 1;
+        return 0;
+      });
+
+      if (!assemblyGroups[asmId]) assemblyGroups[asmId] = [];
+
+      // Determine by-election status: index === 0 is the primary regular MLA, index > 0 is Bye Elected
+      personDataList.forEach((item, index) => {
+        const isByelected = index > 0;
+        const alreadyListed = assemblyGroups[asmId].some(
+          (m) => m.memberId === item.personId
+        );
+
+        if (!alreadyListed) {
+          assemblyGroups[asmId].push({
+            memberName: item.person
+              ? formatPersonName(item.person.name, item.person.gender, !!asm?.isActive)
+              : item.personId,
+            memberId: item.person?.id || item.personId,
+            partyName: item.partyDetails.partyName,
+            partyColor: item.partyDetails.partyColor,
+            partyId: item.person?.partyId,
+            reason: item.reason,
+            electionDate: item.electionDate,
+            removalDate: item.removalDate,
+            isByelected,
+          });
+        }
+      });
+
+      // If seat is currently vacant in this assembly and no active member is left, show Vacant placeholder at the end
+      if (
+        con.currentAssemblyId === asmId &&
+        con.currentIncumbentId === "vacant" &&
+        assemblyGroups[asmId].length > 0
+      ) {
+        const hasActiveIncumbent = assemblyGroups[asmId].some(
+          (m) => !m.reason && m.memberId !== "vacant"
+        );
+        if (!hasActiveIncumbent && !assemblyGroups[asmId].some((m) => m.memberId === "vacant")) {
+          assemblyGroups[asmId].push({
+            memberName: "Vacant (No active MLA)",
+            memberId: "vacant",
+            partyName: "Vacant",
+            partyColor: "#71717a",
+            partyId: undefined,
+            isByelected: false,
+          });
+        }
       }
 
       if (!assemblyInfo[asmId]) {
         assemblyInfo[asmId] = {
-          ordinal,
+          ordinal: ordinal || "Unknown",
           name: asm?.name || `${ordinal} Legislative Assembly`,
-          id: asmId
+          id: asmId,
         };
       }
-    }
+    });
 
     // Convert Groups to Rows and Sort
     const sortedAssemblyIds = Object.keys(assemblyGroups).sort((a, b) => {
@@ -296,7 +361,7 @@ export const buildLegislativeSessionsList = ({
         assemblyName: info.name,
         assemblyId: info.id,
         slNo: isNaN(assemblyNumber) ? undefined : assemblyNumber,
-        members: assemblyGroups[asmId].sort((a, b) => (a.electionDate || 0) - (b.electionDate || 0))
+        members: assemblyGroups[asmId]
       });
     });
 

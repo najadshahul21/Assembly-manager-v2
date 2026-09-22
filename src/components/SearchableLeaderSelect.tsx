@@ -267,13 +267,13 @@ export const SearchableLeaderSelect: React.FC<SearchableLeaderSelectProps> = ({
                       <span className="text-zinc-300 font-medium truncate">
                         MLA • {selectedPersonConstituency}
                       </span>
+                    ) : roleKey === 'chiefSecretary' ? (
+                      <span className="text-cyan-400 font-medium">
+                        Civil Administration
+                      </span>
                     ) : isAssemblyMemberOnly ? (
                       <span className="text-zinc-500 italic">Elected MLA</span>
-                    ) : (
-                      <span className="text-cyan-400 font-medium">
-                        Administrative Head
-                      </span>
-                    )}
+                    ) : null}
                   </div>
                 </div>
               </div>
@@ -508,9 +508,9 @@ export const SearchableLeaderSelect: React.FC<SearchableLeaderSelectProps> = ({
                           <div className="flex items-center gap-2 text-[10px] text-zinc-400 mt-0.5 flex-wrap">
                             {conName ? (
                               <span className="truncate text-zinc-300">MLA • {conName}</span>
-                            ) : (
+                            ) : roleKey === 'chiefSecretary' ? (
                               <span>Civil Administration</span>
-                            )}
+                            ) : null}
 
                             {otherRole && (
                               <span className="text-amber-400 text-[9px] font-bold shrink-0 bg-amber-500/10 px-1 py-0.2 rounded border border-amber-500/20">

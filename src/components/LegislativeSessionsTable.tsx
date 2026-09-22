@@ -69,15 +69,15 @@ export const LegislativeSessionsTable: React.FC<LegislativeSessionsTableProps> =
         <table className="w-full border-collapse text-left font-sans">
           <thead>
             <tr className="bg-zinc-900/50 border-b border-zinc-800">
-              <th className="px-4 sm:px-6 py-3 text-[10px] sm:text-xs font-black text-zinc-500 uppercase tracking-widest border-r border-zinc-800/50">
+              <th className="w-16 sm:w-20 px-3 sm:px-4 py-3 text-[10px] sm:text-xs font-black text-zinc-500 uppercase tracking-widest border-r border-zinc-800/50 text-center">
                 Sl. No.
               </th>
               {showAssembly && (
-                <th className="px-4 sm:px-6 py-3 text-[10px] sm:text-xs font-black text-zinc-500 uppercase tracking-widest border-r border-zinc-800/50">
+                <th className="w-36 sm:w-56 px-4 sm:px-6 py-3 text-[10px] sm:text-xs font-black text-zinc-500 uppercase tracking-widest border-r border-zinc-800/50 text-left">
                   Assembly Session
                 </th>
               )}
-              <th className="px-4 sm:px-6 py-3 text-[10px] sm:text-xs font-black text-zinc-500 uppercase tracking-widest">
+              <th className="px-4 sm:px-6 py-3 text-[10px] sm:text-xs font-black text-zinc-500 uppercase tracking-widest text-left">
                 Member / Party Affiliation
               </th>
             </tr>
@@ -90,30 +90,30 @@ export const LegislativeSessionsTable: React.FC<LegislativeSessionsTableProps> =
                   className="hover:bg-white/[0.02] transition-colors border-b border-zinc-800/50 last:border-0"
                 >
                   {/* COLUMN 0: Sl. No. */}
-                  <td className="w-16 px-4 sm:px-6 py-4 border-r border-zinc-800/90 text-zinc-500 font-mono text-sm align-middle text-center bg-black/20">
+                  <td className="w-16 sm:w-20 px-3 sm:px-4 py-4 border-r border-zinc-800/90 text-zinc-500 font-mono text-sm align-middle text-center bg-black/20">
                     {(row.slNo || 0).toString().padStart(2, '0')}
                   </td>
 
                   {/* COLUMN 1: Assembly Session */}
                   {showAssembly && (
-                    <td className="w-40 sm:w-56 px-4 sm:px-6 py-4 border-r border-zinc-800/90 text-zinc-100 font-medium text-base sm:text-lg align-middle select-none">
+                    <td className="w-36 sm:w-56 px-4 sm:px-6 py-4 border-r border-zinc-800/90 text-zinc-100 font-medium text-base sm:text-lg align-middle select-none">
                       {row.assemblyId && onNavigateAssembly ? (
                         <button
                           type="button"
                           onClick={() => onNavigateAssembly(row.assemblyId!)}
-                          className="hover:text-[#FFD700] hover:underline transition-colors cursor-pointer"
+                          className="hover:text-[#FFD700] hover:underline transition-colors cursor-pointer break-words whitespace-normal text-left"
                           title={row.assemblyName || row.assemblyOrdinal}
                         >
                           {row.assemblyName || row.assemblyOrdinal}
                         </button>
                       ) : (
-                        <span>{row.assemblyName || row.assemblyOrdinal}</span>
+                        <span className="break-words whitespace-normal">{row.assemblyName || row.assemblyOrdinal}</span>
                       )}
                     </td>
                   )}
 
-                  {/* COLUMN 2: Members & Parties (Unified Column) */}
-                  <td colSpan={2} className="px-4 sm:px-6 py-4 align-top border-l border-zinc-800/50">
+                  {/* COLUMN 2: Members & Parties (Unified Column - matched to 1 col) */}
+                  <td className="px-4 sm:px-6 py-4 align-top">
                     <div className="flex flex-col gap-4">
                       {row.members.map((m, mIdx) => (
                         <div 
@@ -121,12 +121,12 @@ export const LegislativeSessionsTable: React.FC<LegislativeSessionsTableProps> =
                           className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${mIdx > 0 ? 'pt-4 border-t border-zinc-800/30' : ''}`}
                         >
                           {/* Member Info */}
-                          <div className="flex flex-col gap-0.5 flex-1 min-w-0">
+                          <div className="flex flex-col gap-0.5 flex-1 min-w-0 pr-2">
                             {m.memberId && m.memberId !== 'vacant' && onNavigatePerson ? (
                               <button
                                 type="button"
                                 onClick={() => onNavigatePerson(m.memberId!)}
-                                className="text-left text-[#FFD700] font-bold text-base sm:text-lg hover:underline transition-colors cursor-pointer block truncate"
+                                className="text-left text-[#FFD700] font-bold text-base sm:text-lg hover:underline transition-colors cursor-pointer block break-words whitespace-normal leading-snug"
                               >
                                 {m.memberName}
                               </button>
@@ -134,8 +134,8 @@ export const LegislativeSessionsTable: React.FC<LegislativeSessionsTableProps> =
                               <span
                                 className={
                                   m.memberName === 'Vacant' || !m.memberName
-                                    ? 'text-zinc-500 italic block font-medium'
-                                    : 'text-[#FFD700] block font-bold text-base sm:text-lg'
+                                    ? 'text-zinc-500 italic block font-medium break-words whitespace-normal leading-snug'
+                                    : 'text-[#FFD700] block font-bold text-base sm:text-lg break-words whitespace-normal leading-snug'
                                 }
                               >
                                 {m.memberName || 'Vacant'}
@@ -143,13 +143,13 @@ export const LegislativeSessionsTable: React.FC<LegislativeSessionsTableProps> =
                             )}
                             
                             {m.reason && m.reason !== 'appointment' && (
-                              <span className="text-[10px] sm:text-[11px] text-red-500 font-black uppercase tracking-wider leading-tight mt-0.5">
+                              <span className="text-[10px] sm:text-[11px] text-red-500 font-black uppercase tracking-wider leading-tight mt-0.5 break-words whitespace-normal">
                                 ({m.reason}{m.removalDate ? ` • ${new Date(m.removalDate).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '-')}` : ''})
                               </span>
                             )}
                             
                             {m.isByelected && (
-                              <span className="text-[10px] sm:text-[11px] text-emerald-500 font-black uppercase tracking-wider leading-tight mt-0.5 italic">
+                              <span className="text-[10px] sm:text-[11px] text-emerald-500 font-black uppercase tracking-wider leading-tight mt-0.5 italic break-words whitespace-normal">
                                 (Bye Elected{m.electionDate ? ` • ${(() => {
                                   const d = new Date(m.electionDate);
                                   return d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '-');
@@ -159,7 +159,7 @@ export const LegislativeSessionsTable: React.FC<LegislativeSessionsTableProps> =
                           </div>
 
                           {/* Party Info */}
-                          <div className="flex items-center gap-2 sm:justify-end shrink-0">
+                          <div className="flex items-center gap-2 sm:justify-end shrink-0 pt-0.5 sm:pt-0">
                             <div 
                               className="w-1.5 h-6 rounded-full shrink-0" 
                               style={{ backgroundColor: m.partyColor || '#666' }} 
@@ -168,12 +168,12 @@ export const LegislativeSessionsTable: React.FC<LegislativeSessionsTableProps> =
                               <button
                                 type="button"
                                 onClick={() => onNavigateParty(m.partyId!)}
-                                className="text-xs sm:text-sm font-black text-zinc-400 hover:text-white uppercase tracking-widest transition-colors cursor-pointer"
+                                className="text-xs sm:text-sm font-black text-zinc-400 hover:text-white uppercase tracking-widest transition-colors cursor-pointer whitespace-nowrap"
                               >
                                 {m.partyName}
                               </button>
                             ) : (
-                              <span className="text-xs sm:text-sm font-black text-zinc-500 uppercase tracking-widest">{m.partyName}</span>
+                              <span className="text-xs sm:text-sm font-black text-zinc-500 uppercase tracking-widest whitespace-nowrap">{m.partyName}</span>
                             )}
                           </div>
                         </div>

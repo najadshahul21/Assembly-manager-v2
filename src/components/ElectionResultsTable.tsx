@@ -42,13 +42,13 @@ export const ElectionResultsTable: React.FC<ElectionResultsTableProps> = ({
         <table className="w-full text-left text-sm border-collapse">
           <thead>
             <tr className="bg-[#1f1f22] border-b border-zinc-800 text-zinc-100 font-bold text-base">
-              <th className="py-3 px-4 w-[25%] font-bold text-white border-r border-zinc-800">
+              <th className="py-3 px-4 w-[22%] min-w-[90px] font-bold text-white border-r border-zinc-800">
                 Party
               </th>
-              <th className="py-3 px-4 w-[45%] font-bold text-white border-r border-zinc-800">
+              <th className="py-3 px-4 w-[48%] min-w-[180px] font-bold text-white border-r border-zinc-800">
                 Candidate
               </th>
-              <th className="py-3 px-4 w-[30%] font-bold text-white text-right">
+              <th className="py-3 px-4 w-[30%] min-w-[100px] font-bold text-white text-right">
                 Votes
               </th>
             </tr>
@@ -80,10 +80,10 @@ export const ElectionResultsTable: React.FC<ElectionResultsTableProps> = ({
                   </td>
 
                   {/* Candidate Column */}
-                  <td className="py-3 px-4 border-r border-zinc-800">
+                  <td className="py-3 px-4 border-r border-zinc-800 break-words whitespace-normal">
                     <span
                       onClick={() => cand.personId && cand.personId !== 'nota' && onPersonClick?.(cand.personId)}
-                      className={`text-base sm:text-lg font-semibold text-[#0ea5e9] hover:text-[#38bdf8] ${
+                      className={`text-base sm:text-lg font-semibold text-[#0ea5e9] hover:text-[#38bdf8] break-words whitespace-normal leading-snug block ${
                         cand.personId && cand.personId !== 'nota' ? 'cursor-pointer hover:underline' : ''
                       }`}
                     >

@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { db } from '../db';
 import { LegislativeOrder, Person, Party, Assembly, Designation, Constituency, formatOfficeOfHonble } from '../types';
+import { isMinisterialRole } from '../utils/governmentUtils';
 import { nanoid } from 'nanoid';
 import { useLiveQuery } from 'dexie-react-hooks';
 
@@ -80,7 +81,7 @@ export const ReleaseOrderModal: React.FC<ReleaseOrderModalProps> = ({
   }, [persons]);
 
   const activeAssembly = useMemo(() => {
-    return assemblies.find(a => a.isActive) || assemblies.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0];
+    return assemblies.find(a => a.isActive !== false) || null;
   }, [assemblies]);
 
   const ordersList = useLiveQuery(() => db.orders.toArray()) || [];
@@ -96,6 +97,17 @@ export const ReleaseOrderModal: React.FC<ReleaseOrderModalProps> = ({
       return id === 'supreme-court' || id === 'high-court' || lower.includes('supreme court') || lower.includes('high court');
     };
 
+    // Active assembly seats and active elected MLAs
+    const assemblyConstituencies = (activeAssembly && activeAssembly.isActive !== false)
+      ? constituencies.filter(c => c.currentAssemblyId === activeAssembly.id)
+      : [];
+    const activeMlaMap = new Map<string, string>(); // personId -> constituencyName
+    assemblyConstituencies.forEach(c => {
+      if (c.currentIncumbentId && c.currentIncumbentId !== 'vacant') {
+        activeMlaMap.set(c.currentIncumbentId, c.name);
+      }
+    });
+
     const addOption = (opt: DesignationOption) => {
       const isJudicialExempt = isJudicialCourt(opt.id, opt.name);
       // Strictly prevent vacant offices from producing orders, EXCEPT for inbuilt judicial court offices
@@ -110,6 +122,11 @@ export const ReleaseOrderModal: React.FC<ReleaseOrderModalProps> = ({
         ) {
           return;
         }
+        // Suspended incumbents cannot sign
+        const inc = opt.incumbentId ? personsMap.get(opt.incumbentId) : undefined;
+        if (inc && inc.isSuspended) {
+          return;
+        }
       }
       const key = `${opt.id}::${opt.name}`;
       if (!addedKeys.has(key)) {
@@ -121,33 +138,35 @@ export const ReleaseOrderModal: React.FC<ReleaseOrderModalProps> = ({
     // 1. Supreme Court (Inbuilt Signer Office - Exception: Can sign without an incumbent)
     const supremeDesig = designations.find(d => d.id === 'supreme-court' || d.name.toLowerCase().includes('supreme court'));
     const scPerson = (supremeDesig?.incumbentId && supremeDesig.incumbentId !== 'vacant') ? personsMap.get(supremeDesig.incumbentId) : undefined;
+    const isScPersonActive = scPerson && !scPerson.isSuspended;
     addOption({
       id: supremeDesig?.id || 'supreme-court',
       name: 'Supreme Court',
       category: 'Judicial Authorities',
-      incumbentId: scPerson?.id || undefined,
-      incumbentName: scPerson?.name || '',
-      partyAbbr: scPerson ? partiesMap.get(scPerson.partyId)?.abbreviation : undefined,
-      roleDescription: scPerson ? 'Chief Justice / Judge' : 'Inbuilt Judicial Authority'
+      incumbentId: isScPersonActive ? scPerson.id : undefined,
+      incumbentName: isScPersonActive ? scPerson.name : '',
+      partyAbbr: isScPersonActive ? partiesMap.get(scPerson.partyId)?.abbreviation : undefined,
+      roleDescription: isScPersonActive ? 'Chief Justice / Judge' : 'Inbuilt Judicial Authority'
     });
 
     // 2. High Court (Inbuilt Signer Office - Exception: Can sign without an incumbent)
     const highCourtDesig = designations.find(d => d.id === 'high-court' || d.name.toLowerCase().includes('high court'));
     const hcPerson = (highCourtDesig?.incumbentId && highCourtDesig.incumbentId !== 'vacant') ? personsMap.get(highCourtDesig.incumbentId) : undefined;
+    const isHcPersonActive = hcPerson && !hcPerson.isSuspended;
     addOption({
       id: highCourtDesig?.id || 'high-court',
       name: 'High Court',
       category: 'Judicial Authorities',
-      incumbentId: hcPerson?.id || undefined,
-      incumbentName: hcPerson?.name || '',
-      partyAbbr: hcPerson ? partiesMap.get(hcPerson.partyId)?.abbreviation : undefined,
-      roleDescription: hcPerson ? 'Chief Justice / Judge' : 'Inbuilt Judicial Authority'
+      incumbentId: isHcPersonActive ? hcPerson.id : undefined,
+      incumbentName: isHcPersonActive ? hcPerson.name : '',
+      partyAbbr: isHcPersonActive ? partiesMap.get(hcPerson.partyId)?.abbreviation : undefined,
+      roleDescription: isHcPersonActive ? 'Chief Justice / Judge' : 'Inbuilt Judicial Authority'
     });
 
-    // 3. Governor
+    // 3. Governor (Constitutional head of state)
     const govDesig = designations.find(d => d.id === 'governor' || d.name.toLowerCase().includes('governor'));
     const govPerson = govDesig?.incumbentId && govDesig.incumbentId !== 'vacant' ? personsMap.get(govDesig.incumbentId) : undefined;
-    if (govPerson) {
+    if (govPerson && !govPerson.isSuspended) {
       addOption({
         id: govDesig?.id || 'governor',
         name: govDesig?.name || "Hon'ble Governor",
@@ -159,14 +178,14 @@ export const ReleaseOrderModal: React.FC<ReleaseOrderModalProps> = ({
       });
     }
 
-    // 4. State & Legislative Leadership
-    if (activeAssembly?.leaders) {
+    // 4. State & Legislative Leadership (Requires an active assembly with active elected MLAs)
+    if (activeAssembly && activeAssembly.isActive !== false && activeAssembly.leaders && activeMlaMap.size > 0) {
       const leaders = activeAssembly.leaders;
       
-      // Chief Minister
-      if (leaders.chiefMinister && leaders.chiefMinister !== 'vacant') {
+      // Chief Minister (Must be an active MLA in this active assembly and not suspended)
+      if (leaders.chiefMinister && leaders.chiefMinister !== 'vacant' && activeMlaMap.has(leaders.chiefMinister)) {
         const cmPerson = personsMap.get(leaders.chiefMinister);
-        if (cmPerson) {
+        if (cmPerson && !cmPerson.isSuspended) {
           addOption({
             id: 'leader-chiefMinister',
             name: "Hon'ble Chief Minister",
@@ -180,9 +199,9 @@ export const ReleaseOrderModal: React.FC<ReleaseOrderModalProps> = ({
       }
 
       // Deputy Chief Minister
-      if (leaders.deputyChiefMinister && leaders.deputyChiefMinister !== 'vacant') {
+      if (leaders.deputyChiefMinister && leaders.deputyChiefMinister !== 'vacant' && activeMlaMap.has(leaders.deputyChiefMinister)) {
         const dcmPerson = personsMap.get(leaders.deputyChiefMinister);
-        if (dcmPerson) {
+        if (dcmPerson && !dcmPerson.isSuspended) {
           addOption({
             id: 'leader-deputyChiefMinister',
             name: "Hon'ble Deputy Chief Minister",
@@ -196,9 +215,9 @@ export const ReleaseOrderModal: React.FC<ReleaseOrderModalProps> = ({
       }
 
       // Speaker
-      if (leaders.speaker && leaders.speaker !== 'vacant') {
+      if (leaders.speaker && leaders.speaker !== 'vacant' && activeMlaMap.has(leaders.speaker)) {
         const spkPerson = personsMap.get(leaders.speaker);
-        if (spkPerson) {
+        if (spkPerson && !spkPerson.isSuspended) {
           addOption({
             id: 'leader-speaker',
             name: "Hon'ble Speaker of the Legislative Assembly",
@@ -212,9 +231,9 @@ export const ReleaseOrderModal: React.FC<ReleaseOrderModalProps> = ({
       }
 
       // Deputy Speaker
-      if (leaders.deputySpeaker && leaders.deputySpeaker !== 'vacant') {
+      if (leaders.deputySpeaker && leaders.deputySpeaker !== 'vacant' && activeMlaMap.has(leaders.deputySpeaker)) {
         const dspkPerson = personsMap.get(leaders.deputySpeaker);
-        if (dspkPerson) {
+        if (dspkPerson && !dspkPerson.isSuspended) {
           addOption({
             id: 'leader-deputySpeaker',
             name: "Hon'ble Deputy Speaker",
@@ -227,26 +246,10 @@ export const ReleaseOrderModal: React.FC<ReleaseOrderModalProps> = ({
         }
       }
 
-      // Chief Secretary
-      if (leaders.chiefSecretary && leaders.chiefSecretary !== 'vacant') {
-        const csPerson = personsMap.get(leaders.chiefSecretary);
-        if (csPerson) {
-          addOption({
-            id: 'leader-chiefSecretary',
-            name: "Chief Secretary to Government",
-            category: 'Executive & Cabinet',
-            incumbentId: csPerson.id,
-            incumbentName: csPerson.name,
-            partyAbbr: partiesMap.get(csPerson.partyId)?.abbreviation,
-            roleDescription: 'Administrative Head'
-          });
-        }
-      }
-
       // Leader of Opposition
-      if (leaders.leaderOfOpposition && leaders.leaderOfOpposition !== 'vacant') {
+      if (leaders.leaderOfOpposition && leaders.leaderOfOpposition !== 'vacant' && activeMlaMap.has(leaders.leaderOfOpposition)) {
         const lopPerson = personsMap.get(leaders.leaderOfOpposition);
-        if (lopPerson) {
+        if (lopPerson && !lopPerson.isSuspended) {
           addOption({
             id: 'leader-leaderOfOpposition',
             name: "Leader of Opposition",
@@ -260,9 +263,9 @@ export const ReleaseOrderModal: React.FC<ReleaseOrderModalProps> = ({
       }
 
       // Deputy Leader of Opposition
-      if (leaders.deputyLeaderOfOpposition && leaders.deputyLeaderOfOpposition !== 'vacant') {
+      if (leaders.deputyLeaderOfOpposition && leaders.deputyLeaderOfOpposition !== 'vacant' && activeMlaMap.has(leaders.deputyLeaderOfOpposition)) {
         const dlopPerson = personsMap.get(leaders.deputyLeaderOfOpposition);
-        if (dlopPerson) {
+        if (dlopPerson && !dlopPerson.isSuspended) {
           addOption({
             id: 'leader-deputyLeaderOfOpposition',
             name: "Deputy Leader of Opposition",
@@ -276,15 +279,33 @@ export const ReleaseOrderModal: React.FC<ReleaseOrderModalProps> = ({
       }
     }
 
-    // 5. Ministers (from assemblyRoles and designations)
-    if (activeAssembly) {
+    // Chief Secretary (Administrative head, active non-suspended incumbent)
+    if (activeAssembly?.leaders?.chiefSecretary && activeAssembly.leaders.chiefSecretary !== 'vacant') {
+      const csPerson = personsMap.get(activeAssembly.leaders.chiefSecretary);
+      if (csPerson && !csPerson.isSuspended) {
+        addOption({
+          id: 'leader-chiefSecretary',
+          name: "Chief Secretary to Government",
+          category: 'Executive & Cabinet',
+          incumbentId: csPerson.id,
+          incumbentName: csPerson.name,
+          partyAbbr: partiesMap.get(csPerson.partyId)?.abbreviation,
+          roleDescription: 'Administrative Head'
+        });
+      }
+    }
+
+    // 5. Ministers & Portfolios (Only active when an active assembly exists and incumbent is an active MLA in this assembly)
+    if (activeAssembly && activeAssembly.isActive !== false && activeMlaMap.size > 0) {
       const targetAssemblyId = activeAssembly.id;
+      
+      // Ministerial roles from person.assemblyRoles
       persons.forEach(p => {
-        if (p.assemblyRoles && p.assemblyRoles[targetAssemblyId]) {
+        if (!p.isSuspended && activeMlaMap.has(p.id) && p.assemblyRoles && p.assemblyRoles[targetAssemblyId]) {
           const roles = p.assemblyRoles[targetAssemblyId].split(', ');
           roles.forEach(role => {
             const lower = role.toLowerCase();
-            if (lower.includes('minister') && !lower.includes('former')) {
+            if (isMinisterialRole(role) && !lower.includes('former') && !lower.includes('expired')) {
               const formattedName = role.startsWith("Hon'ble") ? role : `Hon'ble ${role}`;
               addOption({
                 id: `minister-${p.id}-${role.replace(/[^a-z0-9]/gi, '_')}`,
@@ -299,54 +320,59 @@ export const ReleaseOrderModal: React.FC<ReleaseOrderModalProps> = ({
           });
         }
       });
+
+      // Ministerial roles from designations table
+      designations.forEach(d => {
+        if (isMinisterialRole(d.name) && !addedKeys.has(`${d.id}::${d.name}`)) {
+          // If designation is assigned to a specific assembly, it must match the active assembly
+          if (d.assemblyId && d.assemblyId !== targetAssemblyId) {
+            return;
+          }
+          const incPerson = d.incumbentId && d.incumbentId !== 'vacant' ? personsMap.get(d.incumbentId) : undefined;
+          if (incPerson && !incPerson.isSuspended && activeMlaMap.has(incPerson.id)) {
+            addOption({
+              id: d.id,
+              name: d.name,
+              category: 'Ministers & Portfolios',
+              incumbentId: incPerson.id,
+              incumbentName: incPerson.name,
+              partyAbbr: partiesMap.get(incPerson.partyId)?.abbreviation,
+              roleDescription: 'Ministerial Designation'
+            });
+          }
+        }
+      });
     }
 
-    // Designations that are ministerial
-    designations.forEach(d => {
-      const lower = d.name.toLowerCase();
-      if (lower.includes('minister') && !addedKeys.has(`${d.id}::${d.name}`)) {
-        const incPerson = d.incumbentId && d.incumbentId !== 'vacant' ? personsMap.get(d.incumbentId) : undefined;
-        if (incPerson) {
+    // 6. MLAs (Members of the Legislative Assembly - Only when an active assembly exists)
+    if (activeAssembly && activeAssembly.isActive !== false) {
+      const sortedConstituencies = [...assemblyConstituencies].sort((a, b) => {
+        const slA = parseInt(a.slNo) || 9999;
+        const slB = parseInt(b.slNo) || 9999;
+        return slA - slB;
+      });
+
+      sortedConstituencies.forEach(c => {
+        const mlaPerson = c.currentIncumbentId && c.currentIncumbentId !== 'vacant' 
+          ? personsMap.get(c.currentIncumbentId) 
+          : undefined;
+        
+        if (mlaPerson && !mlaPerson.isSuspended) {
+          const party = partiesMap.get(mlaPerson.partyId);
           addOption({
-            id: d.id,
-            name: d.name,
-            category: 'Ministers & Portfolios',
-            incumbentId: incPerson.id,
-            incumbentName: incPerson.name,
-            partyAbbr: partiesMap.get(incPerson.partyId)?.abbreviation,
-            roleDescription: 'Ministerial Designation'
+            id: `mla-${c.id}`,
+            name: `MLA - ${c.name}`,
+            category: 'Members of the Legislative Assembly (MLAs)',
+            incumbentId: mlaPerson.id,
+            incumbentName: mlaPerson.name,
+            partyAbbr: party?.abbreviation,
+            roleDescription: `Sl No: ${c.slNo || '--'}`
           });
         }
-      }
-    });
+      });
+    }
 
-    // 6. MLAs (Members of the Legislative Assembly)
-    const sortedConstituencies = [...constituencies].sort((a, b) => {
-      const slA = parseInt(a.slNo) || 9999;
-      const slB = parseInt(b.slNo) || 9999;
-      return slA - slB;
-    });
-
-    sortedConstituencies.forEach(c => {
-      const mlaPerson = c.currentIncumbentId && c.currentIncumbentId !== 'vacant' 
-        ? personsMap.get(c.currentIncumbentId) 
-        : undefined;
-      
-      if (mlaPerson) {
-        const party = partiesMap.get(mlaPerson.partyId);
-        addOption({
-          id: `mla-${c.id}`,
-          name: `MLA - ${c.name}`,
-          category: 'Members of the Legislative Assembly (MLAs)',
-          incumbentId: mlaPerson.id,
-          incumbentName: mlaPerson.name,
-          partyAbbr: party?.abbreviation,
-          roleDescription: `Sl No: ${c.slNo || '--'}`
-        });
-      }
-    });
-
-    // 7. All Other Existing Designations in DB
+    // 7. All Other Existing Designations in DB (Non-ministerial statutory offices)
     designations.forEach(d => {
       const lower = d.name.toLowerCase();
       if (
@@ -358,11 +384,15 @@ export const ReleaseOrderModal: React.FC<ReleaseOrderModalProps> = ({
         !lower.includes('supreme court') && 
         !lower.includes('court') &&
         !lower.includes('judic') &&
-        !lower.includes('minister') &&
+        !isMinisterialRole(d.name) &&
         !d.constituencyId
       ) {
+        // If tied to an assembly, that assembly must be active
+        if (d.assemblyId && (!activeAssembly || activeAssembly.isActive === false || d.assemblyId !== activeAssembly.id)) {
+          return;
+        }
         const incPerson = d.incumbentId && d.incumbentId !== 'vacant' ? personsMap.get(d.incumbentId) : undefined;
-        if (incPerson) {
+        if (incPerson && !incPerson.isSuspended) {
           addOption({
             id: d.id,
             name: d.name,
@@ -691,9 +721,9 @@ export const ReleaseOrderModal: React.FC<ReleaseOrderModalProps> = ({
 
   const isInitialDesignationVacant = Boolean(
     initialDesignationId && 
-    initialDesignationObj && 
     !isInitialCourtExempt &&
-    (!initialDesignationObj.incumbentId || initialDesignationObj.incumbentId === 'vacant')
+    (!designationOptions.some(d => d.id === initialDesignationId) ||
+     (initialDesignationObj && (!initialDesignationObj.incumbentId || initialDesignationObj.incumbentId === 'vacant')))
   );
 
   // Filtered Designation Options for Apps-Organized Picker

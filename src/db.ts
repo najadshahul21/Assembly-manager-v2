@@ -260,9 +260,12 @@ export const freezeAssembly = async (assemblyId: string) => {
   const membersOutputList: any[] = [];
   const addedPersons = new Set<string>();
 
+  const toTime = (d: any) =>
+    typeof d === "number" ? d : d ? new Date(d).getTime() : 0;
+
   for (const con of relevantCs) {
     const conHistory = (con.history || []).filter(
-      (h) => h.assemblyId === assemblyId,
+      (h) => (h.assemblyId || con.currentAssemblyId || "15th-assembly") === assemblyId,
     );
 
     const personIdsSet = new Set<string>();
@@ -280,26 +283,50 @@ export const freezeAssembly = async (assemblyId: string) => {
 
     const personAppointments = Array.from(personIdsSet).map((pId) => {
       const entries = conHistory.filter((h) => h.personId === pId);
-      const earliestDate =
-        entries.length > 0
-          ? Math.min(...entries.map((e) => e.date))
-          : Date.now();
-      return { pId, earliestDate };
+      const electionOrAppt = entries.filter(
+        (h) => h.reason === "election" || h.reason === "appointment"
+      );
+      const removal = entries.find(
+        (h) =>
+          h.reason &&
+          h.reason !== "election" &&
+          h.reason !== "appointment"
+      );
+      const isActive =
+        con.currentAssemblyId === assemblyId && con.currentIncumbentId === pId;
+
+      let earliestDate = 0;
+      if (electionOrAppt.length > 0) {
+        earliestDate = Math.min(...electionOrAppt.map((e) => toTime(e.date)));
+      } else if (removal) {
+        earliestDate = toTime(removal.date) - 1;
+      } else if (isActive) {
+        earliestDate = toTime(con.updatedAt);
+      } else if (entries.length > 0) {
+        earliestDate = Math.min(...entries.map((e) => toTime(e.date)));
+      } else {
+        earliestDate = Date.now();
+      }
+
+      return { pId, earliestDate, isActive, removal };
     });
-    personAppointments.sort((a, b) => a.earliestDate - b.earliestDate);
+
+    personAppointments.sort((a, b) => {
+      if (a.earliestDate !== b.earliestDate) return a.earliestDate - b.earliestDate;
+      if (a.removal && !b.removal) return -1;
+      if (!a.removal && b.removal) return 1;
+      return 0;
+    });
 
     for (let index = 0; index < personAppointments.length; index++) {
-      const { pId } = personAppointments[index];
+      const { pId, isActive, removal } = personAppointments[index];
       const p = persons.find(item => item.id === pId);
       if (p) {
-        const removalEntry = conHistory.find(
-          (h) => h.personId === pId && h.reason !== "appointment",
-        );
         let mlaStatusText = "";
-        if (removalEntry) {
+        if (!isActive && removal) {
           mlaStatusText =
-            removalEntry.reason.charAt(0).toUpperCase() +
-            removalEntry.reason.slice(1);
+            removal.reason.charAt(0).toUpperCase() +
+            removal.reason.slice(1);
         } else if (index > 0) {
           mlaStatusText = "Byelected";
         }
