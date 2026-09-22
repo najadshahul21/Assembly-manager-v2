@@ -214,11 +214,35 @@ export const PartyInfoboxTable: React.FC<PartyInfoboxTableProps> = ({
     if (!activeAssembly || !party.legislativeLeaderId) return [];
 
     const person = personsList.find(p => p.id === party.legislativeLeaderId);
-    if (person) {
-      return [{ person, title: 'Legislative Leader' }];
+    if (!person) return [];
+
+    // Determine specific title
+    let title = 'Legislative Leader';
+
+    // 1. Check if they hold a specific leadership role in the assembly
+    if (activeAssembly.leaders) {
+      if (activeAssembly.leaders.chiefMinister === person.id) title = 'Chief Minister';
+      else if (activeAssembly.leaders.deputyChiefMinister === person.id) title = 'Deputy Chief Minister';
+      else if (activeAssembly.leaders.leaderOfOpposition === person.id) title = 'Leader of Opposition';
+      else if (activeAssembly.leaders.deputyLeaderOfOpposition === person.id) title = 'Deputy Leader of Opposition';
+      else if (activeAssembly.leaders.speaker === person.id) title = 'Speaker';
+      else if (activeAssembly.leaders.deputySpeaker === person.id) title = 'Deputy Speaker';
     }
 
-    return [];
+    // 2. Check for ministerial roles in assemblyRoles if title is still generic
+    if (title === 'Legislative Leader' && person.assemblyRoles?.[activeAssembly.id]) {
+      const role = person.assemblyRoles[activeAssembly.id];
+      if (typeof role === 'string' && role) {
+        title = role;
+      }
+    }
+
+    // 3. Fallback to MLA for [Constituency] if title is still generic
+    if (title === 'Legislative Leader' && person.constituencyName) {
+      title = `MLA for ${person.constituencyName}`;
+    }
+
+    return [{ person, title }];
   }, [activeAssembly, personsList, party.legislativeLeaderId]);
 
   return (

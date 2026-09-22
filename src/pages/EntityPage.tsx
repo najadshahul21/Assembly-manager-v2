@@ -2499,12 +2499,56 @@ export const EntityPage: React.FC = () => {
           }
         }
 
+        // 3b. Find and vacate any alliance leadership positions
+        console.log("Vacating alliance leadership positions...");
+        const allAlliances = await db.alliances.toArray();
+        for (const al of allAlliances) {
+          let updated = false;
+          const updateObj: any = { updatedAt: now };
+          
+          if (al.leaderId === pId) {
+            updateObj.leaderId = "vacant";
+            updated = true;
+          }
+          if (al.chairmanId === pId) {
+            updateObj.chairmanId = "vacant";
+            updated = true;
+          }
+          if (al.founderId === pId) {
+            updateObj.founderId = "vacant";
+            updated = true;
+          }
+          if (al.highCommandIds?.includes(pId)) {
+            updateObj.highCommandIds = al.highCommandIds.filter(id => id !== pId);
+            updated = true;
+          }
+
+          if (updated) {
+            await db.alliances.update(al.id, updateObj);
+          }
+        }
+
+        // 3c. Find and vacate any party leadership positions (Chairman)
+        console.log("Vacating party chairman positions...");
+        const allParties = await db.parties.toArray();
+        for (const p of allParties) {
+          if (p.chairman === pId) {
+            await db.parties.update(p.id, {
+              chairman: "vacant",
+              updatedAt: now
+            });
+          }
+        }
+
         // 4. Finally, write the updated person record to database with isSuspended: true
         console.log("Writing final suspended status to person...");
         await db.persons.update(pId, {
           isSuspended: true,
+          designations: [],
           assemblyRoles,
           roleHistory,
+          constituencyName: undefined,
+          mlaStatusText: "Suspended / Expired",
           updatedAt: now
         });
         console.log("Suspension fully complete!");
@@ -2520,7 +2564,7 @@ export const EntityPage: React.FC = () => {
     
     confirmAction(
       "Suspend Political Party",
-      `Are you sure you want to suspend ${party.name}? This will mark the party as suspended and freeze its active statuses, keeping it strictly as a historical record.`,
+      `Are you sure you want to suspend ${party.name}? This will mark the party as suspended, clear its alliance affiliation, remove its legislative leader, and freeze its active statuses, keeping it strictly as a historical record.`,
       async () => {
         const now = Date.now();
         const pId = party.id;
@@ -2534,8 +2578,22 @@ export const EntityPage: React.FC = () => {
         console.log("Writing final suspended status to party...");
         await db.parties.update(pId, {
           isSuspended: true,
+          legislativeLeaderId: undefined,
+          allianceId: "independent",
+          chairman: "vacant",
           updatedAt: now
         });
+
+        // Clear this party as the leading party in any alliances
+        const allAlliances = await db.alliances.toArray();
+        for (const al of allAlliances) {
+          if (al.leadingPartyId === pId) {
+            await db.alliances.update(al.id, {
+              leadingPartyId: undefined,
+              updatedAt: now
+            });
+          }
+        }
         console.log("Party suspension fully complete!");
       },
       true,
@@ -3182,7 +3240,7 @@ export const EntityPage: React.FC = () => {
               <UserMinus size={18} />
             </button>
           )}
-          {!isDissolvedRecord && id !== 'governor' && (
+          {!isDissolvedRecord && id !== 'governor' && !(entity as any).isSuspended && (
             <button
               onClick={() => setShowEditModal(true)}
               title="Modify Entry"
@@ -3205,7 +3263,7 @@ export const EntityPage: React.FC = () => {
                 <HistoryIcon size={18} />
               </button>
             )}
-          {id !== 'governor' && (
+          {id !== 'governor' && !(entity as any).isSuspended && (
             <button
               onClick={() => setShowDeletePopup(true)}
               title="Delete Record"
