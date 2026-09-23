@@ -8,7 +8,6 @@ import { motion } from 'motion/react';
 import { Users, Flag, Shield, Landmark, Award, TrendingUp, AlertCircle, MapPin, User } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { formatPersonName } from '../utils/governmentUtils';
-import { PoliticalRelationshipGraph } from '../components/PoliticalRelationshipGraph';
 
 export const Dashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -23,17 +22,6 @@ export const Dashboard: React.FC = () => {
   const parties = useLiveQuery(async () => {
     const list = await db.parties.orderBy('updatedAt').reverse().toArray();
     return list.filter(p => !p.isSuspended).slice(0, 4);
-  }) || [];
-
-  // Live queries for the relationship graph mapping all non-suspended entities
-  const graphAlliances = useLiveQuery(() => db.alliances.toArray()) || [];
-  const graphParties = useLiveQuery(async () => {
-    const list = await db.parties.toArray();
-    return list.filter(p => !p.isSuspended);
-  }) || [];
-  const graphPersons = useLiveQuery(async () => {
-    const list = await db.persons.toArray();
-    return list.filter(p => !p.isSuspended);
   }) || [];
 
   const stateLeadership = useLiveQuery(async () => {
@@ -589,15 +577,6 @@ export const Dashboard: React.FC = () => {
             </div>
           </motion.div>
         ))}
-      </section>
-
-      {/* Visual Relationship Graph (D3 Network Mapping) */}
-      <section className="space-y-4">
-        <PoliticalRelationshipGraph
-          alliances={graphAlliances}
-          parties={graphParties}
-          persons={graphPersons}
-        />
       </section>
 
       {/* Quick Access Circles */}
