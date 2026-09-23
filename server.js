@@ -1,5 +1,6 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -7,48 +8,55 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 
-// Health check endpoint
-app.get('/healthz', (_req, res) => {
+const distPath = path.join(__dirname, 'dist');
+const indexPath = path.join(distPath, 'index.html');
+const rootIndexPath = path.join(__dirname, 'index.html');
+
+// Health check endpoints for Cloud Run and internal probes
+app.get(['/healthz', '/health', '/api/health'], (_req, res) => {
   res.status(200).send('OK');
 });
 
-// Serve static assets from Vite build
-const distPath = path.join(__dirname, 'dist');
-app.use(express.static(distPath));
+// Serve static assets from Vite build output if present
+if (fs.existsSync(distPath)) {
+  app.use(express.static(distPath));
+}
 
 // Fallback to index.html for React SPA router
 app.get('*', (_req, res) => {
-  res.sendFile(path.join(distPath, 'index.html'));
+  if (fs.existsSync(indexPath)) {
+    res.sendFile(indexPath);
+  } else if (fs.existsSync(rootIndexPath)) {
+    res.sendFile(rootIndexPath);
+  } else {
+    res.status(200).send('<!DOCTYPE html><html><head><title>Assembly Manager</title></head><body><div id="root"></div></body></html>');
+  }
 });
 
-// Primary port: AI Studio Cloud Run Nginx reverse-proxies to 3000
-const PRIMARY_PORT = 3000;
+// Port configuration:
+// In AI Studio Cloud Run, Nginx listens on 8080 and reverse-proxies to port 3000.
+// In direct container environments, Cloud Run routes directly to process.env.PORT (8080).
+const primaryPort = parseInt(process.env.DEFAULT_APP_PORT || '3000', 10);
 const envPort = process.env.PORT ? parseInt(process.env.PORT, 10) : null;
 
-// Determine target port: if envPort is explicitly provided and not 8080 (which is used by nginx), use it;
-// otherwise default to 3000 to accept traffic from nginx.
-const targetPort = envPort && envPort !== 8080 ? envPort : PRIMARY_PORT;
-
-const primaryServer = app.listen(targetPort, '0.0.0.0', () => {
-  console.log(`Server listening on port ${targetPort}`);
+const primaryServer = app.listen(primaryPort, '0.0.0.0', () => {
+  console.log(`Server listening on port ${primaryPort}`);
 });
 
 primaryServer.on('error', (err) => {
-  console.error(`Error on primary port ${targetPort}:`, err);
+  console.log(`Primary port ${primaryPort} note:`, err.message);
 });
 
-// If PORT environment variable is set to a different port (e.g., 8080 in environments without nginx),
-// attempt to listen there too, gracefully ignoring EADDRINUSE if nginx is already bound.
-if (envPort && envPort !== targetPort) {
+if (envPort && envPort !== primaryPort) {
   const secondaryServer = app.listen(envPort, '0.0.0.0', () => {
     console.log(`Server also listening on port ${envPort}`);
   });
 
   secondaryServer.on('error', (err) => {
     if (err.code === 'EADDRINUSE') {
-      console.log(`Port ${envPort} is already in use by reverse proxy/nginx. Serving on port ${targetPort}.`);
+      console.log(`Port ${envPort} handled by reverse-proxy/nginx; routing traffic to ${primaryPort}.`);
     } else {
-      console.error(`Secondary server error on port ${envPort}:`, err);
+      console.error(`Secondary port ${envPort} error:`, err);
     }
   });
 }
