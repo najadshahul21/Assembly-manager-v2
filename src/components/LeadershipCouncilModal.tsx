@@ -164,21 +164,33 @@ export const LeadershipCouncilModal: React.FC<LeadershipCouncilModalProps> = ({
   // Pre-indexed candidate pools with stable memoization
   const governmentMlaCandidates = useMemo(() => {
     return persons
-      .filter((p) => governmentMlaIds.has(p.id) && !p.isSuspended)
+      .filter((p) => {
+        if (p.isSuspended || !governmentMlaIds.has(p.id)) return false;
+        const party = parties.find((pt) => pt.id === p.partyId);
+        return !party?.isSuspended;
+      })
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [persons, governmentMlaIds]);
+  }, [persons, parties, governmentMlaIds]);
 
   const assemblyMlaCandidates = useMemo(() => {
     return persons
-      .filter((p) => allMlaIds.has(p.id) && !p.isSuspended)
+      .filter((p) => {
+        if (p.isSuspended || !allMlaIds.has(p.id)) return false;
+        const party = parties.find((pt) => pt.id === p.partyId);
+        return !party?.isSuspended;
+      })
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [persons, allMlaIds]);
+  }, [persons, parties, allMlaIds]);
 
   const allPersonCandidates = useMemo(() => {
     return persons
-      .filter((p) => !p.isSuspended)
+      .filter((p) => {
+        if (p.isSuspended) return false;
+        const party = parties.find((pt) => pt.id === p.partyId);
+        return !party?.isSuspended;
+      })
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [persons]);
+  }, [persons, parties]);
 
   // Handle slot update
   const handleRoleChange = (roleKey: keyof Assembly['leaders'], personId: string) => {
@@ -192,6 +204,22 @@ export const LeadershipCouncilModal: React.FC<LeadershipCouncilModalProps> = ({
 
   // Rule Validation before saving
   const validateAppointments = (): string | null => {
+    // Rule 0: No suspended persons or members of suspended parties
+    for (const [rKey, pId] of Object.entries(draftLeaders)) {
+      if (pId && pId !== 'vacant') {
+        const person = persons.find((p) => p.id === pId);
+        if (person?.isSuspended) {
+          const roleTitle = COUNCIL_ROLES.find((r) => r.key === rKey)?.title || rKey;
+          return `Invalid Appointment: "${person.name}" is suspended and cannot be appointed as ${roleTitle}.`;
+        }
+        const party = parties.find((pt) => pt.id === person?.partyId);
+        if (party?.isSuspended) {
+          const roleTitle = COUNCIL_ROLES.find((r) => r.key === rKey)?.title || rKey;
+          return `Invalid Appointment: "${person?.name}" belongs to suspended party "${party.name}" and cannot be appointed as ${roleTitle}.`;
+        }
+      }
+    }
+
     // Rule 1: Chief Minister, Deputy Chief Minister, Speaker, Deputy Speaker, Leader of House must be in governmentMlaIds
     const rule1Roles: (keyof Assembly['leaders'])[] = [
       'chiefMinister',

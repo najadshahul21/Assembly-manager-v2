@@ -6,6 +6,7 @@ import { useDbLookup } from '../context/DbLookupContext';
 import { Person, Party, Alliance, Assembly, Designation, Constituency, EntityType } from '../types';
 import { db } from '../db';
 import { formatPersonName } from '../utils/governmentUtils';
+import { formatAppDate } from '../utils/dateUtils';
 
 interface CardProps {
   entity: any;
@@ -472,7 +473,7 @@ export const EntityCard: React.FC<CardProps> = ({ entity, type, onDelete, onProm
                  }
                }
                if (isValidDate) {
-                 return new Date(dateVal).toLocaleDateString();
+                 return formatAppDate(dateVal);
                }
                return type === EntityType.PERSON ? 'Elected Member' : 'Registry Entry';
              })()}

@@ -131,7 +131,7 @@ export const ConstituencyInfoboxTable: React.FC<ConstituencyInfoboxTableProps> =
           Incumbent
         </div>
         <div className="w-full flex justify-center">
-          {incumbentPerson && constituency.currentIncumbentId !== 'vacant' ? (
+          {incumbentPerson && !incumbentPerson.isSuspended && constituency.currentIncumbentId !== 'vacant' ? (
             <button
               type="button"
               onClick={() => onNavigatePerson(incumbentPerson.id)}
@@ -167,7 +167,7 @@ export const ConstituencyInfoboxTable: React.FC<ConstituencyInfoboxTableProps> =
             Party
           </div>
           <div className="px-5 py-3 text-[#60a5fa] flex-1">
-            {incumbentParty ? (
+            {incumbentParty && !incumbentParty.isSuspended ? (
               <button
                 type="button"
                 onClick={() => onNavigateParty(incumbentParty.id)}

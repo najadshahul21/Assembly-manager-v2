@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { ReleaseOrderModal } from '../components/ReleaseOrderModal';
 import { compareOrdersReverseChronological } from '../utils/governmentUtils';
+import { formatAppDate } from '../utils/dateUtils';
 
 interface OrdersPageProps {
   searchQuery?: string;
@@ -126,7 +127,7 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({ searchQuery = '' }) => {
   const handleCopyOrder = (order: LegislativeOrder) => {
     const officeHeader = order.byOfficeTitle || formatOfficeOfHonble(order.byDesignationName);
     const incumbentHeader = order.signerPersonName ? `\n(${order.signerPersonName})` : '';
-    const textToCopy = `OFFICIAL ORDER: ${order.orderName}\nSl. No: ${order.slNo || order.orderNumber || 'N/A'}\nDate: ${order.date}\n${officeHeader}${incumbentHeader}\n\n${order.content}`;
+    const textToCopy = `OFFICIAL ORDER: ${order.orderName}\nSl. No: ${order.slNo || order.orderNumber || 'N/A'}\nDate: ${formatAppDate(order.date)}\n${officeHeader}${incumbentHeader}\n\n${order.content}`;
     navigator.clipboard.writeText(textToCopy);
     setCopiedId(order.id);
     setTimeout(() => setCopiedId(null), 2000);
@@ -449,7 +450,7 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({ searchQuery = '' }) => {
 
                       <span className="text-[11px] text-gray-400 flex items-center gap-1">
                         <Calendar size={12} className="text-[#FFD700]" />
-                        {order.date}
+                        {formatAppDate(order.date)}
                       </span>
                     </div>
 
@@ -630,7 +631,7 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({ searchQuery = '' }) => {
                     {viewingOrder.orderName}
                   </h2>
                   <div className="flex items-center justify-center gap-4 text-xs text-gray-400 font-medium pt-1">
-                    <span>Date of Issuance: <strong className="text-gray-200">{viewingOrder.date}</strong></span>
+                    <span>Date of Issuance: <strong className="text-gray-200">{formatAppDate(viewingOrder.date)}</strong></span>
                     <span>•</span>
                     {viewingOrder.slNo && (
                       <>

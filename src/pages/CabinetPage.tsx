@@ -57,7 +57,7 @@ export const CabinetPage: React.FC = () => {
     const cabinetData: Map<string, { person: Person; roles: { name: string; canDemote: boolean }[] }> = new Map();
 
     // 1. Add people with ministerial roles (from assemblyRoles)
-    const ministers = allPersons.filter(p => p.assemblyRoles && p.assemblyRoles[targetAssemblyId]);
+    const ministers = allPersons.filter(p => !p.isSuspended && p.assemblyRoles && p.assemblyRoles[targetAssemblyId]);
     for (const p of ministers) {
       const roles = p.assemblyRoles[targetAssemblyId].split(', ').filter(isCabinetRole);
       if (roles.length > 0) {
@@ -76,7 +76,7 @@ export const CabinetPage: React.FC = () => {
     for (const d of specialDesignations) {
       if (d.incumbentId && d.incumbentId !== 'vacant') {
         const holder = allPersons.find(p => p.id === d.incumbentId);
-        if (holder) {
+        if (holder && !holder.isSuspended) {
           const entry = cabinetData.get(holder.id) || { person: holder, roles: [] };
           if (isCabinetRole(d.name)) {
             // Avoid duplicates
@@ -103,7 +103,7 @@ export const CabinetPage: React.FC = () => {
         }
         if (pId && pId !== 'vacant') {
           const holder = allPersons.find(p => p.id === pId);
-          if (holder) {
+          if (holder && !holder.isSuspended) {
             const entry = cabinetData.get(holder.id) || { person: holder, roles: [] };
             const displayName = role.replace(/([A-Z])/g, ' $1'); // camelCase to Space Case
             const capitalizedDisplayName = displayName.charAt(0).toUpperCase() + displayName.slice(1);

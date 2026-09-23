@@ -72,22 +72,30 @@ const SearchablePersonSelect: React.FC<SearchablePersonSelectProps> = ({
 
   const selectedPerson = useMemo(() => {
     if (!personId || personId === 'nota') return null;
-    return personsList.find((p) => p.id === personId);
+    const p = personsList.find((cand) => cand.id === personId);
+    return (p && !p.isSuspended) ? p : null;
   }, [personId, personsList]);
 
-  // Filter persons based on search query
+  // Filter persons based on search query (excluding suspended persons and suspended parties)
   const filteredPersons = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    const sorted = [...personsList].sort((a, b) =>
-      (a.name || "").localeCompare(b.name || "", undefined, { sensitivity: "base" })
+    const sorted = personsList
+      .filter((p) => !p.isSuspended)
+      .sort((a, b) =>
+        (a.name || "").localeCompare(b.name || "", undefined, { sensitivity: "base" })
+      );
+
+    const activePartiesMap = new Map<string, Party>(
+      partiesList.filter((p) => !p.isSuspended).map((p) => [p.id, p])
     );
 
-    if (!q) return sorted;
-
-    const partiesMap = new Map<string, Party>(partiesList.map((p) => [p.id, p]));
-
     return sorted.filter((p) => {
-      const pParty = partiesMap.get(p.partyId);
+      // Exclude candidates affiliated with a suspended party
+      if (p.partyId && p.partyId !== 'independent' && !activePartiesMap.has(p.partyId)) {
+        return false;
+      }
+      if (!q) return true;
+      const pParty = activePartiesMap.get(p.partyId);
       const partyAbbr = (pParty?.abbreviation || p.partyId || "").toLowerCase();
       const partyName = (pParty?.name || "").toLowerCase();
       const name = (p.name || "").toLowerCase();
@@ -301,11 +309,14 @@ export const ElectModal: React.FC<ElectModalProps> = ({
   onClose,
   onConfirm
 }) => {
-  // Initialize candidate draft rows auto-populated from personsList / partiesList
+  // Initialize candidate draft rows auto-populated from active (non-suspended) personsList / partiesList
   const [candidates, setCandidates] = useState<CandidateDraft[]>(() => {
+    const activePersons = personsList.filter((p) => !p.isSuspended);
+    const activeParties = partiesList.filter((p) => !p.isSuspended);
+
     const getPartyInfo = (person?: Person) => {
       if (!person) return { partyId: 'independent', partyAbbreviation: 'IND', partyColor: '#A1A1AA' };
-      const party = partiesList.find(
+      const party = activeParties.find(
         (prty) => prty.id === person.partyId || prty.abbreviation?.toLowerCase() === person.partyId?.toLowerCase()
       );
       if (party) {
@@ -318,10 +329,10 @@ export const ElectModal: React.FC<ElectModalProps> = ({
       return { partyId: 'independent', partyAbbreviation: 'IND', partyColor: '#A1A1AA' };
     };
 
-    const c1 = personsList[0];
+    const c1 = activePersons[0];
     const c1Party = getPartyInfo(c1);
 
-    const c2 = personsList[1];
+    const c2 = activePersons[1];
     const c2Party = getPartyInfo(c2);
 
     return [
@@ -380,15 +391,23 @@ export const ElectModal: React.FC<ElectModalProps> = ({
   const quickFilteredPersons = useMemo(() => {
     const q = quickSearchQuery.trim().toLowerCase();
     if (!q) return [];
-    const sorted = [...personsList].sort((a, b) =>
-      (a.name || "").localeCompare(b.name || "", undefined, { sensitivity: "base" })
-    );
+    const sorted = personsList
+      .filter((p) => !p.isSuspended)
+      .sort((a, b) =>
+        (a.name || "").localeCompare(b.name || "", undefined, { sensitivity: "base" })
+      );
 
-    const partiesMap = new Map<string, Party>(partiesList.map((p) => [p.id, p]));
+    const activePartiesMap = new Map<string, Party>(
+      partiesList.filter((p) => !p.isSuspended).map((p) => [p.id, p])
+    );
 
     return sorted
       .filter((p) => {
-        const prty = partiesMap.get(p.partyId);
+        // Exclude members of suspended parties
+        if (p.partyId && p.partyId !== 'independent' && !activePartiesMap.has(p.partyId)) {
+          return false;
+        }
+        const prty = activePartiesMap.get(p.partyId);
         const partyAbbr = (prty?.abbreviation || p.partyId || "").toLowerCase();
         const partyName = (prty?.name || "").toLowerCase();
         const name = (p.name || "").toLowerCase();
@@ -413,9 +432,17 @@ export const ElectModal: React.FC<ElectModalProps> = ({
   };
 
   const handleQuickAddPersonAsCandidate = (person: Person) => {
+    if (person.isSuspended) {
+      setErrorMessage(`Cannot add suspended politician "${person.name}".`);
+      return;
+    }
     const personParty = partiesList.find(
       (prty) => prty.id === person.partyId || prty.abbreviation?.toLowerCase() === person.partyId?.toLowerCase()
     );
+    if (personParty?.isSuspended) {
+      setErrorMessage(`Cannot add candidate affiliated with suspended party "${personParty.name}".`);
+      return;
+    }
     const partyAbbreviation = personParty?.abbreviation ? personParty.abbreviation : 'IND';
     const partyColor = personParty?.colors?.[0] ? personParty.colors[0] : '#A1A1AA';
     const partyId = personParty?.id ? personParty.id : 'independent';
@@ -489,9 +516,19 @@ export const ElectModal: React.FC<ElectModalProps> = ({
     const selectedPerson = personsList.find((p) => p.id === personId);
     if (!selectedPerson) return;
 
+    if (selectedPerson.isSuspended) {
+      setErrorMessage(`Politician "${selectedPerson.name}" is suspended and cannot participate in elections.`);
+      return;
+    }
+
     const personParty = partiesList.find(
       (prty) => prty.id === selectedPerson.partyId || prty.abbreviation?.toLowerCase() === selectedPerson.partyId?.toLowerCase()
     );
+
+    if (personParty?.isSuspended) {
+      setErrorMessage(`Cannot select candidate affiliated with suspended party "${personParty.name}".`);
+      return;
+    }
 
     const partyAbbreviation = personParty?.abbreviation ? personParty.abbreviation : 'IND';
     const partyColor = personParty?.colors?.[0] ? personParty.colors[0] : '#A1A1AA';
@@ -553,6 +590,45 @@ export const ElectModal: React.FC<ElectModalProps> = ({
     if (!winner || typeof winner.votes !== 'number' || winner.votes < 0) {
       setErrorMessage('Please enter valid votes for the candidates.');
       return;
+    }
+
+    // Strict validation against suspended entities
+    for (const c of validCandidates) {
+      // 1. Check person ID
+      if (c.personId && c.personId !== 'nota') {
+        const p = personsList.find(item => item.id === c.personId);
+        if (p?.isSuspended) {
+          setErrorMessage(`Candidate "${p.name}" is suspended and cannot participate in elections.`);
+          return;
+        }
+      }
+      // 2. Check candidate entered name against suspended persons
+      const matchingSuspendedPerson = personsList.find(
+        item => item.isSuspended && item.name.trim().toLowerCase() === c.candidateName.trim().toLowerCase()
+      );
+      if (matchingSuspendedPerson) {
+        setErrorMessage(`"${matchingSuspendedPerson.name}" is a suspended politician and cannot contest or participate in elections.`);
+        return;
+      }
+      // 3. Check party ID
+      if (c.partyId && c.partyId !== 'independent' && c.partyId !== 'nota') {
+        const pt = partiesList.find(item => item.id === c.partyId);
+        if (pt?.isSuspended) {
+          setErrorMessage(`Party "${pt.name}" (${pt.abbreviation}) is suspended and cannot participate in elections.`);
+          return;
+        }
+      }
+      // 4. Check candidate entered party abbreviation against suspended parties
+      const matchingSuspendedParty = partiesList.find(
+        pt => pt.isSuspended && (
+          pt.abbreviation.trim().toLowerCase() === c.partyAbbreviation.trim().toLowerCase() ||
+          pt.name.trim().toLowerCase() === c.partyAbbreviation.trim().toLowerCase()
+        )
+      );
+      if (matchingSuspendedParty) {
+        setErrorMessage(`Party "${matchingSuspendedParty.name}" (${matchingSuspendedParty.abbreviation}) is suspended and cannot participate in elections.`);
+        return;
+      }
     }
 
     setIsSubmitting(true);

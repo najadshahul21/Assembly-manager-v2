@@ -7,64 +7,75 @@ export function generateDefaultElectionResult(
   partiesList: Party[] = [],
   personsList: Person[] = []
 ): ElectionResult {
-  // If constituency is Nemom (or slNo 135 / con-nemom), generate the exact sample matching user image
+  const activeParties = partiesList.filter((p) => !p.isSuspended);
+  const activeIncumbent = incumbent && !incumbent.isSuspended ? incumbent : null;
+  const activeIncumbentParty = incumbentParty && !incumbentParty.isSuspended ? incumbentParty : null;
+
+  // If constituency is Nemom (or slNo 135 / con-nemom), generate the sample matching user image
   if (con.name.toLowerCase().includes('nemom') || con.slNo === '135' || con.id === 'con-nemom') {
-    return {
-      candidates: [
-        {
-          personId: 'rajeev-chandrasekhar',
-          candidateName: 'Rajeev Chandrasekhar',
-          partyId: 'bjp',
-          partyAbbreviation: 'BJP',
-          partyColor: '#EA580C',
-          votes: 57192
-        },
-        {
-          personId: incumbent?.id || 'v-sivankutty',
-          candidateName: incumbent?.name || 'V. Sivankutty',
-          partyId: incumbentParty?.id || 'cpim',
-          partyAbbreviation: incumbentParty?.abbreviation || 'CPI(M)',
-          partyColor: incumbentParty?.colors?.[0] || '#E11D48',
-          votes: 52214
-        },
-        {
-          personId: 'k-s-sabarinadhan',
-          candidateName: 'K. S. Sabarinadhan',
-          partyId: 'inc',
-          partyAbbreviation: 'INC',
-          partyColor: '#2563EB',
-          votes: 29730
-        },
-        {
-          personId: 'nota',
-          candidateName: 'None of the above',
-          partyId: 'nota',
-          partyAbbreviation: 'NOTA',
-          partyColor: '#6B7280',
-          votes: 604
-        }
-      ],
-      winnerId: 'rajeev-chandrasekhar',
-      winnerName: 'Rajeev Chandrasekhar',
-      winnerPartyAbbreviation: 'BJP',
-      winnerPartyColor: '#EA580C',
-      marginOfVictory: 4978,
-      turnout: 140355,
-      previousPartyAbbreviation: incumbentParty?.abbreviation || 'CPI(M)',
-      outcomeText: `BJP gain from ${incumbentParty?.abbreviation || 'CPI(M)'}`,
-      swingText: 'Swing',
-      electionDate: Date.now()
-    };
+    const rcPerson = personsList.find(p => p.id === 'rajeev-chandrasekhar');
+    const vsPerson = personsList.find(p => p.id === (activeIncumbent?.id || 'v-sivankutty'));
+    const isRcActive = !rcPerson || !rcPerson.isSuspended;
+    const isVsActive = !vsPerson || !vsPerson.isSuspended;
+
+    if (isRcActive) {
+      return {
+        candidates: [
+          {
+            personId: 'rajeev-chandrasekhar',
+            candidateName: 'Rajeev Chandrasekhar',
+            partyId: 'bjp',
+            partyAbbreviation: 'BJP',
+            partyColor: '#EA580C',
+            votes: 57192
+          },
+          ...(isVsActive ? [{
+            personId: activeIncumbent?.id || 'v-sivankutty',
+            candidateName: activeIncumbent?.name || 'V. Sivankutty',
+            partyId: activeIncumbentParty?.id || 'cpim',
+            partyAbbreviation: activeIncumbentParty?.abbreviation || 'CPI(M)',
+            partyColor: activeIncumbentParty?.colors?.[0] || '#E11D48',
+            votes: 52214
+          }] : []),
+          {
+            personId: 'k-s-sabarinadhan',
+            candidateName: 'K. S. Sabarinadhan',
+            partyId: 'inc',
+            partyAbbreviation: 'INC',
+            partyColor: '#2563EB',
+            votes: 29730
+          },
+          {
+            personId: 'nota',
+            candidateName: 'None of the above',
+            partyId: 'nota',
+            partyAbbreviation: 'NOTA',
+            partyColor: '#6B7280',
+            votes: 604
+          }
+        ],
+        winnerId: 'rajeev-chandrasekhar',
+        winnerName: 'Rajeev Chandrasekhar',
+        winnerPartyAbbreviation: 'BJP',
+        winnerPartyColor: '#EA580C',
+        marginOfVictory: 4978,
+        turnout: 140355,
+        previousPartyAbbreviation: activeIncumbentParty?.abbreviation || 'CPI(M)',
+        outcomeText: `BJP gain from ${activeIncumbentParty?.abbreviation || 'CPI(M)'}`,
+        swingText: 'Swing',
+        electionDate: Date.now()
+      };
+    }
   }
 
   // Generic fallback election result for any constituency
-  const winnerName = incumbent?.name || `${con.name} Representative`;
-  const winnerPartyAbbr = incumbentParty?.abbreviation || 'CPI(M)';
-  const winnerPartyColor = incumbentParty?.colors?.[0] || '#E11D48';
+  const winnerName = activeIncumbent?.name || `${con.name} Representative`;
+  const winnerPartyAbbr = activeIncumbentParty?.abbreviation || activeParties[0]?.abbreviation || 'IND';
+  const winnerPartyColor = activeIncumbentParty?.colors?.[0] || activeParties[0]?.colors?.[0] || '#2563EB';
 
-  // Find 2 other rival party candidates from personsList or default
-  const rivalParty1 = partiesList.find(p => p.id !== incumbentParty?.id && p.id === 'inc') || partiesList[0] || { id: 'inc', abbreviation: 'INC', colors: ['#2563EB'] };
-  const rivalParty2 = partiesList.find(p => p.id !== incumbentParty?.id && p.id !== rivalParty1.id) || { id: 'bjp', abbreviation: 'BJP', colors: ['#EA580C'] };
+  // Find rival party candidates from non-suspended parties
+  const rivalParty1 = activeParties.find(p => p.id !== activeIncumbentParty?.id) || { id: 'inc', abbreviation: 'INC', colors: ['#2563EB'] };
+  const rivalParty2 = activeParties.find(p => p.id !== activeIncumbentParty?.id && p.id !== rivalParty1.id) || { id: 'bjp', abbreviation: 'BJP', colors: ['#EA580C'] };
 
   const randSeed = (con.name.length * 137) % 5000;
   const winnerVotes = 62000 + randSeed;
@@ -74,9 +85,9 @@ export function generateDefaultElectionResult(
 
   const candidates: CandidateResult[] = [
     {
-      personId: incumbent?.id,
+      personId: activeIncumbent?.id,
       candidateName: winnerName,
-      partyId: incumbentParty?.id || 'cpim',
+      partyId: activeIncumbentParty?.id || 'independent',
       partyAbbreviation: winnerPartyAbbr,
       partyColor: winnerPartyColor,
       votes: winnerVotes
@@ -110,7 +121,7 @@ export function generateDefaultElectionResult(
 
   return {
     candidates,
-    winnerId: incumbent?.id,
+    winnerId: activeIncumbent?.id,
     winnerName,
     winnerPartyAbbreviation: winnerPartyAbbr,
     winnerPartyColor,

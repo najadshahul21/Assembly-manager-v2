@@ -67,6 +67,8 @@ import { ConstituencyInfoboxTable } from "../components/ConstituencyInfoboxTable
 import { AllianceConstituentPartiesTable } from "../components/AllianceConstituentPartiesTable";
 import { LegislativeSessionsTable } from "../components/LegislativeSessionsTable";
 import { buildLegislativeSessionsList } from "../data/legislativeHistoryData";
+import { LegislativeRolesHistoryWidget } from "../components/LegislativeRolesHistoryWidget";
+import { formatAppDate, formatAppDateTime } from "../utils/dateUtils";
 
 const getAssemblyChronologicalScore = (assembly?: Assembly | null) => {
   if (!assembly) return 0;
@@ -179,7 +181,18 @@ export const EntityPage: React.FC = () => {
 
         if (winnerPersonId && winnerPersonId !== "vacant") {
           const person = await db.persons.get(winnerPersonId);
-          if (person && con.currentAssemblyId) {
+          if (!person || person.isSuspended) {
+            alert(`Candidate "${person?.name || winnerPersonId}" is suspended and cannot be elected.`);
+            return;
+          }
+          if (person.partyId && person.partyId !== 'independent') {
+            const party = await db.parties.get(person.partyId);
+            if (party?.isSuspended) {
+              alert(`Candidate "${person.name}" belongs to suspended party "${party.name}" and cannot be elected.`);
+              return;
+            }
+          }
+          if (con.currentAssemblyId) {
             const assemblyRoles = { ...(person.assemblyRoles || {}) };
             assemblyRoles[con.currentAssemblyId] = `${con.name} MLA`;
             
@@ -695,7 +708,7 @@ export const EntityPage: React.FC = () => {
 
   const allianceMemberPartyIds = React.useMemo(() => {
     if (entityType !== EntityType.ALLIANCE || !id) return new Set<string>();
-    return new Set(partiesList.filter((p) => p.allianceId === id).map((p) => p.id));
+    return new Set(partiesList.filter((p) => !p.isSuspended && p.allianceId === id).map((p) => p.id));
   }, [entityType, id, partiesList]);
 
   const personsEligibleForHighCommand = React.useMemo(() => {
@@ -708,6 +721,16 @@ export const EntityPage: React.FC = () => {
 
   const handleAppointCouncilMember = async (personId: string) => {
     if (entityType !== EntityType.ALLIANCE || !id || !appointingCouncilRole) return;
+    const person = personsList.find(p => p.id === personId);
+    if (!person || person.isSuspended) {
+      alert("This person is suspended and cannot be appointed to any alliance designation.");
+      return;
+    }
+    const party = partiesList.find(pt => pt.id === person.partyId);
+    if (party?.isSuspended) {
+      alert(`Cannot appoint member of suspended party "${party.name}".`);
+      return;
+    }
     const updates: Partial<Alliance> = {
       updatedAt: Date.now(),
     };
@@ -742,6 +765,16 @@ export const EntityPage: React.FC = () => {
 
   const handleToggleHighCommand = async (personId: string) => {
     if (entityType !== EntityType.ALLIANCE || !id) return;
+    const person = personsList.find(p => p.id === personId);
+    if (!person || person.isSuspended) {
+      alert("This person is suspended and cannot be appointed to the High Command.");
+      return;
+    }
+    const party = partiesList.find(pt => pt.id === person.partyId);
+    if (party?.isSuspended) {
+      alert(`Cannot appoint member of suspended party "${party.name}".`);
+      return;
+    }
     const alliance = entity as Alliance;
     const currentIds = alliance.highCommandIds || [];
     let newIds: string[];
@@ -1723,7 +1756,7 @@ export const EntityPage: React.FC = () => {
           );
 
           const isActiveIncumbent =
-            c.currentAssemblyId === id && c.currentIncumbentId === pId;
+            c.currentAssemblyId === id && c.currentIncumbentId === pId && !p.isSuspended;
 
           let startDate = 0;
           if (electionOrAppt.length > 0) {
@@ -1748,8 +1781,17 @@ export const EntityPage: React.FC = () => {
                 ? toTime(c.updatedAt)
                 : undefined,
             removalDate:
-              !isActiveIncumbent && removal ? toTime(removal.date) : undefined,
-            reason: !isActiveIncumbent && removal ? removal.reason : undefined,
+              !isActiveIncumbent && removal
+                ? toTime(removal.date)
+                : p.isSuspended
+                ? toTime(p.updatedAt)
+                : undefined,
+            reason:
+              !isActiveIncumbent && removal
+                ? removal.reason
+                : p.isSuspended
+                ? "suspended"
+                : undefined,
           };
         }).filter(Boolean) as {
           person: any;
@@ -2013,6 +2055,10 @@ export const EntityPage: React.FC = () => {
       // Exclude suspended/expired persons from new appointments
       if (p.isSuspended) return false;
 
+      // Exclude persons belonging to a suspended party
+      const pParty = partiesList.find((pt) => pt.id === p.partyId);
+      if (pParty?.isSuspended) return false;
+
       const matchesSearch = p.name
         .toLowerCase()
         .includes(appointmentSearchQuery.toLowerCase());
@@ -2203,6 +2249,17 @@ export const EntityPage: React.FC = () => {
 
   const handlePromote = async () => {
     if (!showPromotePopup || !id || entityType !== EntityType.ASSEMBLY) return;
+
+    const personToPromote = personsList.find(p => p.id === showPromotePopup.personId);
+    if (!personToPromote || personToPromote.isSuspended) {
+      alert("This politician is suspended and cannot be appointed or promoted to the cabinet.");
+      return;
+    }
+    const partyOfPerson = partiesList.find(pt => pt.id === personToPromote.partyId);
+    if (partyOfPerson?.isSuspended) {
+      alert(`Cannot promote member of suspended party "${partyOfPerson.name}".`);
+      return;
+    }
 
     // Dissolved assemblies are immutable
     if ((entity as Assembly).isActive === false) {
@@ -2913,6 +2970,17 @@ export const EntityPage: React.FC = () => {
   const handleSelectAppointedPerson = async (personId: string) => {
     if (!id || !entity) return;
 
+    const personToAppoint = personsList.find(p => p.id === personId);
+    if (!personToAppoint || personToAppoint.isSuspended) {
+      alert("This politician is suspended and cannot be appointed to any designation or constituency seat.");
+      return;
+    }
+    const partyOfPerson = partiesList.find(pt => pt.id === personToAppoint.partyId);
+    if (partyOfPerson?.isSuspended) {
+      alert(`Cannot appoint member of suspended party "${partyOfPerson.name}".`);
+      return;
+    }
+
     // Dissolved assemblies are immutable
     if (entityType === EntityType.DESIGNATION) {
       const design = entity as Designation;
@@ -3578,7 +3646,7 @@ export const EntityPage: React.FC = () => {
                     const isValidDate =
                       dateVal && !isNaN(new Date(dateVal).getTime());
                     if (isValidDate) {
-                      return `Updated ${new Date(dateVal).toLocaleDateString()}`;
+                      return `Updated ${formatAppDate(dateVal)}`;
                     }
                     if (entityType === EntityType.PERSON) {
                       const person = entity as Person;
@@ -3941,136 +4009,17 @@ export const EntityPage: React.FC = () => {
                     </section>
                   )}
 
-                {entityType === EntityType.PERSON && (
+                {entityType === EntityType.PERSON && entity && (
                   <section className="glass-card p-8">
-                    <h3 className="text-sm font-bold uppercase tracking-widest text-white mb-6">
-                      Legislative Roles & History
-                    </h3>
-                    <div className="space-y-4">
-                      {personAssemblyRoles &&
-                        personAssemblyRoles.length > 0 && (
-                          <div className="mb-6 space-y-4">
-                            <p className="text-[10px] text-white uppercase font-black tracking-widest">
-                              Leadership Councils
-                            </p>
-                            {personAssemblyRoles.map((r, idx) => {
-                              const isSilver = r.role.toLowerCase().includes("opposition");
-                              const cardBorderBgClass = isSilver
-                                ? "bg-slate-400/5 border-slate-400/20 hover:bg-slate-400/10"
-                                : "bg-[#FFD700]/5 border-[#FFD700]/20 hover:bg-[#FFD700]/10";
-                              const shieldColorClass = isSilver
-                                ? "text-slate-300"
-                                : "text-[#FFD700]";
-                              const isGoldRole = r.role.toLowerCase().includes("chief minister");
-                              const textColorClass = isSilver
-                                ? "silver-text"
-                                : (isGoldRole ? "text-[#FFD700]" : "text-white");
-                              const chevronColorClass = isSilver
-                                ? "text-slate-400/40"
-                                : "text-[#FFD700]/40";
-                              return (
-                                <div
-                                  key={`${r.assembly.id}-${r.role}`}
-                                  onClick={() =>
-                                    navigate(`/assembly/${r.assembly.id}`)
-                                  }
-                                  className={`p-4 border rounded-2xl cursor-pointer transition-all ${cardBorderBgClass}`}
-                                >
-                                  <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-3">
-                                      <Shield
-                                        size={16}
-                                        className={shieldColorClass}
-                                      />
-                                      <div>
-                                        <div className="flex items-center gap-2">
-                                          <p className={`text-xs font-black uppercase tracking-widest ${textColorClass}`}>
-                                            {prefixRole(r.role.replace(/([A-Z])/g, " $1"))}
-                                          </p>
-                                          {r.assembly.isActive === false && (
-                                            <span className="px-1.5 py-0.5 bg-white/10 text-gray-400 text-[8px] font-black rounded-md uppercase">
-                                              Past
-                                            </span>
-                                          )}
-                                        </div>
-                                        <p className="font-bold text-white">
-                                          {r.assembly.name}
-                                        </p>
-                                      </div>
-                                    </div>
-                                    <ChevronRight
-                                      size={16}
-                                      className={chevronColorClass}
-                                    />
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
-
-                      {personDesignations && personDesignations.length > 0 ? (
-                        Array.isArray(personDesignations) &&
-                        personDesignations.map((d) => (
-                          <div
-                            key={d.id}
-                            onClick={() => navigate(`/designation/${d.id}`)}
-                            className="p-5 bg-white/5 border border-white/5 hover:border-[#FFD700]/30 rounded-2xl cursor-pointer group transition-all"
-                          >
-                            <div className="flex items-center justify-between mb-2">
-                              <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 rounded-xl bg-black flex items-center justify-center text-gray-500 group-hover:text-[#FFD700]">
-                                  <Award size={20} />
-                                </div>
-                                <div>
-                                  <p className="font-bold text-lg group-hover:text-white transition-colors">
-                                    {d.name}{" "}
-                                    {d.assembly ? `of ${d.assembly.name}` : ""}
-                                  </p>
-                                  <p className="text-[10px] text-gray-400 uppercase tracking-widest font-black">
-                                    {d.assembly
-                                      ? "Legislative Appointment"
-                                      : "Independent Recognition"}
-                                  </p>
-                                </div>
-                              </div>
-                              {d.incumbentId === id &&
-                              d.assembly?.isActive !== false ? (
-                                <span className="text-[10px] bg-[#FFD700]/10 text-[#FFD700] px-3 py-1 rounded-full border border-[#FFD700]/20 font-black">
-                                  CURRENT
-                                </span>
-                              ) : (
-                                <span className="text-[10px] bg-white/5 text-gray-500 px-3 py-1 rounded-full border border-white/5 font-black">
-                                  PAST ROLE
-                                </span>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-4 mt-4 pt-4 border-t border-white/5 text-[10px] text-gray-500 font-bold uppercase tracking-widest">
-                              <span className="flex items-center gap-1">
-                                <MapPin size={12} /> {d.constituency}
-                              </span>
-                              {Array.isArray(d.history) &&
-                                d.history.find((h) => h.personId === id) && (
-                                  <span className="flex items-center gap-1">
-                                    <Calendar size={12} />
-                                    {new Date(
-                                      d.history.find((h) => h.personId === id)!
-                                        .date,
-                                    ).toLocaleDateString()}
-                                  </span>
-                                )}
-                            </div>
-                          </div>
-                        ))
-                      ) : (
-                        <div className="p-8 border border-dashed border-white/5 rounded-2xl text-center">
-                          <p className="text-gray-600 italic text-sm">
-                            No legislative designations recorded for this
-                            person.
-                          </p>
-                        </div>
-                      )}
+                    <div className="flex items-center justify-between mb-6">
+                      <h3 className="text-sm font-bold uppercase tracking-widest text-white">
+                        Legislative Roles & History
+                      </h3>
+                      <span className="text-[10px] font-mono text-gray-400 uppercase tracking-widest">
+                        Official Officeholder Record
+                      </span>
                     </div>
+                    <LegislativeRolesHistoryWidget person={entity as Person} />
                   </section>
                 )}
 
@@ -4287,7 +4236,7 @@ export const EntityPage: React.FC = () => {
                                 const isValidDate =
                                   dateVal && !isNaN(new Date(dateVal).getTime());
                                 if (isValidDate)
-                                  return new Date(dateVal).toLocaleString();
+                                  return formatAppDateTime(dateVal);
                                 if (entityType === EntityType.PERSON) {
                                   const person = entity as Person;
                                   const cName =
@@ -5896,7 +5845,7 @@ export const EntityPage: React.FC = () => {
                                   )}
                                 </div>
                                 <p className="text-[10px] text-gray-500 font-mono font-bold tracking-tight bg-white/5 px-2 py-1 rounded">
-                                  {new Date(h.date).toLocaleString()}
+                                  {formatAppDateTime(h.date)}
                                 </p>
                               </div>
                               <div>

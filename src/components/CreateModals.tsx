@@ -213,9 +213,11 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
   }, [parties, editData, type]);
 
   const personOptions = React.useMemo(() => {
-    // Filter out suspended persons, unless they are currently selected/appointed on the edited record
+    // Filter out suspended persons and persons in suspended parties, unless currently appointed on the edited record
     const filteredPersons = persons.filter(p => {
-      if (!p.isSuspended) return true;
+      const pParty = parties.find(pt => pt.id === p.partyId);
+      const isPartySuspended = pParty?.isSuspended;
+      if (!p.isSuspended && !isPartySuspended) return true;
       if (!editData) return false;
       const isCurrentIncumbent = editData.incumbentId === p.id;
       const isCurrentConIncumbent = editData.currentIncumbentId === p.id;
@@ -233,7 +235,7 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
         ))}
       </>
     );
-  }, [persons, editData]);
+  }, [persons, parties, editData]);
 
   const assemblySpecificPersonOptions = React.useMemo(() => {
     if (type !== EntityType.ASSEMBLY) return personOptions;
@@ -252,7 +254,13 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
       }
     });
 
-    const filtered = persons.filter(p => mlaIds.has(p.id) && (!p.isSuspended || (editData && editData.leaders && Object.values(editData.leaders).includes(p.id))));
+    const filtered = persons.filter(p => {
+      if (!mlaIds.has(p.id)) return false;
+      const pParty = parties.find(pt => pt.id === p.partyId);
+      const isPartySuspended = pParty?.isSuspended;
+      const isCurrentLeader = editData?.leaders && Object.values(editData.leaders).includes(p.id);
+      return (!p.isSuspended && !isPartySuspended) || isCurrentLeader;
+    });
 
     return (
       <>
@@ -266,7 +274,7 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
         )}
       </>
     );
-  }, [type, editData, persons, constituencies, personOptions]);
+  }, [type, editData, persons, parties, constituencies, personOptions]);
 
   const governmentMlaPersonOptions = React.useMemo(() => {
     if (type !== EntityType.ASSEMBLY) return personOptions;
@@ -283,9 +291,13 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
     );
 
     const govMlaIds = govRes.governmentMlaIds;
-    const filtered = persons.filter(
-      p => govMlaIds.has(p.id) && (!p.isSuspended || (editData?.leaders && Object.values(editData.leaders).includes(p.id)))
-    );
+    const filtered = persons.filter(p => {
+      if (!govMlaIds.has(p.id)) return false;
+      const pParty = parties.find(pt => pt.id === p.partyId);
+      const isPartySuspended = pParty?.isSuspended;
+      const isCurrentLeader = editData?.leaders && Object.values(editData.leaders).includes(p.id);
+      return (!p.isSuspended && !isPartySuspended) || isCurrentLeader;
+    });
 
     return (
       <>
@@ -368,7 +380,7 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
       );
     }
 
-    const alliancePartyIds = new Set(parties.filter(p => p.allianceId === allianceId).map(p => p.id));
+    const alliancePartyIds = new Set(parties.filter(p => !p.isSuspended && p.allianceId === allianceId).map(p => p.id));
     
     // Only persons whose party belongs to this respective alliance
     const filteredPersons = persons.filter(p => {
@@ -380,7 +392,7 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
           const isCurrentChairman = editData.chairmanId === p.id;
           const isCurrentFounder = editData.founderId === p.id;
           if (isCurrentLeader || isCurrentChairman || isCurrentFounder) {
-            return true;
+            return !p.isSuspended;
           }
         }
         return false;
@@ -633,6 +645,27 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
         };
         isEdit ? await db.parties.update(id, payload) : await db.parties.add(payload);
       } else if (type === EntityType.ALLIANCE) {
+        // Validate leader, chairman, founder are not suspended and do not belong to a suspended party
+        const councilRoles: { id?: string; name: string }[] = [
+          { id: data.leaderId, name: 'Leader' },
+          { id: data.chairmanId, name: 'Chairman' },
+          { id: data.founderId, name: 'Founder' }
+        ];
+        for (const role of councilRoles) {
+          if (role.id) {
+            const p = persons.find(item => item.id === role.id);
+            if (p?.isSuspended) {
+              alert(`Cannot appoint suspended person "${p.name}" as Alliance ${role.name}.`);
+              return;
+            }
+            const pParty = parties.find(pt => pt.id === p?.partyId);
+            if (pParty?.isSuspended) {
+              alert(`Cannot appoint member of suspended party "${pParty.name}" as Alliance ${role.name}.`);
+              return;
+            }
+          }
+        }
+
         const payload = {
           id,
           name: data.name,
@@ -728,6 +761,33 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
             if (val && val !== 'vacant' && !govRes.allMlaIds.has(val)) {
               alert(`Invalid Appointment: Only current members (MLAs) of this respective assembly can be appointed as ${f.name}.`);
               return;
+            }
+          }
+
+          // Rule 3: No suspended persons or members of suspended parties in leadership council
+          const allLeaderFields: { key: string; name: string }[] = [
+            { key: 'chiefMinister', name: 'Chief Minister' },
+            { key: 'deputyChiefMinister', name: 'Deputy Chief Minister' },
+            { key: 'speaker', name: 'Speaker' },
+            { key: 'deputySpeaker', name: 'Deputy Speaker' },
+            { key: 'leaderOfOpposition', name: 'Leader of Opposition' },
+            { key: 'deputyLeaderOfOpposition', name: 'Deputy Leader of Opposition' },
+            { key: 'chiefSecretary', name: 'Chief Secretary' }
+          ];
+
+          for (const f of allLeaderFields) {
+            const val = data[f.key];
+            if (val && val !== 'vacant') {
+              const p = persons.find(item => item.id === val);
+              if (p?.isSuspended) {
+                alert(`Invalid Appointment: Politician "${p.name}" is suspended and cannot be appointed as ${f.name}.`);
+                return;
+              }
+              const pParty = parties.find(pt => pt.id === p?.partyId);
+              if (pParty?.isSuspended) {
+                alert(`Invalid Appointment: Cannot appoint member of suspended party "${pParty.name}" as ${f.name}.`);
+                return;
+              }
             }
           }
         }
@@ -850,6 +910,19 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
           }
         }
       } else if (type === EntityType.DESIGNATION) {
+          if (data.incumbentId && data.incumbentId !== 'vacant') {
+            const p = persons.find(item => item.id === data.incumbentId);
+            if (p?.isSuspended) {
+              alert(`Cannot appoint suspended politician "${p.name}" to this designation.`);
+              return;
+            }
+            const pParty = parties.find(pt => pt.id === p?.partyId);
+            if (pParty?.isSuspended) {
+              alert(`Cannot appoint candidate from suspended party "${pParty.name}" to this designation.`);
+              return;
+            }
+          }
+
           // Enforce rule: Only MLAs of the government composition can be appointed as Speaker/Deputy Speaker or promoted to ministerial cabinet
           if (data.assemblyId && data.incumbentId && data.incumbentId !== 'vacant') {
             const isSpeaker = isSpeakerOrDeputySpeakerRole(data.name);
