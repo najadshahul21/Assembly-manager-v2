@@ -66,7 +66,7 @@ import { PartyInfoboxTable } from "../components/PartyInfoboxTable";
 import { ConstituencyInfoboxTable } from "../components/ConstituencyInfoboxTable";
 import { AllianceConstituentPartiesTable } from "../components/AllianceConstituentPartiesTable";
 import { LegislativeSessionsTable } from "../components/LegislativeSessionsTable";
-import { buildLegislativeSessionsList } from "../data/legislativeHistoryData";
+import { buildLegislativeSessionsList, extractOrdinal } from "../data/legislativeHistoryData";
 import { LegislativeRolesHistoryWidget } from "../components/LegislativeRolesHistoryWidget";
 import { formatAppDate, formatAppDateTime } from "../utils/dateUtils";
 
@@ -4010,17 +4010,19 @@ export const EntityPage: React.FC = () => {
                   )}
 
                 {entityType === EntityType.PERSON && entity && (
-                  <section className="glass-card p-8">
-                    <div className="flex items-center justify-between mb-6">
-                      <h3 className="text-sm font-bold uppercase tracking-widest text-white">
-                        Legislative Roles & History
-                      </h3>
-                      <span className="text-[10px] font-mono text-gray-400 uppercase tracking-widest">
-                        Official Officeholder Record
-                      </span>
-                    </div>
-                    <LegislativeRolesHistoryWidget person={entity as Person} />
-                  </section>
+                  <div className="space-y-6">
+                    <section className="glass-card p-8">
+                      <div className="flex items-center justify-between mb-6">
+                        <h3 className="text-sm font-bold uppercase tracking-widest text-white">
+                          Legislative Roles & History
+                        </h3>
+                        <span className="text-[10px] font-mono text-[#8DA4D0] uppercase tracking-widest font-bold">
+                          Official Records
+                        </span>
+                      </div>
+                      <LegislativeRolesHistoryWidget person={entity as Person} />
+                    </section>
+                  </div>
                 )}
 
                 {entityType === EntityType.DESIGNATION && (
