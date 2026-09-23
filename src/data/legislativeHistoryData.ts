@@ -191,10 +191,11 @@ export const buildLegislativeSessionsList = ({
 
     // Collect all assembly IDs related to this constituency
     const relevantAssemblyIds = new Set<string>();
+    const defaultAssemblyId = con.currentAssemblyId || Object.keys(assembliesMap)[0] || "assembly";
     if (con.currentAssemblyId) relevantAssemblyIds.add(con.currentAssemblyId);
     if (Array.isArray(con.history)) {
       con.history.forEach((h) => {
-        const asmId = h.assemblyId || con.currentAssemblyId || "15th-assembly";
+        const asmId = h.assemblyId || con.currentAssemblyId || defaultAssemblyId;
         relevantAssemblyIds.add(asmId);
       });
     }
@@ -203,10 +204,10 @@ export const buildLegislativeSessionsList = ({
       const asm = assembliesMap[asmId];
       const ordinal = asm
         ? extractOrdinal(asm.name)
-        : extractOrdinal(asmId || "15th");
+        : extractOrdinal(asmId || "1st");
 
       const asmHistory = (con.history || [])
-        .filter((h) => (h.assemblyId || con.currentAssemblyId || "15th-assembly") === asmId)
+        .filter((h) => (h.assemblyId || con.currentAssemblyId || defaultAssemblyId) === asmId)
         .sort((a, b) => toTime(a.date) - toTime(b.date));
 
       // Collect all unique persons who held this constituency in this assembly
@@ -375,7 +376,7 @@ export const buildLegislativeSessionsList = ({
       rows.push({
         id: `fallback-${con.id}`,
         assemblyOrdinal: ordinal,
-        assemblyName: asm?.name || `${ordinal} Kerala Legislative Assembly`,
+        assemblyName: asm?.name || (ordinal ? `${ordinal} Legislative Assembly` : 'Legislative Assembly'),
         assemblyId: con.currentAssemblyId,
         slNo: parseInt(ordinal.replace(/\D/g, ''), 10) || 1,
         members: [{

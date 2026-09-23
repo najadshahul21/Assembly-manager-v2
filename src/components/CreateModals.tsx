@@ -1012,7 +1012,7 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
           imageUrl: data.imageUrl !== undefined ? data.imageUrl : editData?.imageUrl,
           imageCaption: data.imageCaption !== undefined ? data.imageCaption : editData?.imageCaption,
           country: data.country || editData?.country || 'India',
-          state: data.state || editData?.state || 'Kerala',
+          state: data.state || editData?.state || (activeAssembly as any)?.state || '',
           history: isEdit ? (editData?.history || []) : [],
           lastElectionResult: isEdit ? editData?.lastElectionResult : undefined,
           updatedAt: now

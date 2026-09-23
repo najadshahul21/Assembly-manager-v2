@@ -217,10 +217,15 @@ export const AllianceInfoboxTable: React.FC<AllianceInfoboxTableProps> = ({
     const leader = allianceLeadership.leader;
     const roles: string[] = [];
 
-    // Check State / Region mention from assembly name (e.g. "Kerala Legislative Assembly" -> "of Kerala")
+    // Check State / Region mention from assembly state or name
     let regionSuffix = '';
-    if (activeAssembly?.name && activeAssembly.name.toLowerCase().includes('kerala')) {
-      regionSuffix = ' of Kerala';
+    if ((activeAssembly as any)?.state) {
+      regionSuffix = ` of ${(activeAssembly as any).state}`;
+    } else if (activeAssembly?.name) {
+      const match = activeAssembly.name.match(/(?:(?:\d+(?:st|nd|rd|th)\s+)?)(.*?)\s+(?:Legislative\s+Assembly|Assembly|Vidhan\s+Sabha)/i);
+      if (match && match[1]?.trim()) {
+        regionSuffix = ` of ${match[1].trim()}`;
+      }
     }
 
     if (activeAssembly?.leaders) {

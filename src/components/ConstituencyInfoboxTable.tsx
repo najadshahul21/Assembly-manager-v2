@@ -120,7 +120,7 @@ export const ConstituencyInfoboxTable: React.FC<ConstituencyInfoboxTableProps> =
           </button>
         ) : (
           <span className="text-zinc-400 text-sm font-medium">
-            Kerala Legislative Assembly
+            {constituency.state ? `${constituency.state} Legislative Assembly` : 'Legislative Assembly'}
           </span>
         )}
       </div>

@@ -1178,7 +1178,7 @@ export const ReleaseOrderModal: React.FC<ReleaseOrderModalProps> = ({
                   onChange={handleContentChange}
                   onKeyDown={handleKeyDown}
                   rows={6}
-                  placeholder={`Write the official order here...\nTip: Type "@" followed by a name (e.g. @Pinarayi or @Shamseer) to link any existing legislator or official.`}
+                  placeholder={`Write the official order here...\nTip: Type "@" followed by a name (e.g. @Member or @Minister) to link any existing legislator or official.`}
                   className="w-full bg-white/5 border border-white/10 rounded-xl p-3.5 text-sm text-white focus:outline-none focus:border-[#FFD700]/60 focus:bg-white/[0.08] transition-all font-sans leading-relaxed resize-y placeholder:text-gray-600"
                   required
                 />

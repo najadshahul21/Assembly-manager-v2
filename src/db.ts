@@ -51,13 +51,17 @@ export const clearAllData = async () => {
 
 export const ensureConstitutionalDesignations = async () => {
   try {
+    const activeAsm = (await db.assemblies.where('isActive').equals(1).first()) || (await db.assemblies.toCollection().first());
+    const stateName = (activeAsm as any)?.state || (activeAsm?.name?.match(/(?:(?:\d+(?:st|nd|rd|th)\s+)?)(.*?)\s+(?:Legislative\s+Assembly|Assembly|Vidhan\s+Sabha)/i)?.[1]?.trim()) || '';
+    const stateTitle = stateName ? `${stateName} State` : 'State';
+
     const defaults = [
       {
         id: 'governor',
         name: "Hon'ble Governor",
         incumbentId: 'vacant',
         dateOfSigning: new Date().toISOString().split('T')[0],
-        constituency: 'Kerala State',
+        constituency: stateTitle,
         history: [],
         updatedAt: Date.now()
       },
@@ -265,7 +269,7 @@ export const freezeAssembly = async (assemblyId: string) => {
 
   for (const con of relevantCs) {
     const conHistory = (con.history || []).filter(
-      (h) => (h.assemblyId || con.currentAssemblyId || "15th-assembly") === assemblyId,
+      (h) => (h.assemblyId || con.currentAssemblyId || assemblyId) === assemblyId,
     );
 
     const personIdsSet = new Set<string>();

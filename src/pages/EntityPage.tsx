@@ -41,11 +41,14 @@ import {
   Scale,
   Crown,
   CheckCircle2,
+  Network,
 } from "lucide-react";
 import { EntityCard } from "../components/EntityCards";
 import { ElectionResultsTable } from "../components/ElectionResultsTable";
 import { ElectModal } from "../components/ElectModal";
 import { AssemblyMembersTable } from "../components/AssemblyMembersTable";
+import { RelationshipGraph } from "../components/RelationshipGraph";
+import { buildRelationshipGraph } from "../utils/relationshipGraphBuilder";
 import {
   computeAssemblyGovernmentComposition,
   isSpeakerOrDeputySpeakerRole,
@@ -215,7 +218,7 @@ export const EntityPage: React.FC = () => {
 
         const historyEntry = {
           personId: newIncumbentId,
-          assemblyId: con.currentAssemblyId || "15th-assembly",
+          assemblyId: con.currentAssemblyId || currentActiveAssembly?.id || "assembly",
           date: now,
           reason: "election",
         };
@@ -260,16 +263,36 @@ export const EntityPage: React.FC = () => {
   const [departmentInput, setDepartmentInput] = useState("");
   const [isLeadershipModalOpen, setIsLeadershipModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<
-    "details" | "related" | "history" | "cabinet" | "orders"
+    "details" | "related" | "history" | "cabinet" | "orders" | "graph"
   >(
     initialTab === "sessions"
       ? (type === EntityType.CONSTITUENCY ? "related" : "history")
       : initialTab &&
-        ["details", "related", "history", "cabinet", "orders"].includes(initialTab)
+        ["details", "related", "history", "cabinet", "orders", "graph"].includes(initialTab)
       ? (initialTab as any)
       : "details",
   );
   const [alliancePartiesViewMode, setAlliancePartiesViewMode] = useState<"table" | "grid">("table");
+
+  const allGraphPersons = useLiveQuery(() => db.persons.toArray(), []) || [];
+  const allGraphParties = useLiveQuery(() => db.parties.toArray(), []) || [];
+  const allGraphAlliances = useLiveQuery(() => db.alliances.toArray(), []) || [];
+  const allGraphAssemblies = useLiveQuery(() => db.assemblies.toArray(), []) || [];
+  const allGraphDesignations = useLiveQuery(() => db.designations.toArray(), []) || [];
+  const allGraphConstituencies = useLiveQuery(() => db.constituencies.toArray(), []) || [];
+  const allGraphOrders = useLiveQuery(() => db.orders?.toArray() || Promise.resolve([]), []) || [];
+
+  const entityGraphData = useMemo(() => {
+    return buildRelationshipGraph({
+      persons: allGraphPersons,
+      parties: allGraphParties,
+      alliances: allGraphAlliances,
+      assemblies: allGraphAssemblies,
+      designations: allGraphDesignations,
+      constituencies: allGraphConstituencies,
+      orders: allGraphOrders
+    });
+  }, [allGraphPersons, allGraphParties, allGraphAlliances, allGraphAssemblies, allGraphDesignations, allGraphConstituencies, allGraphOrders]);
 
   const entityType = type as EntityType;
 
@@ -1183,7 +1206,7 @@ export const EntityPage: React.FC = () => {
       // Process Constituencies (including historical and by-elected)
       for (const con of relevantCs) {
         const conHistory = (con.history || []).filter(
-          (h) => (h.assemblyId || con.currentAssemblyId || "15th-assembly") === id,
+          (h) => (h.assemblyId || con.currentAssemblyId || id) === id,
         );
 
         const personIdsSet = new Set<string>();
@@ -1516,7 +1539,7 @@ export const EntityPage: React.FC = () => {
 
       for (const con of relevantCs) {
         const conHistory = (con.history || []).filter(
-          (h) => (h.assemblyId || con.currentAssemblyId || "15th-assembly") === id,
+          (h) => (h.assemblyId || con.currentAssemblyId || id) === id,
         );
 
         const personIdsSet = new Set<string>();
@@ -1706,7 +1729,7 @@ export const EntityPage: React.FC = () => {
           typeof d === "number" ? d : d ? new Date(d).getTime() : 0;
 
         const conHistory = (c.history || [])
-          .filter((h) => (h.assemblyId || c.currentAssemblyId || "15th-assembly") === id)
+          .filter((h) => (h.assemblyId || c.currentAssemblyId || id) === id)
           .sort((a, b) => toTime(a.date) - toTime(b.date));
 
         const personIdsSet = new Set<string>();
@@ -3824,6 +3847,13 @@ export const EntityPage: React.FC = () => {
             )}
           </button>
         )}
+        <button
+          onClick={() => setActiveTab("graph")}
+          className={`px-6 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${activeTab === "graph" ? "bg-[#FFD700] text-black shadow-lg shadow-[#FFD700]/20" : "text-gray-400 hover:text-white"}`}
+        >
+          <Network size={13} />
+          <span>GRAPH</span>
+        </button>
       </div>
 
       {/* Tab Content */}
@@ -5983,6 +6013,37 @@ export const EntityPage: React.FC = () => {
               )}
             </div>
           )}
+
+          {activeTab === "graph" && (
+            <div className="space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white/5 border border-white/10 rounded-2xl p-4 sm:p-6">
+                <div>
+                  <h3 className="text-xl font-black uppercase tracking-tight text-white flex items-center gap-2.5">
+                    <Network className="text-[#FFD700]" size={22} />
+                    <span>Relationship Network</span>
+                  </h3>
+                  <p className="text-xs text-gray-400 mt-1">
+                    Visualizing direct and extended connections for {(entity as any)?.name || "this profile"}.
+                  </p>
+                </div>
+                <button
+                  onClick={() => navigate("/graph")}
+                  className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-[#FFD700] hover:bg-[#FFE55C] text-black rounded-xl transition-all font-bold text-xs uppercase tracking-wider cursor-pointer shrink-0 shadow-lg shadow-[#FFD700]/20"
+                >
+                  <ExternalLink size={14} />
+                  <span>Full Network View</span>
+                </button>
+              </div>
+
+              <div className="h-[650px] w-full rounded-2xl overflow-hidden border border-white/10 shadow-2xl">
+                <RelationshipGraph
+                  graphData={entityGraphData}
+                  initialFocusNodeId={`${entityType}:${id}`}
+                  height="100%"
+                />
+              </div>
+            </div>
+          )}
         </motion.div>
       </AnimatePresence>
 
@@ -6229,7 +6290,7 @@ export const EntityPage: React.FC = () => {
                 </div>
                 <h3 className="text-xl font-bold mb-2">Final Confirmation</h3>
                 <p className="text-gray-500 text-sm mb-6">
-                  Are you sure you want to remove this entry from the Kerala
+                  Are you sure you want to remove this entry from the
                   legislative records?
                 </p>
 

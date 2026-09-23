@@ -68,7 +68,7 @@ const formatOfficeDisplayDate = (dateVal: any): string => {
  * Clean assembly name for display in header
  */
 const getCleanAssemblyName = (rawName?: string): string => {
-  if (!rawName) return 'Kerala Legislative Assembly';
+  if (!rawName) return 'Legislative Assembly';
   let clean = rawName.trim();
   if (!clean.toLowerCase().includes('assembly')) {
     clean = `${clean} Assembly`;
@@ -132,11 +132,18 @@ const renderRoleTitleHeader = (card: LegislativeRoleCardData) => {
   }
 
   if (card.roleType === 'chief_secretary') {
+    const ofMatch = card.roleTitle.match(/^(Chief Secretary)\s+of\s+(.*)$/i);
+    const region = ofMatch ? ofMatch[2] : (card.respectiveAssemblyName ? card.respectiveAssemblyName.replace(/^(the\s+)?/i, '') : '');
+
     return (
       <div className="font-bold text-sm sm:text-base leading-snug">
         <span className="text-[#7B96D4] font-bold">Chief Secretary </span>
-        <span className="text-white font-bold">of </span>
-        <span className="text-[#7B96D4] font-bold">Kerala</span>
+        {region ? (
+          <>
+            <span className="text-white font-bold">of </span>
+            <span className="text-[#7B96D4] font-bold">{region}</span>
+          </>
+        ) : null}
       </div>
     );
   }
@@ -201,7 +208,20 @@ export const LegislativeRolesHistoryWidget: React.FC<LegislativeRolesHistoryWidg
 
     // Active assembly
     const activeAssembly = allAssemblies.find((a) => a.isActive !== false) || allAssemblies[0];
-    const activeAsmName = activeAssembly?.name || '15th Kerala Legislative Assembly';
+    const activeAsmName = activeAssembly?.name || 'Legislative Assembly';
+
+    const extractStateFromAssembly = (asm?: Assembly | null): string => {
+      if (!asm) return '';
+      if ((asm as any).state) return (asm as any).state;
+      const match = asm.name?.match(/(?:(?:\d+(?:st|nd|rd|th)\s+)?)(.*?)\s+(?:Legislative\s+Assembly|Assembly|Vidhan\s+Sabha)/i);
+      if (match && match[1]?.trim()) {
+        return match[1].trim();
+      }
+      return '';
+    };
+
+    const activeStateName = extractStateFromAssembly(activeAssembly);
+    const activeStateSuffix = activeStateName ? ` of ${activeStateName}` : '';
 
     const lowerPersonName = person.name?.toLowerCase() || '';
     const personRoleRaw = person.role || '';
@@ -219,7 +239,7 @@ export const LegislativeRolesHistoryWidget: React.FC<LegislativeRolesHistoryWidg
     const isOommenChandy = lowerPersonName.includes('oommen') && lowerPersonName.includes('chandy');
 
     // Helper: Dynamic Governor lookup for an assembly/period
-    const resolveGovernor = (asm?: Assembly): { name: string; id?: string } => {
+    const resolveGovernor = (asm?: Assembly): { name: string; id?: string } | null => {
       const govDesig = allDesignations.find(
         (d) => d.id === 'governor' || d.name?.toLowerCase().includes('governor')
       );
@@ -227,41 +247,39 @@ export const LegislativeRolesHistoryWidget: React.FC<LegislativeRolesHistoryWidg
         const govP = personsMap.get(govDesig.incumbentId);
         if (govP) return { name: govP.name, id: govP.id };
       }
+      if (govDesig && Array.isArray(govDesig.history) && govDesig.history.length > 0) {
+        const hEntry = govDesig.history.find(h => (h as any).assemblyId === asm?.id) || govDesig.history[govDesig.history.length - 1];
+        if (hEntry?.personId && hEntry.personId !== 'vacant') {
+          const p = personsMap.get(hEntry.personId);
+          if (p) return { name: p.name, id: p.id };
+        }
+      }
       const arif = allPersons.find(
         (p) => p.id === 'arif-mohammad-khan' || p.name.toLowerCase().includes('arif')
       );
-
-      const targetAsmName = (asm?.name || activeAsmName).toLowerCase();
-      if (targetAsmName.includes('14')) {
-        return { name: 'P. Sathasivam, Arif Mohammad Khan', id: arif?.id };
-      }
-      if (targetAsmName.includes('13')) {
-        return { name: 'P. Sathasivam' };
-      }
-      return arif ? { name: arif.name, id: arif.id } : { name: 'Arif Mohammad Khan', id: 'arif-mohammad-khan' };
+      if (arif) return { name: arif.name, id: arif.id };
+      return null;
     };
 
     // Helper: Dynamic Chief Minister lookup for an assembly/period
-    const resolveChiefMinister = (asm?: Assembly): { name: string; id?: string } => {
+    const resolveChiefMinister = (asm?: Assembly): { name: string; id?: string } | null => {
       const targetAsm = asm || activeAssembly;
       if (targetAsm?.leaders?.chiefMinister && targetAsm.leaders.chiefMinister !== 'vacant') {
         const cm = personsMap.get(targetAsm.leaders.chiefMinister);
         if (cm) return { name: cm.name, id: cm.id };
       }
-
-      const targetAsmName = (targetAsm?.name || activeAsmName).toLowerCase();
-      if (targetAsmName.includes('13')) {
-        const oommen = allPersons.find(
-          (p) => p.id === 'oommen-chandy' || p.name.toLowerCase().includes('oommen')
-        );
-        if (oommen) return { name: oommen.name, id: oommen.id };
-        return { name: 'Oommen Chandy', id: 'oommen-chandy' };
+      const cmDesig = allDesignations.find(
+        (d) => d.name?.toLowerCase().includes('chief minister') || d.id?.toLowerCase().includes('chief-minister')
+      );
+      if (cmDesig?.incumbentId && cmDesig.incumbentId !== 'vacant') {
+        const cmP = personsMap.get(cmDesig.incumbentId);
+        if (cmP) return { name: cmP.name, id: cmP.id };
       }
-
       const pinarayi = allPersons.find(
         (p) => p.id === 'pinarayi-vijayan' || p.name.toLowerCase().includes('pinarayi')
       );
-      return pinarayi ? { name: pinarayi.name, id: pinarayi.id } : { name: 'Pinarayi Vijayan', id: 'pinarayi-vijayan' };
+      if (pinarayi) return { name: pinarayi.name, id: pinarayi.id };
+      return null;
     };
 
     // Helper: Dynamic Speaker lookup for Deputy Speaker
@@ -271,22 +289,17 @@ export const LegislativeRolesHistoryWidget: React.FC<LegislativeRolesHistoryWidg
         const spk = personsMap.get(targetAsm.leaders.speaker);
         if (spk) return { name: spk.name, id: spk.id };
       }
-
-      const targetAsmName = (targetAsm?.name || activeAsmName).toLowerCase();
-      if (targetAsmName.includes('15') || isCurrent) {
-        const shamseer = allPersons.find(
-          (p) => p.id === 'a-n-shamseer' || p.name.toLowerCase().includes('shamseer')
-        );
-        if (shamseer) return { name: shamseer.name, id: shamseer.id };
-        return { name: 'A. N. Shamseer', id: 'a-n-shamseer' };
+      const spkDesig = allDesignations.find(
+        (d) => d.name?.toLowerCase().includes('speaker') && !d.name?.toLowerCase().includes('deputy')
+      );
+      if (spkDesig?.incumbentId && spkDesig.incumbentId !== 'vacant') {
+        const spk = personsMap.get(spkDesig.incumbentId);
+        if (spk) return { name: spk.name, id: spk.id };
       }
-      if (targetAsmName.includes('14')) {
-        const sreeramakrishnan = allPersons.find(
-          (p) => p.id === 'p-sreeramakrishnan' || p.name.toLowerCase().includes('sreeramakrishnan')
-        );
-        if (sreeramakrishnan) return { name: sreeramakrishnan.name, id: sreeramakrishnan.id };
-        return { name: 'P. Sreeramakrishnan' };
-      }
+      const shamseer = allPersons.find(
+        (p) => p.id === 'a-n-shamseer' || p.name.toLowerCase().includes('shamseer')
+      );
+      if (shamseer) return { name: shamseer.name, id: shamseer.id };
       return null;
     };
 
@@ -346,12 +359,13 @@ export const LegislativeRolesHistoryWidget: React.FC<LegislativeRolesHistoryWidg
 
     if (isSreeramakrishnan) {
       const asm14 = allAssemblies.find((a) => a.name.toLowerCase().includes('14')) || activeAssembly;
+      const asm14Name = asm14?.name || (activeStateName ? `14th ${activeStateName} Legislative Assembly` : '14th Legislative Assembly');
       const gov = resolveGovernor(asm14);
       cards.push({
         id: `speaker_past_sreeramakrishnan`,
         roleType: 'speaker',
-        roleTitle: `Speaker of the ${asm14?.name || '14th Kerala Legislative Assembly'}`,
-        respectiveAssemblyName: asm14?.name || '14th Kerala Legislative Assembly',
+        roleTitle: `Speaker of the ${asm14Name}`,
+        respectiveAssemblyName: asm14Name,
         assemblyLink: asm14 ? `/assembly/${asm14.id}` : undefined,
         isActive: false,
         assumedDate: '3 June 2016',
@@ -395,6 +409,7 @@ export const LegislativeRolesHistoryWidget: React.FC<LegislativeRolesHistoryWidg
 
     if (isSasi && !isCurrentDeputySpeaker) {
       const asm14 = allAssemblies.find((a) => a.name.toLowerCase().includes('14')) || activeAssembly;
+      const asm14Name = asm14?.name || (activeStateName ? `14th ${activeStateName} Legislative Assembly` : '14th Legislative Assembly');
       const gov = resolveGovernor(asm14);
       const speaker14 = resolveSpeakerForDeputy(asm14, false);
       const gopakumar = allPersons.find((p) => p.name.toLowerCase().includes('gopakumar'));
@@ -402,8 +417,8 @@ export const LegislativeRolesHistoryWidget: React.FC<LegislativeRolesHistoryWidg
       cards.push({
         id: `deputy_speaker_past_sasi`,
         roleType: 'deputy_speaker',
-        roleTitle: `Deputy Speaker of the ${asm14?.name || '14th Kerala Legislative Assembly'}`,
-        respectiveAssemblyName: asm14?.name || '14th Kerala Legislative Assembly',
+        roleTitle: `Deputy Speaker of the ${asm14Name}`,
+        respectiveAssemblyName: asm14Name,
         assemblyLink: asm14 ? `/assembly/${asm14.id}` : undefined,
         isActive: false,
         assumedDate: '29 June 2016',
@@ -484,7 +499,7 @@ export const LegislativeRolesHistoryWidget: React.FC<LegislativeRolesHistoryWidg
       cards.push({
         id: `chief_secretary_active_${person.id}`,
         roleType: 'chief_secretary',
-        roleTitle: 'Chief Secretary of Kerala',
+        roleTitle: `Chief Secretary${activeStateSuffix}`,
         respectiveAssemblyName: activeAsmName,
         isActive: true,
         assumedDate: '1 July 2023',
@@ -501,11 +516,13 @@ export const LegislativeRolesHistoryWidget: React.FC<LegislativeRolesHistoryWidg
         const cm = resolveChiefMinister(asm);
         const assumed = asm.termLimits ? asm.termLimits.split(/[-–]/)[0]?.trim() : 'Assumed';
         const vacated = asm.termLimits ? asm.termLimits.split(/[-–]/)[1]?.trim() : 'Vacated';
+        const asmState = extractStateFromAssembly(asm);
+        const stateSuffix = asmState ? ` of ${asmState}` : activeStateSuffix;
 
         cards.push({
           id: `chief_secretary_past_${asm.id}_${person.id}`,
           roleType: 'chief_secretary',
-          roleTitle: 'Chief Secretary of Kerala',
+          roleTitle: `Chief Secretary${stateSuffix}`,
           respectiveAssemblyName: asm.name,
           isActive: false,
           assumedDate: assumed,
@@ -624,7 +641,7 @@ export const LegislativeRolesHistoryWidget: React.FC<LegislativeRolesHistoryWidg
         cards.push({
           id: `desig_cm_active`,
           roleType: 'designation',
-          roleTitle: 'Chief Minister of Kerala',
+          roleTitle: `Chief Minister${activeStateSuffix}`,
           isActive: true,
           assumedDate: '25 May 2016',
           governor: resolveGovernor(activeAssembly),
@@ -860,14 +877,15 @@ export const LegislativeRolesHistoryWidget: React.FC<LegislativeRolesHistoryWidg
         ? assembliesMap.get(incumbentCon.currentAssemblyId) || activeAssembly
         : activeAssembly;
 
+      const asmName = asm?.name || 'Legislative Assembly';
       const predecessor = findConstituencyPredecessor(incumbentCon, person.id);
       const assumedDateStr = getInitialContinuousAssumedDate(incumbentCon, person.id, asm);
 
       cards.push({
         id: `mla_active_${incumbentCon.id}`,
         roleType: 'mla',
-        roleTitle: 'Member of the Kerala Legislative Assembly',
-        respectiveAssemblyName: 'Kerala Legislative Assembly',
+        roleTitle: `Member of the ${asmName}`,
+        respectiveAssemblyName: asmName,
         isActive: true,
         assumedDate: assumedDateStr,
         precededBy: predecessor,
@@ -908,12 +926,14 @@ export const LegislativeRolesHistoryWidget: React.FC<LegislativeRolesHistoryWidg
           if (!vacatedDate) vacatedDate = 'Past Term';
 
           const officeDatesFormatted = `(${assumedDate} – ${vacatedDate})`;
+          const conAsm = c.currentAssemblyId ? assembliesMap.get(c.currentAssemblyId) || activeAssembly : activeAssembly;
+          const asmName = conAsm?.name || 'Legislative Assembly';
 
           cards.push({
             id: `mla_past_${c.id}`,
             roleType: 'mla',
-            roleTitle: 'Member of the Kerala Legislative Assembly',
-            respectiveAssemblyName: 'Kerala Legislative Assembly',
+            roleTitle: `Member of the ${asmName}`,
+            respectiveAssemblyName: asmName,
             isActive: false,
             assumedDate,
             vacatedDate,
