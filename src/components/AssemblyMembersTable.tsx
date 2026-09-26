@@ -140,18 +140,6 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
           existing.push(d);
           map.set(d.incumbentId, existing);
         }
-        // Also map prior holders if recorded in designation history for this assembly
-        if (Array.isArray(d.history)) {
-          d.history.forEach((h) => {
-            if (h.personId && h.personId !== "vacant") {
-              const existing = map.get(h.personId) || [];
-              if (!existing.some((item) => item.id === d.id)) {
-                existing.push(d);
-                map.set(h.personId, existing);
-              }
-            }
-          });
-        }
       }
     });
     return map;
@@ -164,7 +152,7 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
     const remarksSet = new Set<string>();
     let hasMinister = false;
 
-    // 1. Leader roles on Assembly
+    // 1. Leader roles on Assembly (Active designations)
     const leadersSource = assembly.leaders || (assembly as any).preDissolutionLeaders;
     if (leadersSource) {
       Object.entries(leadersSource).forEach(([key, leaderVal]) => {
@@ -179,7 +167,20 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
       });
     }
 
-    // 2. Custom assembly roles (check direct key or any matching assembly key)
+    // 2. Active Designations in the assembly (using map)
+    const activePersonDesignations = designationsByIncumbentMap.get(p.id) || [];
+    activePersonDesignations.forEach((d) => {
+      const trimmed = d.name.trim();
+      // Only skip the repetitive "MLA for ..." designations
+      if (!trimmed.toLowerCase().startsWith("mla for") && !trimmed.toLowerCase().endsWith(" mla")) {
+        if (trimmed.toLowerCase().includes("minister") && !trimmed.toLowerCase().includes("former")) {
+          hasMinister = true;
+        }
+        remarksSet.add(trimmed);
+      }
+    });
+
+    // 3. Custom active assembly roles
     if (p.assemblyRoles) {
       let customRoles: string[] = [];
       if (p.assemblyRoles[assembly.id]) {
@@ -196,6 +197,7 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
         const trimmed = r.trim();
         if (!trimmed) return;
         if (trimmed.toLowerCase() === "leader of the house") return;
+        
         if (trimmed.toLowerCase().includes("minister") && !trimmed.toLowerCase().includes("former")) {
           hasMinister = true;
         }
@@ -203,46 +205,9 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
       });
     }
 
-    // 3. Designations in the assembly (using map and direct person designations reference)
-    const personDesignations = [...(designationsByIncumbentMap.get(p.id) || [])];
-    if (Array.isArray(p.designations) && p.designations.length > 0) {
-      (designationsList || []).forEach((d) => {
-        if (p.designations.includes(d.id) && isMatchingAssembly(d.assemblyId)) {
-          if (!personDesignations.some((item) => item.id === d.id)) {
-            personDesignations.push(d);
-          }
-        }
-      });
-    }
-
-    personDesignations.forEach((d) => {
-      const trimmed = d.name.trim();
-      if (!trimmed.toLowerCase().startsWith("mla for") && !trimmed.toLowerCase().endsWith(" mla")) {
-        if (trimmed.toLowerCase().includes("minister") && !trimmed.toLowerCase().includes("former")) {
-          hasMinister = true;
-        }
-        remarksSet.add(trimmed);
-      }
-    });
-
-    // 4. Role history for this assembly (e.g. ministerial appointments/promotions)
-    if (Array.isArray(p.roleHistory)) {
-      p.roleHistory.forEach((rh) => {
-        if (isMatchingAssembly(rh.assemblyId) && rh.role) {
-          const trimmed = rh.role.trim();
-          if (
-            trimmed &&
-            !trimmed.toLowerCase().startsWith("mla for") &&
-            !trimmed.toLowerCase().endsWith(" mla") &&
-            trimmed.toLowerCase() !== "leader of the house"
-          ) {
-            if (trimmed.toLowerCase().includes("minister") && !trimmed.toLowerCase().includes("former")) {
-              hasMinister = true;
-            }
-            remarksSet.add(trimmed);
-          }
-        }
-      });
+    // 4. Default "MLA" designation if no other active role
+    if (remarksSet.size === 0 && p.constituencyName && p.constituencyName !== 'Special Role') {
+      remarksSet.add("MLA");
     }
 
     // Deduplicate near-identical role titles
@@ -299,7 +264,14 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
       const incumbents = rawIncumbents.map((inc) => {
         const p = inc.person;
         const isIndependent = p.partyId === "independent";
-        const { remarks, hasMinisterRole } = getRemarksForPolitician(p);
+        const res = getRemarksForPolitician(p);
+        
+        // Only show remarks and ministerial status for the ACTIVE incumbent
+        // (Active = hasn't been removed/resigned/expired in this assembly context)
+        const isActiveIncumbent = !inc.removalDate;
+        const remarks = isActiveIncumbent ? res.remarks : [];
+        const hasMinisterRole = isActiveIncumbent ? res.hasMinisterRole : false;
+
         const isSupportingAlliance = !!(assembly.independentSupports?.[p.id]);
 
         return {
@@ -909,16 +881,11 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
 
                     {/* 6. Remarks Cell */}
                     <td className="px-4 py-2.5 text-xs sm:text-sm text-gray-300 font-normal border-r border-[#242832] text-left break-words whitespace-normal">
-                      {row.incumbents.length > 0 ? (
+                      {row.incumbents.some(inc => inc.remarks && inc.remarks.length > 0) ? (
                         <div className="flex flex-col gap-2 min-h-[32px] w-full">
                           {row.incumbents.map((inc, iIdx) => {
-                            if (!inc.remarks || inc.remarks.length === 0) {
-                              return (
-                                <div key={inc.id || iIdx} className="flex items-center min-h-[28px]">
-                                  <span className="text-gray-500 font-normal select-none">—</span>
-                                </div>
-                              );
-                            }
+                            // Only render if there are remarks (usually only the active incumbent has them now)
+                            if (!inc.remarks || inc.remarks.length === 0) return null;
 
                             return (
                               <div key={inc.id || iIdx} className="flex flex-col gap-0.5 min-h-[28px] justify-center">

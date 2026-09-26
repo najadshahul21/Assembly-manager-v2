@@ -250,15 +250,27 @@ export const SearchableLeaderSelect: React.FC<SearchableLeaderSelectProps> = ({
                       {selectedPerson.name}
                     </p>
                     {selectedPersonParty && (
-                      <span
-                        className="text-[9px] px-1.5 py-0.2 rounded font-black uppercase tracking-wider text-white shrink-0 shadow-sm"
-                        style={{
-                          backgroundColor:
-                            selectedPersonParty.colors?.[0] || '#3B82F6',
-                        }}
-                      >
-                        {selectedPersonParty.abbreviation || selectedPerson.partyId}
-                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <span
+                          className="text-[9px] px-1.5 py-0.2 rounded font-black uppercase tracking-wider text-white shrink-0 shadow-sm"
+                          style={{
+                            backgroundColor:
+                              selectedPersonParty.colors?.[0] || '#3B82F6',
+                          }}
+                        >
+                          {selectedPersonParty.abbreviation || selectedPerson.partyId}
+                        </span>
+                        {selectedPersonParty.allianceId && selectedPersonParty.allianceId !== 'independent' && (
+                          <span
+                            className="text-[9px] px-1.5 py-0.2 rounded font-black uppercase tracking-wider text-white shrink-0 shadow-sm border border-white/20"
+                            style={{
+                              backgroundColor: alliances.find(a => a.id === selectedPersonParty.allianceId || a.abbreviation?.toLowerCase() === selectedPersonParty.allianceId?.toLowerCase())?.colors?.[0] || '#4B5563',
+                            }}
+                          >
+                            {alliances.find(a => a.id === selectedPersonParty.allianceId || a.abbreviation?.toLowerCase() === selectedPersonParty.allianceId?.toLowerCase())?.abbreviation || selectedPersonParty.allianceId.toUpperCase()}
+                          </span>
+                        )}
+                      </div>
                     )}
                   </div>
 
@@ -488,37 +500,49 @@ export const SearchableLeaderSelect: React.FC<SearchableLeaderSelectProps> = ({
                         </div>
 
                         {/* Details */}
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-xs font-bold text-white truncate group-hover:text-[#FFD700] transition-colors">
-                              {person.name}
-                            </span>
-                            {party && (
-                              <span
-                                className="text-[9px] px-1.5 py-0.2 rounded font-black uppercase text-white shrink-0"
-                                style={{
-                                  backgroundColor: party.colors?.[0] || '#3B82F6',
-                                }}
-                              >
-                                {party.abbreviation || party.name}
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-xs font-bold text-white truncate group-hover:text-[#FFD700] transition-colors">
+                                {person.name}
                               </span>
-                            )}
-                          </div>
+                              {party && (
+                                <div className="flex items-center gap-1.5">
+                                  <span
+                                    className="text-[9px] px-1.5 py-0.2 rounded font-black uppercase text-white shrink-0"
+                                    style={{
+                                      backgroundColor: party.colors?.[0] || '#3B82F6',
+                                    }}
+                                  >
+                                    {party.abbreviation || party.name}
+                                  </span>
+                                  {party.allianceId && party.allianceId !== 'independent' && (
+                                    <span
+                                      className="text-[9px] px-1.5 py-0.2 rounded font-black uppercase text-white shrink-0 border border-white/20"
+                                      style={{
+                                        backgroundColor: alliances.find(a => a.id === party.allianceId || a.abbreviation?.toLowerCase() === party.allianceId?.toLowerCase())?.colors?.[0] || '#4B5563',
+                                      }}
+                                    >
+                                      {alliances.find(a => a.id === party.allianceId || a.abbreviation?.toLowerCase() === party.allianceId?.toLowerCase())?.abbreviation || party.allianceId.toUpperCase()}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                            </div>
 
-                          <div className="flex items-center gap-2 text-[10px] text-zinc-400 mt-0.5 flex-wrap">
-                            {conName ? (
-                              <span className="truncate text-zinc-300">MLA • {conName}</span>
-                            ) : roleKey === 'chiefSecretary' ? (
-                              <span>Civil Administration</span>
-                            ) : null}
+                            <div className="flex items-center gap-2 text-[10px] text-zinc-400 mt-0.5 flex-wrap">
+                              {conName ? (
+                                <span className="truncate text-zinc-300">MLA • {conName}</span>
+                              ) : roleKey === 'chiefSecretary' ? (
+                                <span>Civil Administration</span>
+                              ) : null}
 
-                            {otherRole && (
-                              <span className="text-amber-400 text-[9px] font-bold shrink-0 bg-amber-500/10 px-1 py-0.2 rounded border border-amber-500/20">
-                                Currently {otherRole}
-                              </span>
-                            )}
+                              {otherRole && (
+                                <span className="text-amber-400 text-[9px] font-bold shrink-0 bg-amber-500/10 px-1 py-0.2 rounded border border-amber-500/20">
+                                  Currently {otherRole}
+                                </span>
+                              )}
+                            </div>
                           </div>
-                        </div>
                       </div>
 
                       {/* Selection Indicator */}

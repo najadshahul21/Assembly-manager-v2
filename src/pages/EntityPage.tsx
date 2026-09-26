@@ -6540,6 +6540,8 @@ export const EntityPage: React.FC = () => {
             personsList={personsList || []}
             partiesList={partiesList || []}
             alliancesList={alliancesList || []}
+            designationsList={designationsList || []}
+            assembliesList={assembliesList || []}
             onClose={() => setShowElectModal(false)}
             onConfirm={handleConfirmElection}
           />

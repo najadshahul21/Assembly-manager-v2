@@ -8,12 +8,52 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
+/**
+ * Shared helper to find a person's primary active designation (e.g. Minister, Speaker, or MLA)
+ */
+const getActiveDesignation = (p: Person, designations: Designation[], assemblies: Assembly[]) => {
+  // Priority 1: Official active designations (Minister, Speaker, etc.)
+  const activeAssemblyIds = new Set(assemblies.filter(a => a.isActive !== false).map(a => a.id));
+  
+  const personActiveDesigs = designations.filter(d => 
+    d.incumbentId === p.id && 
+    d.assemblyId && 
+    activeAssemblyIds.has(d.assemblyId)
+  );
+
+  if (personActiveDesigs.length > 0) {
+    // Return first one, preferably not just 'MLA'
+    const nonMla = personActiveDesigs.find(d => !d.name.toLowerCase().includes('mla'));
+    return nonMla ? nonMla.name : personActiveDesigs[0].name;
+  }
+
+  // Priority 2: Leadership roles in active assemblies
+  for (const a of assemblies) {
+    if (a.isActive !== false && a.leaders) {
+      for (const [role, pId] of Object.entries(a.leaders)) {
+        if (pId === p.id) {
+          return role.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase());
+        }
+      }
+    }
+  }
+
+  // Priority 3: MLA status
+  if (p.constituencyName && p.constituencyName !== 'Special Role') {
+    return `MLA • ${p.constituencyName}`;
+  }
+
+  return null;
+};
+
 interface ElectModalProps {
   constituencyName: string;
   previousPartyAbbreviation?: string;
   personsList: Person[];
   partiesList: Party[];
   alliancesList?: Alliance[];
+  designationsList?: Designation[];
+  assembliesList?: Assembly[];
   onClose: () => void;
   onConfirm: (winnerPersonId: string | undefined, result: ElectionResult) => Promise<void>;
 }
@@ -41,6 +81,8 @@ interface SearchablePersonSelectProps {
   personsList: Person[];
   partiesList: Party[];
   alliancesList: Alliance[];
+  designationsList: Designation[];
+  assembliesList: Assembly[];
   onSelect: (tempId: string, personId: string, customName?: string) => void;
 }
 
@@ -55,6 +97,8 @@ const SearchablePersonSelect: React.FC<SearchablePersonSelectProps> = ({
   personsList,
   partiesList,
   alliancesList,
+  designationsList,
+  assembliesList,
   onSelect,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -307,6 +351,8 @@ const SearchablePersonSelect: React.FC<SearchablePersonSelectProps> = ({
                 const allianceColorStyle = partyAlliance?.colors?.[0] || '#4B5563';
                 const allianceName = partyAlliance?.name;
 
+                const activeDesig = getActiveDesignation(person, designationsList, assembliesList);
+
                 return (
                   <button
                     key={person.id}
@@ -334,14 +380,18 @@ const SearchablePersonSelect: React.FC<SearchablePersonSelectProps> = ({
                             className="inline-block w-2 h-2 rounded-full shrink-0"
                             style={{ backgroundColor: partyColorStyle }}
                           />
-                          <span className="truncate">{prty?.name || partyAbbr}</span>
-                          {allianceAbbr && (
-                            <>
-                              <span className="text-zinc-600 shrink-0">•</span>
-                              <span className="text-zinc-300 font-semibold truncate">{allianceName || allianceAbbr}</span>
-                            </>
-                          )}
+                          <span className="truncate">
+                            {prty?.name || partyAbbr}
+                            {allianceAbbr && (
+                              <span className="ml-1 text-zinc-300 font-bold">({allianceAbbr})</span>
+                            )}
+                          </span>
                         </div>
+                        {activeDesig && (
+                          <div className="text-[9px] font-bold text-amber-400 uppercase tracking-tight mt-0.5 truncate">
+                            {activeDesig}
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -393,6 +443,8 @@ export const ElectModal: React.FC<ElectModalProps> = ({
   personsList,
   partiesList,
   alliancesList,
+  designationsList,
+  assembliesList,
   onClose,
   onConfirm
 }) => {
@@ -401,6 +453,18 @@ export const ElectModal: React.FC<ElectModalProps> = ({
   const effectiveAlliancesList = useMemo(() => {
     return (alliancesList && alliancesList.length > 0) ? alliancesList : dbAlliances;
   }, [alliancesList, dbAlliances]);
+
+  // Fallback for designations and assemblies
+  const dbDesignations = useLiveQuery(() => db.designations.toArray(), []) || [];
+  const dbAssemblies = useLiveQuery(() => db.assemblies.toArray(), []) || [];
+
+  const effectiveDesignationsList = useMemo(() => {
+    return (designationsList && designationsList.length > 0) ? designationsList : dbDesignations;
+  }, [designationsList, dbDesignations]);
+
+  const effectiveAssembliesList = useMemo(() => {
+    return (assembliesList && assembliesList.length > 0) ? assembliesList : dbAssemblies;
+  }, [assembliesList, dbAssemblies]);
 
   // Initialize candidate draft rows auto-populated from active (non-suspended) personsList / partiesList
   const [candidates, setCandidates] = useState<CandidateDraft[]>(() => {
@@ -927,6 +991,8 @@ export const ElectModal: React.FC<ElectModalProps> = ({
                     const allianceColor = partyAlliance?.colors?.[0] || '#4B5563';
                     const allianceName = partyAlliance?.name;
 
+                    const activeDesig = getActiveDesignation(p, effectiveDesignationsList, effectiveAssembliesList);
+
                     return (
                       <button
                         key={p.id}
@@ -946,14 +1012,18 @@ export const ElectModal: React.FC<ElectModalProps> = ({
                               {p.name}
                             </span>
                             <div className="text-[10px] text-zinc-400 flex items-center gap-1.5 truncate">
-                              <span>{prty?.name || partyAbbr}</span>
-                              {allianceAbbr && (
-                                <>
-                                  <span className="text-zinc-600">•</span>
-                                  <span className="text-zinc-300 font-semibold">{allianceName || allianceAbbr}</span>
-                                </>
-                              )}
+                              <span>
+                                {prty?.name || partyAbbr}
+                                {allianceAbbr && (
+                                  <span className="ml-1 text-zinc-300 font-bold">({allianceAbbr})</span>
+                                )}
+                              </span>
                             </div>
+                            {activeDesig && (
+                              <div className="text-[9px] font-bold text-amber-400 uppercase tracking-tight mt-0.5 truncate">
+                                {activeDesig}
+                              </div>
+                            )}
                           </div>
                         </div>
                         <div className="flex items-center gap-1.5 shrink-0">
@@ -1022,6 +1092,8 @@ export const ElectModal: React.FC<ElectModalProps> = ({
                     personsList={personsList}
                     partiesList={partiesList}
                     alliancesList={effectiveAlliancesList}
+                    designationsList={effectiveDesignationsList}
+                    assembliesList={effectiveAssembliesList}
                     onSelect={handlePersonSelect}
                   />
 
