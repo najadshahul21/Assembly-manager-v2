@@ -3,7 +3,6 @@ import { User, Flag, Shield, Landmark, Award, ChevronRight, MapPin, Calendar, Tr
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
 import { useDbLookup } from '../context/DbLookupContext';
-import { useAuth } from '../context/AuthContext';
 import { Person, Party, Alliance, Assembly, Designation, Constituency, EntityType } from '../types';
 import { db } from '../db';
 import { formatPersonName } from '../utils/governmentUtils';
@@ -20,7 +19,6 @@ interface CardProps {
 
 export const EntityCard: React.FC<CardProps> = ({ entity, type, onDelete, onPromote, onSupportAlliance, currentAssemblyId }) => {
   const navigate = useNavigate();
-  const { isViewerMode } = useAuth();
   const { partiesMap, alliancesMap, assembliesMap, designations, persons, parties, assemblies } = useDbLookup();
 
   const cardData = React.useMemo(() => {
@@ -355,7 +353,7 @@ export const EntityCard: React.FC<CardProps> = ({ entity, type, onDelete, onProm
       className={`glass-card p-4 cursor-pointer group flex flex-col h-full ${color} hover:border-[#FFD700]/40 transition-all relative overflow-hidden`}
     >
       <div className="absolute top-0 right-0 p-3 flex flex-col items-end gap-2 z-10">
-         {onPromote && !isViewerMode && (
+         {onPromote && (
            <motion.button 
              initial={{ opacity: 0, scale: 0.8 }}
              animate={{ opacity: 1, scale: 1 }}
@@ -371,7 +369,7 @@ export const EntityCard: React.FC<CardProps> = ({ entity, type, onDelete, onProm
               <span>Promote</span>
            </motion.button>
          )}
-         {onSupportAlliance && !isViewerMode && (
+         {onSupportAlliance && (
            <motion.button 
              initial={{ opacity: 0, scale: 0.8 }}
              animate={{ opacity: 1, scale: 1 }}
@@ -387,24 +385,22 @@ export const EntityCard: React.FC<CardProps> = ({ entity, type, onDelete, onProm
               <span>{currentSupportAlliance ? `Supporting: ${currentSupportAlliance.abbreviation}` : 'Support Alliance'}</span>
            </motion.button>
          )}
-         {!isViewerMode && (
-           <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-all">
-              <div className="p-2 bg-[#FFD700]/10 rounded-lg text-[#FFD700] backdrop-blur-md border border-[#FFD700]/20">
-                 <Edit size={14} />
+         <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-all">
+            <div className="p-2 bg-[#FFD700]/10 rounded-lg text-[#FFD700] backdrop-blur-md border border-[#FFD700]/20">
+               <Edit size={14} />
+            </div>
+            {onDelete && (
+              <div 
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete(e);
+                }}
+                className="p-2 bg-red-500/10 rounded-lg text-red-500 backdrop-blur-md border border-red-500/20 hover:bg-red-500 flex items-center justify-center transition-colors"
+              >
+                 <Trash2 size={14} />
               </div>
-              {onDelete && (
-                <div 
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDelete(e);
-                  }}
-                  className="p-2 bg-red-500/10 rounded-lg text-red-500 backdrop-blur-md border border-red-500/20 hover:bg-red-500 flex items-center justify-center transition-colors"
-                >
-                   <Trash2 size={14} />
-                </div>
-              )}
-           </div>
-         )}
+            )}
+         </div>
       </div>
       <div className="flex items-start justify-between mb-4">
         {image ? (

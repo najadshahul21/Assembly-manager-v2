@@ -30,12 +30,6 @@ export class LegislativeDB extends Dexie {
     this.version(8).stores({
       assemblies: 'id, slNo, name, partyControlId, precededById, updatedAt'
     });
-    this.version(9).stores({
-      assemblies: 'id, slNo, name, partyControlId, precededById, isActive, updatedAt'
-    });
-    this.version(10).stores({
-      assemblies: 'id, slNo, name, partyControlId, precededById, updatedAt'
-    });
 
     this.open().catch(err => {
       console.error("Failed to open database:", err);
@@ -57,8 +51,7 @@ export const clearAllData = async () => {
 
 export const ensureConstitutionalDesignations = async () => {
   try {
-    const allAsms = await db.assemblies.toArray();
-    const activeAsm = allAsms.find(a => a.isActive === true) || allAsms[0];
+    const activeAsm = (await db.assemblies.where('isActive').equals(1).first()) || (await db.assemblies.toCollection().first());
     const stateName = (activeAsm as any)?.state || (activeAsm?.name?.match(/(?:(?:\d+(?:st|nd|rd|th)\s+)?)(.*?)\s+(?:Legislative\s+Assembly|Assembly|Vidhan\s+Sabha)/i)?.[1]?.trim()) || '';
     const stateTitle = stateName ? `${stateName} State` : 'State';
 

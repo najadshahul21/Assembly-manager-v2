@@ -3,7 +3,6 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db, reindexConstituencies } from '../db';
 import { EntityType } from '../types';
 import { EntityCard } from '../components/EntityCards';
-import { useAuth } from '../context/AuthContext';
 import { motion, AnimatePresence } from 'motion/react';
 import { User, Flag, Shield, Landmark, Award, Trash2, MapPin } from 'lucide-react';
 
@@ -30,7 +29,6 @@ const getAssemblyChronologicalScore = (assembly: any) => {
 };
 
 export const EntityListPage: React.FC<ListPageProps> = ({ type, searchQuery = '' }) => {
-  const { isViewerMode } = useAuth();
   const [entityToDelete, setEntityToDelete] = useState<any | null>(null);
 
   const entities = useLiveQuery(async () => {
