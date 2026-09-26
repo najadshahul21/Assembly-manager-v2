@@ -47,8 +47,6 @@ import { EntityCard } from "../components/EntityCards";
 import { ElectionResultsTable } from "../components/ElectionResultsTable";
 import { ElectModal } from "../components/ElectModal";
 import { AssemblyMembersTable } from "../components/AssemblyMembersTable";
-import { RelationshipGraph } from "../components/RelationshipGraph";
-import { buildRelationshipGraph } from "../utils/relationshipGraphBuilder";
 import {
   computeAssemblyGovernmentComposition,
   isSpeakerOrDeputySpeakerRole,
@@ -148,7 +146,10 @@ const generateSeatLayout = (totalSeats: number) => {
   return positions;
 };
 
+import { useAuth } from "../context/AuthContext";
+
 export const EntityPage: React.FC = () => {
+  const { isViewerMode } = useAuth();
   const { type, id } = useParams<{ type: string; id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
@@ -170,38 +171,106 @@ export const EntityPage: React.FC = () => {
   ) => {
     if (!id || !entity || entityType !== EntityType.CONSTITUENCY) return;
 
-    // Close modal immediately to give instant feedback and prevent multiple clicks
-    setShowElectModal(false);
-
     try {
-      await db.transaction("rw", [db.persons, db.constituencies], async () => {
+      await db.transaction("rw", [db.persons, db.constituencies, db.parties, db.assemblies], async () => {
         // Fetch fresh constituency record within transaction
         const con = await db.constituencies.get(id);
         if (!con) return;
 
         const now = Date.now();
+        const oldIncumbentId = con.currentIncumbentId;
         const newIncumbentId = winnerPersonId || "vacant";
+
+        // 1. Vacate old incumbent if they are different from winner
+        if (oldIncumbentId && oldIncumbentId !== 'vacant' && oldIncumbentId !== winnerPersonId) {
+          const oldPerson = await db.persons.get(oldIncumbentId);
+          if (oldPerson && con.currentAssemblyId) {
+            const assemblyRoles = { ...(oldPerson.assemblyRoles || {}) };
+            const mlaRole = `MLA for ${con.name}`;
+            
+            // Remove the role
+            const roles = (assemblyRoles[con.currentAssemblyId] || "").split(", ").map(r => r.trim()).filter(Boolean);
+            const updatedRoles = roles.filter(r => r !== mlaRole && r !== `${con.name} MLA`);
+            
+            if (updatedRoles.length === 0) {
+              delete assemblyRoles[con.currentAssemblyId];
+            } else {
+              assemblyRoles[con.currentAssemblyId] = updatedRoles.join(", ");
+            }
+
+            const pRoleHistory = [...(oldPerson.roleHistory || [])];
+            pRoleHistory.push({
+              role: mlaRole,
+              assemblyId: con.currentAssemblyId,
+              date: now,
+              action: "expiry"
+            });
+
+            await db.persons.update(oldIncumbentId, {
+              assemblyRoles,
+              roleHistory: pRoleHistory,
+              constituencyName: "", // No longer MLA of this constituency
+              updatedAt: now,
+            });
+
+            // Remove independent support if applicable
+            const assembly = await db.assemblies.get(con.currentAssemblyId);
+            if (assembly && assembly.independentSupports && assembly.independentSupports[oldIncumbentId]) {
+              const supports = { ...assembly.independentSupports };
+              delete supports[oldIncumbentId];
+              await db.assemblies.update(con.currentAssemblyId, {
+                independentSupports: supports,
+                updatedAt: now
+              });
+            }
+          }
+        }
 
         if (winnerPersonId && winnerPersonId !== "vacant") {
           const person = await db.persons.get(winnerPersonId);
           if (!person || person.isSuspended) {
-            alert(`Candidate "${person?.name || winnerPersonId}" is suspended and cannot be elected.`);
-            return;
+            throw new Error(`Candidate "${person?.name || winnerPersonId}" is suspended and cannot be elected.`);
           }
           if (person.partyId && person.partyId !== 'independent') {
             const party = await db.parties.get(person.partyId);
             if (party?.isSuspended) {
-              alert(`Candidate "${person.name}" belongs to suspended party "${party.name}" and cannot be elected.`);
-              return;
+              throw new Error(`Candidate "${person.name}" belongs to suspended party "${party.name}" and cannot be elected.`);
             }
           }
+
+          // 2. If the winner was already an MLA of ANOTHER constituency, vacate them from there
+          const otherCons = await db.constituencies.where("currentIncumbentId").equals(winnerPersonId).toArray();
+          for (const otherCon of otherCons) {
+            if (otherCon.id !== con.id) {
+              const otherConHistory = [...(otherCon.history || [])];
+              otherConHistory.push({
+                personId: winnerPersonId,
+                assemblyId: otherCon.currentAssemblyId || "unknown",
+                date: now,
+                reason: "Resigned (Elected to other seat)"
+              });
+              
+              await db.constituencies.update(otherCon.id, {
+                currentIncumbentId: "vacant",
+                history: otherConHistory,
+                updatedAt: now
+              });
+            }
+          }
+
           if (con.currentAssemblyId) {
             const assemblyRoles = { ...(person.assemblyRoles || {}) };
-            assemblyRoles[con.currentAssemblyId] = `${con.name} MLA`;
+            const mlaRole = `MLA for ${con.name}`;
+            
+            const roles = (assemblyRoles[con.currentAssemblyId] || "").split(", ").map(r => r.trim()).filter(Boolean);
+            if (!roles.includes(mlaRole)) {
+              roles.push(mlaRole);
+              assemblyRoles[con.currentAssemblyId] = roles.join(", ");
+            }
             
             const pRoleHistory = [...(person.roleHistory || [])];
             pRoleHistory.push({
-              role: `${con.name} MLA`,
+              role: mlaRole,
               assemblyId: con.currentAssemblyId,
               date: now,
               action: "appointment"
@@ -230,9 +299,10 @@ export const EntityPage: React.FC = () => {
           updatedAt: now,
         });
       });
-    } catch (error) {
+      setShowElectModal(false);
+    } catch (error: any) {
       console.error("Failed to confirm election:", error);
-      // Optional: show error message to user
+      alert(error.message || "Failed to confirm election.");
     }
   };
   const [showDeactivatePopup, setShowDeactivatePopup] = useState(false);
@@ -263,36 +333,16 @@ export const EntityPage: React.FC = () => {
   const [departmentInput, setDepartmentInput] = useState("");
   const [isLeadershipModalOpen, setIsLeadershipModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<
-    "details" | "related" | "history" | "cabinet" | "orders" | "graph"
+    "details" | "related" | "history" | "cabinet" | "orders"
   >(
     initialTab === "sessions"
       ? (type === EntityType.CONSTITUENCY ? "related" : "history")
       : initialTab &&
-        ["details", "related", "history", "cabinet", "orders", "graph"].includes(initialTab)
+        ["details", "related", "history", "cabinet", "orders"].includes(initialTab)
       ? (initialTab as any)
       : "details",
   );
   const [alliancePartiesViewMode, setAlliancePartiesViewMode] = useState<"table" | "grid">("table");
-
-  const allGraphPersons = useLiveQuery(() => db.persons.toArray(), []) || [];
-  const allGraphParties = useLiveQuery(() => db.parties.toArray(), []) || [];
-  const allGraphAlliances = useLiveQuery(() => db.alliances.toArray(), []) || [];
-  const allGraphAssemblies = useLiveQuery(() => db.assemblies.toArray(), []) || [];
-  const allGraphDesignations = useLiveQuery(() => db.designations.toArray(), []) || [];
-  const allGraphConstituencies = useLiveQuery(() => db.constituencies.toArray(), []) || [];
-  const allGraphOrders = useLiveQuery(() => db.orders?.toArray() || Promise.resolve([]), []) || [];
-
-  const entityGraphData = useMemo(() => {
-    return buildRelationshipGraph({
-      persons: allGraphPersons,
-      parties: allGraphParties,
-      alliances: allGraphAlliances,
-      assemblies: allGraphAssemblies,
-      designations: allGraphDesignations,
-      constituencies: allGraphConstituencies,
-      orders: allGraphOrders
-    });
-  }, [allGraphPersons, allGraphParties, allGraphAlliances, allGraphAssemblies, allGraphDesignations, allGraphConstituencies, allGraphOrders]);
 
   const entityType = type as EntityType;
 
@@ -3440,7 +3490,7 @@ export const EntityPage: React.FC = () => {
           <span>Back</span>
         </button>
         <div className="flex items-center gap-2">
-          {entityType === EntityType.PERSON && !(entity as Person).isSuspended && (
+          {entityType === EntityType.PERSON && !(entity as Person).isSuspended && !isViewerMode && (
             <button
               onClick={handleSuspendPerson}
               title="Suspend Politician"
@@ -3451,7 +3501,7 @@ export const EntityPage: React.FC = () => {
               <UserMinus size={18} />
             </button>
           )}
-          {entityType === EntityType.PARTY && !(entity as Party).isSuspended && (
+          {entityType === EntityType.PARTY && !(entity as Party).isSuspended && !isViewerMode && (
             <button
               onClick={handleSuspendParty}
               title="Suspend Party"
@@ -3462,7 +3512,7 @@ export const EntityPage: React.FC = () => {
               <UserMinus size={18} />
             </button>
           )}
-          {!isDissolvedRecord && id !== 'governor' && !(entity as any).isSuspended && (
+          {!isDissolvedRecord && id !== 'governor' && !(entity as any).isSuspended && !isViewerMode && (
             <button
               onClick={() => setShowEditModal(true)}
               title="Modify Entry"
@@ -3474,7 +3524,7 @@ export const EntityPage: React.FC = () => {
             </button>
           )}
           {entityType === EntityType.ASSEMBLY &&
-            (entity as Assembly).isActive !== false && (
+            (entity as Assembly).isActive !== false && !isViewerMode && (
               <button
                 onClick={() => setShowDeactivatePopup(true)}
                 title="End Term / Deactivate"
@@ -3485,7 +3535,7 @@ export const EntityPage: React.FC = () => {
                 <HistoryIcon size={18} />
               </button>
             )}
-          {id !== 'governor' && !(entity as any).isSuspended && (
+          {id !== 'governor' && !(entity as any).isSuspended && !isViewerMode && (
             <button
               onClick={() => setShowDeletePopup(true)}
               title="Delete Record"
@@ -3526,7 +3576,7 @@ export const EntityPage: React.FC = () => {
             </div>
 
             <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto justify-start sm:justify-end pt-4 sm:pt-0 border-t sm:border-t-0 border-white/5">
-              {!isDissolvedRecord && (
+              {!isDissolvedRecord && !isViewerMode && (
                 (entity as Constituency).currentIncumbentId !== "vacant" ? (
                   <button
                     onClick={() => setShowVacateMlaReasonModal(true)}
@@ -3744,7 +3794,7 @@ export const EntityPage: React.FC = () => {
                     Current Incumbent
                   </h3>
                   {(entity as Designation).incumbentId !== "vacant"
-                    ? !isDissolvedRecord && (
+                    ? !isDissolvedRecord && !isViewerMode && (
                         <button
                           onClick={() => setShowDeletePopup(true)}
                           className="flex items-center gap-2 text-xs text-red-500 hover:underline uppercase font-bold"
@@ -3752,7 +3802,7 @@ export const EntityPage: React.FC = () => {
                           <UserMinus size={14} /> Remove Incumbent
                         </button>
                       )
-                    : !isDissolvedRecord && (
+                    : !isDissolvedRecord && !isViewerMode && (
                         <button
                           onClick={() => setShowAppointPopup(true)}
                           className="flex items-center gap-2 text-xs gold-text hover:underline uppercase font-bold"
@@ -3847,13 +3897,6 @@ export const EntityPage: React.FC = () => {
             )}
           </button>
         )}
-        <button
-          onClick={() => setActiveTab("graph")}
-          className={`px-6 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${activeTab === "graph" ? "bg-[#FFD700] text-black shadow-lg shadow-[#FFD700]/20" : "text-gray-400 hover:text-white"}`}
-        >
-          <Network size={13} />
-          <span>GRAPH</span>
-        </button>
       </div>
 
       {/* Tab Content */}
@@ -4135,7 +4178,7 @@ export const EntityPage: React.FC = () => {
                                 className="text-gray-600"
                               />
                             </div>
-                            {!isDissolvedRecord && (
+                            {!isDissolvedRecord && !isViewerMode && (
                               <button
                                 onClick={() => setShowDeletePopup(true)}
                                 className="flex items-center gap-2 text-xs text-red-500 hover:bg-red-500/10 px-4 py-2 rounded-lg transition-colors font-bold uppercase"
@@ -4157,7 +4200,7 @@ export const EntityPage: React.FC = () => {
                               requires immediate appointment from the
                               legislative pool.
                             </p>
-                            {!isDissolvedRecord && (
+                            {!isDissolvedRecord && !isViewerMode && (
                               <button
                                 onClick={() => setShowAppointPopup(true)}
                                 className="mt-6 px-10 py-3 bg-[#FFD700] text-black font-black rounded-xl hover:scale-105 transition-transform"
@@ -4357,7 +4400,7 @@ export const EntityPage: React.FC = () => {
                         <Users size={16} /> Party Cadre (
                         {relatedPersons?.length || 0})
                       </h4>
-                      {!isDissolvedRecord && (
+                      {!isDissolvedRecord && !isViewerMode && (
                         <button
                           onClick={() => setShowAddPersonModal(true)}
                           className="flex items-center gap-2 px-3 py-1.5 bg-[#FFD700]/10 hover:bg-[#FFD700]/20 rounded-lg text-[#FFD700] text-[10px] font-black uppercase tracking-widest border border-[#FFD700]/20 transition-all"
@@ -4533,34 +4576,40 @@ export const EntityPage: React.FC = () => {
                                 >
                                   View Profile
                                 </button>
-                                <span className="text-white/20">•</span>
+                                {!isViewerMode && (
+                                  <>
+                                    <span className="text-white/20">•</span>
+                                    <button
+                                      onClick={() => {
+                                        setCouncilSearchQuery("");
+                                        setAppointingCouncilRole("leader");
+                                      }}
+                                      className="text-[10px] text-[#FFD700]/70 hover:text-[#FFD700] transition-colors uppercase font-black tracking-widest"
+                                    >
+                                      Change
+                                    </button>
+                                    <span className="text-white/20">•</span>
+                                    <button
+                                      onClick={() => handleRemoveCouncilMember("leader")}
+                                      className="text-[10px] text-red-500/70 hover:text-red-400 transition-colors uppercase font-black tracking-widest"
+                                    >
+                                      Remove
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            ) : (
+                              !isViewerMode && (
                                 <button
                                   onClick={() => {
                                     setCouncilSearchQuery("");
                                     setAppointingCouncilRole("leader");
                                   }}
-                                  className="text-[10px] text-[#FFD700]/70 hover:text-[#FFD700] transition-colors uppercase font-black tracking-widest"
+                                  className="mt-3 px-4 py-1.5 bg-[#FFD700]/10 hover:bg-[#FFD700]/20 text-[#FFD700] rounded-xl text-[10px] font-black uppercase tracking-widest border border-[#FFD700]/20 transition-all flex items-center gap-1.5 mx-auto"
                                 >
-                                  Change
+                                  <UserPlus size={12} /> Appoint Leader
                                 </button>
-                                <span className="text-white/20">•</span>
-                                <button
-                                  onClick={() => handleRemoveCouncilMember("leader")}
-                                  className="text-[10px] text-red-500/70 hover:text-red-400 transition-colors uppercase font-black tracking-widest"
-                                >
-                                  Remove
-                                </button>
-                              </div>
-                            ) : (
-                              <button
-                                onClick={() => {
-                                  setCouncilSearchQuery("");
-                                  setAppointingCouncilRole("leader");
-                                }}
-                                className="mt-3 px-4 py-1.5 bg-[#FFD700]/10 hover:bg-[#FFD700]/20 text-[#FFD700] rounded-xl text-[10px] font-black uppercase tracking-widest border border-[#FFD700]/20 transition-all flex items-center gap-1.5 mx-auto"
-                              >
-                                <UserPlus size={12} /> Appoint Leader
-                              </button>
+                              )
                             )}
                           </div>
                         </div>
@@ -4603,34 +4652,40 @@ export const EntityPage: React.FC = () => {
                                 >
                                   View Profile
                                 </button>
-                                <span className="text-white/20">•</span>
+                                {!isViewerMode && (
+                                  <>
+                                    <span className="text-white/20">•</span>
+                                    <button
+                                      onClick={() => {
+                                        setCouncilSearchQuery("");
+                                        setAppointingCouncilRole("chairman");
+                                      }}
+                                      className="text-[10px] text-[#FFD700]/70 hover:text-[#FFD700] transition-colors uppercase font-black tracking-widest"
+                                    >
+                                      Change
+                                    </button>
+                                    <span className="text-white/20">•</span>
+                                    <button
+                                      onClick={() => handleRemoveCouncilMember("chairman")}
+                                      className="text-[10px] text-red-500/70 hover:text-red-400 transition-colors uppercase font-black tracking-widest"
+                                    >
+                                      Remove
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            ) : (
+                              !isViewerMode && (
                                 <button
                                   onClick={() => {
                                     setCouncilSearchQuery("");
                                     setAppointingCouncilRole("chairman");
                                   }}
-                                  className="text-[10px] text-[#FFD700]/70 hover:text-[#FFD700] transition-colors uppercase font-black tracking-widest"
+                                  className="mt-3 px-4 py-1.5 bg-[#FFD700]/10 hover:bg-[#FFD700]/20 text-[#FFD700] rounded-xl text-[10px] font-black uppercase tracking-widest border border-[#FFD700]/20 transition-all flex items-center gap-1.5 mx-auto"
                                 >
-                                  Change
+                                  <UserPlus size={12} /> Appoint Chairman
                                 </button>
-                                <span className="text-white/20">•</span>
-                                <button
-                                  onClick={() => handleRemoveCouncilMember("chairman")}
-                                  className="text-[10px] text-red-500/70 hover:text-red-400 transition-colors uppercase font-black tracking-widest"
-                                >
-                                  Remove
-                                </button>
-                              </div>
-                            ) : (
-                              <button
-                                onClick={() => {
-                                  setCouncilSearchQuery("");
-                                  setAppointingCouncilRole("chairman");
-                                }}
-                                className="mt-3 px-4 py-1.5 bg-[#FFD700]/10 hover:bg-[#FFD700]/20 text-[#FFD700] rounded-xl text-[10px] font-black uppercase tracking-widest border border-[#FFD700]/20 transition-all flex items-center gap-1.5 mx-auto"
-                              >
-                                <UserPlus size={12} /> Appoint Chairman
-                              </button>
+                              )
                             )}
                           </div>
                         </div>
@@ -4673,34 +4728,40 @@ export const EntityPage: React.FC = () => {
                                 >
                                   View Profile
                                 </button>
-                                <span className="text-white/20">•</span>
+                                {!isViewerMode && (
+                                  <>
+                                    <span className="text-white/20">•</span>
+                                    <button
+                                      onClick={() => {
+                                        setCouncilSearchQuery("");
+                                        setAppointingCouncilRole("founder");
+                                      }}
+                                      className="text-[10px] text-[#D32F2F]/70 hover:text-[#D32F2F] transition-colors uppercase font-black tracking-widest"
+                                    >
+                                      Change
+                                    </button>
+                                    <span className="text-white/20">•</span>
+                                    <button
+                                      onClick={() => handleRemoveCouncilMember("founder")}
+                                      className="text-[10px] text-red-500/70 hover:text-red-400 transition-colors uppercase font-black tracking-widest"
+                                    >
+                                      Remove
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            ) : (
+                              !isViewerMode && (
                                 <button
                                   onClick={() => {
                                     setCouncilSearchQuery("");
                                     setAppointingCouncilRole("founder");
                                   }}
-                                  className="text-[10px] text-[#D32F2F]/70 hover:text-[#D32F2F] transition-colors uppercase font-black tracking-widest"
+                                  className="mt-3 px-4 py-1.5 bg-[#D32F2F]/10 hover:bg-[#D32F2F]/20 text-[#D32F2F] rounded-xl text-[10px] font-black uppercase tracking-widest border border-[#D32F2F]/20 transition-all flex items-center gap-1.5 mx-auto"
                                 >
-                                  Change
+                                  <UserPlus size={12} /> Appoint Founder
                                 </button>
-                                <span className="text-white/20">•</span>
-                                <button
-                                  onClick={() => handleRemoveCouncilMember("founder")}
-                                  className="text-[10px] text-red-500/70 hover:text-red-400 transition-colors uppercase font-black tracking-widest"
-                                >
-                                  Remove
-                                </button>
-                              </div>
-                            ) : (
-                              <button
-                                onClick={() => {
-                                  setCouncilSearchQuery("");
-                                  setAppointingCouncilRole("founder");
-                                }}
-                                className="mt-3 px-4 py-1.5 bg-[#D32F2F]/10 hover:bg-[#D32F2F]/20 text-[#D32F2F] rounded-xl text-[10px] font-black uppercase tracking-widest border border-[#D32F2F]/20 transition-all flex items-center gap-1.5 mx-auto"
-                              >
-                                <UserPlus size={12} /> Appoint Founder
-                              </button>
+                              )
                             )}
                           </div>
                         </div>
@@ -4723,15 +4784,17 @@ export const EntityPage: React.FC = () => {
                             </p>
                           </div>
                         </div>
-                        <button
-                          onClick={() => {
-                            setSearchQuery("");
-                            setShowManageHighCommandModal(true);
-                          }}
-                          className="flex items-center gap-2 px-4 py-2 bg-[#D32F2F]/10 hover:bg-[#D32F2F]/20 rounded-xl text-[#D32F2F] text-[10px] font-black uppercase tracking-widest border border-[#D32F2F]/20 transition-all"
-                        >
-                          <Plus size={14} /> Assign Commanders
-                        </button>
+                        {!isViewerMode && (
+                          <button
+                            onClick={() => {
+                              setSearchQuery("");
+                              setShowManageHighCommandModal(true);
+                            }}
+                            className="flex items-center gap-2 px-4 py-2 bg-[#D32F2F]/10 hover:bg-[#D32F2F]/20 rounded-xl text-[#D32F2F] text-[10px] font-black uppercase tracking-widest border border-[#D32F2F]/20 transition-all"
+                          >
+                            <Plus size={14} /> Assign Commanders
+                          </button>
+                        )}
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                         {Array.isArray(highCommandMembers) &&
@@ -5425,7 +5488,7 @@ export const EntityPage: React.FC = () => {
                                 <ExternalLink size={12} />
                               </button>
 
-                              {!isDissolvedRecord && (
+                              {!isDissolvedRecord && !isViewerMode && (
                                 <button
                                   onClick={() => setIsLeadershipModalOpen(true)}
                                   className="text-[#FFD700] hover:underline font-bold text-[11px] transition-all cursor-pointer"
@@ -5459,7 +5522,7 @@ export const EntityPage: React.FC = () => {
                             </p>
                           </div>
 
-                          {!isDissolvedRecord ? (
+                          {!isDissolvedRecord && !isViewerMode ? (
                             <button
                               onClick={() => setIsLeadershipModalOpen(true)}
                               className="w-full py-2.5 bg-white/5 hover:bg-[#FFD700]/10 hover:text-[#FFD700] border border-white/10 hover:border-[#FFD700]/30 rounded-xl text-xs font-bold uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer"
@@ -5469,7 +5532,7 @@ export const EntityPage: React.FC = () => {
                             </button>
                           ) : (
                             <span className="text-[10px] text-zinc-600 font-mono italic">
-                              Vacant during dissolution
+                              {isViewerMode ? "Login as admin to appoint" : "Vacant during dissolution"}
                             </span>
                           )}
                         </div>
@@ -6013,37 +6076,6 @@ export const EntityPage: React.FC = () => {
               )}
             </div>
           )}
-
-          {activeTab === "graph" && (
-            <div className="space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white/5 border border-white/10 rounded-2xl p-4 sm:p-6">
-                <div>
-                  <h3 className="text-xl font-black uppercase tracking-tight text-white flex items-center gap-2.5">
-                    <Network className="text-[#FFD700]" size={22} />
-                    <span>Relationship Network</span>
-                  </h3>
-                  <p className="text-xs text-gray-400 mt-1">
-                    Visualizing direct and extended connections for {(entity as any)?.name || "this profile"}.
-                  </p>
-                </div>
-                <button
-                  onClick={() => navigate("/graph")}
-                  className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-[#FFD700] hover:bg-[#FFE55C] text-black rounded-xl transition-all font-bold text-xs uppercase tracking-wider cursor-pointer shrink-0 shadow-lg shadow-[#FFD700]/20"
-                >
-                  <ExternalLink size={14} />
-                  <span>Full Network View</span>
-                </button>
-              </div>
-
-              <div className="h-[650px] w-full rounded-2xl overflow-hidden border border-white/10 shadow-2xl">
-                <RelationshipGraph
-                  graphData={entityGraphData}
-                  initialFocusNodeId={`${entityType}:${id}`}
-                  height="100%"
-                />
-              </div>
-            </div>
-          )}
         </motion.div>
       </AnimatePresence>
 
@@ -6507,6 +6539,7 @@ export const EntityPage: React.FC = () => {
             previousPartyAbbreviation={constituencyPreviousPartyAbbr || 'new constituency'}
             personsList={personsList || []}
             partiesList={partiesList || []}
+            alliancesList={alliancesList || []}
             onClose={() => setShowElectModal(false)}
             onConfirm={handleConfirmElection}
           />

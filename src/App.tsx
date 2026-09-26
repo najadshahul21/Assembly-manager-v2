@@ -6,7 +6,6 @@ import { EntityPage } from './pages/EntityPage';
 import { EntityListPage } from './pages/EntityListPage';
 import { CabinetPage } from './pages/CabinetPage';
 import { OrdersPage } from './pages/OrdersPage';
-import { RelationshipGraphPage } from './pages/RelationshipGraphPage';
 import { CreateModals } from './components/CreateModals';
 import { LoginScreen } from './components/LoginScreen';
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -41,9 +40,6 @@ function AppContent() {
       <Layout onSearch={setSearchQuery} onPlusClick={() => setCreateMenuOpen(true)}>
         <Routes>
           <Route path="/" element={<Dashboard />} />
-          <Route path="/graph" element={<RelationshipGraphPage />} />
-          <Route path="/relationships" element={<RelationshipGraphPage />} />
-          <Route path="/network" element={<RelationshipGraphPage />} />
           <Route path="/orders" element={<OrdersPage searchQuery={searchQuery} />} />
           <Route path="/persons" element={<EntityListPage type={EntityType.PERSON} searchQuery={searchQuery} />} />
           <Route path="/parties" element={<EntityListPage type={EntityType.PARTY} searchQuery={searchQuery} />} />

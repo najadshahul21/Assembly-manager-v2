@@ -1,5 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Person, Party, ElectionResult, CandidateResult } from '../types';
+import { Person, Party, Alliance, ElectionResult, CandidateResult } from '../types';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { db } from '../db';
 import { 
   Vote, Plus, Trash2, X, CheckCircle, Search, AlertCircle, 
   ChevronDown, User, Check, Sparkles, UserPlus 
@@ -11,6 +13,7 @@ interface ElectModalProps {
   previousPartyAbbreviation?: string;
   personsList: Person[];
   partiesList: Party[];
+  alliancesList?: Alliance[];
   onClose: () => void;
   onConfirm: (winnerPersonId: string | undefined, result: ElectionResult) => Promise<void>;
 }
@@ -22,6 +25,8 @@ interface CandidateDraft {
   partyId?: string;
   partyAbbreviation: string;
   partyColor: string;
+  allianceAbbreviation?: string;
+  allianceColor?: string;
   votes: number | '';
 }
 
@@ -31,8 +36,11 @@ interface SearchablePersonSelectProps {
   candidateName: string;
   partyAbbreviation: string;
   partyColor: string;
+  allianceAbbreviation?: string;
+  allianceColor?: string;
   personsList: Person[];
   partiesList: Party[];
+  alliancesList: Alliance[];
   onSelect: (tempId: string, personId: string, customName?: string) => void;
 }
 
@@ -42,8 +50,11 @@ const SearchablePersonSelect: React.FC<SearchablePersonSelectProps> = ({
   candidateName,
   partyAbbreviation,
   partyColor,
+  allianceAbbreviation,
+  allianceColor,
   personsList,
   partiesList,
+  alliancesList,
   onSelect,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -76,6 +87,23 @@ const SearchablePersonSelect: React.FC<SearchablePersonSelectProps> = ({
     return (p && !p.isSuspended) ? p : null;
   }, [personId, personsList]);
 
+  const selectedAlliance = useMemo(() => {
+    if (!selectedPerson) return null;
+    const prty = partiesList.find(
+      (p) => p.id === selectedPerson.partyId || p.abbreviation?.toLowerCase() === selectedPerson.partyId?.toLowerCase()
+    );
+    if (!prty || !prty.allianceId || prty.allianceId === 'independent') return null;
+    const found = alliancesList.find(
+      (a) => a.id === prty.allianceId || a.abbreviation?.toLowerCase() === prty.allianceId?.toLowerCase()
+    );
+    return found || {
+      id: prty.allianceId,
+      name: prty.allianceId.toUpperCase(),
+      abbreviation: prty.allianceId.toUpperCase(),
+      colors: ['#4B5563']
+    };
+  }, [selectedPerson, partiesList, alliancesList]);
+
   // Filter persons based on search query (excluding suspended persons and suspended parties)
   const filteredPersons = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -89,6 +117,12 @@ const SearchablePersonSelect: React.FC<SearchablePersonSelectProps> = ({
       partiesList.filter((p) => !p.isSuspended).map((p) => [p.id, p])
     );
 
+    const alliancesMap = new Map<string, Alliance>();
+    alliancesList.forEach((a) => {
+      alliancesMap.set(a.id, a);
+      if (a.abbreviation) alliancesMap.set(a.abbreviation.toLowerCase(), a);
+    });
+
     return sorted.filter((p) => {
       // Exclude candidates affiliated with a suspended party
       if (p.partyId && p.partyId !== 'independent' && !activePartiesMap.has(p.partyId)) {
@@ -98,16 +132,31 @@ const SearchablePersonSelect: React.FC<SearchablePersonSelectProps> = ({
       const pParty = activePartiesMap.get(p.partyId);
       const partyAbbr = (pParty?.abbreviation || p.partyId || "").toLowerCase();
       const partyName = (pParty?.name || "").toLowerCase();
+      const pAlliance = pParty?.allianceId && pParty.allianceId !== 'independent'
+        ? alliancesMap.get(pParty.allianceId) || alliancesMap.get(pParty.allianceId.toLowerCase())
+        : null;
+      const allianceAbbr = (pAlliance?.abbreviation || (pParty?.allianceId && pParty.allianceId !== 'independent' ? pParty.allianceId : "")).toLowerCase();
+      const allianceName = (pAlliance?.name || "").toLowerCase();
       const name = (p.name || "").toLowerCase();
-      return name.includes(q) || partyAbbr.includes(q) || partyName.includes(q);
+
+      return (
+        name.includes(q) ||
+        partyAbbr.includes(q) ||
+        partyName.includes(q) ||
+        (allianceAbbr && allianceAbbr.includes(q)) ||
+        (allianceName && allianceName.includes(q))
+      );
     });
-  }, [personsList, partiesList, searchQuery]);
+  }, [personsList, partiesList, alliancesList, searchQuery]);
 
   const handleSelectOption = (id: string, name?: string) => {
     onSelect(tempId, id, name);
     setIsOpen(false);
     setSearchQuery('');
   };
+
+  const currentAllianceAbbr = selectedAlliance?.abbreviation || allianceAbbreviation;
+  const currentAllianceColor = selectedAlliance?.colors?.[0] || allianceColor || '#4B5563';
 
   return (
     <div className="relative flex-1" ref={dropdownRef}>
@@ -128,7 +177,7 @@ const SearchablePersonSelect: React.FC<SearchablePersonSelectProps> = ({
           isOpen ? 'border-[#FFD700] ring-1 ring-[#FFD700]/30' : 'border-zinc-700/80 hover:border-zinc-600'
         }`}
       >
-        <div className="flex items-center gap-2.5 min-w-0 overflow-hidden">
+        <div className="flex items-center gap-2 min-w-0 overflow-hidden">
           {personId === 'nota' ? (
             <div className="flex items-center gap-2">
               <span className="w-5 h-5 rounded bg-zinc-700 text-zinc-300 text-[10px] font-black flex items-center justify-center">
@@ -137,7 +186,7 @@ const SearchablePersonSelect: React.FC<SearchablePersonSelectProps> = ({
               <span className="text-sm font-bold text-zinc-300 truncate">NOTA (None of the above)</span>
             </div>
           ) : selectedPerson ? (
-            <div className="flex items-center gap-2 min-w-0">
+            <div className="flex items-center gap-1.5 min-w-0 flex-wrap sm:flex-nowrap">
               <img
                 src={selectedPerson.imageUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(selectedPerson.name)}`}
                 alt={selectedPerson.name}
@@ -146,11 +195,20 @@ const SearchablePersonSelect: React.FC<SearchablePersonSelectProps> = ({
               />
               <span className="text-sm font-bold text-white truncate">{selectedPerson.name}</span>
               <span
-                className="text-[10px] px-1.5 py-0.5 rounded font-black uppercase text-white shrink-0"
+                className="text-[10px] px-1.5 py-0.5 rounded font-black uppercase text-white shrink-0 shadow-sm"
                 style={{ backgroundColor: partyColor || '#3B82F6' }}
               >
                 {partyAbbreviation}
               </span>
+              {currentAllianceAbbr && (
+                <span
+                  className="text-[10px] px-1.5 py-0.5 rounded font-black uppercase text-white shrink-0 shadow-sm border border-white/20"
+                  style={{ backgroundColor: currentAllianceColor }}
+                  title={`Alliance: ${selectedAlliance?.name || currentAllianceAbbr}`}
+                >
+                  {currentAllianceAbbr}
+                </span>
+              )}
             </div>
           ) : candidateName ? (
             <div className="flex items-center gap-2 min-w-0">
@@ -175,7 +233,7 @@ const SearchablePersonSelect: React.FC<SearchablePersonSelectProps> = ({
 
       {/* Dropdown Popover */}
       {isOpen && (
-        <div className="absolute left-0 top-full mt-1.5 w-full min-w-[300px] sm:min-w-[380px] max-w-md bg-[#16161a] border border-zinc-700 rounded-xl shadow-2xl z-[150] overflow-hidden">
+        <div className="absolute left-0 top-full mt-1.5 w-full min-w-[320px] sm:min-w-[420px] max-w-lg bg-[#16161a] border border-zinc-700 rounded-xl shadow-2xl z-[150] overflow-hidden">
           {/* Search Header */}
           <div className="p-2.5 border-b border-zinc-800 bg-zinc-900/90 flex items-center gap-2">
             <Search size={15} className="text-[#FFD700] shrink-0" />
@@ -184,7 +242,7 @@ const SearchablePersonSelect: React.FC<SearchablePersonSelectProps> = ({
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search by politician name or party..."
+              placeholder="Search by politician, party, or alliance..."
               className="w-full bg-transparent text-xs text-white placeholder-zinc-500 focus:outline-none"
             />
             {searchQuery && (
@@ -232,9 +290,22 @@ const SearchablePersonSelect: React.FC<SearchablePersonSelectProps> = ({
                 const prty = partiesList.find(
                   (p) => p.id === person.partyId || p.abbreviation?.toLowerCase() === person.partyId?.toLowerCase()
                 );
+                const partyAlliance = prty?.allianceId && prty.allianceId !== 'independent'
+                  ? alliancesList.find(
+                      (a) => a.id === prty.allianceId || a.abbreviation?.toLowerCase() === prty.allianceId.toLowerCase()
+                    ) || {
+                      id: prty.allianceId,
+                      name: prty.allianceId.toUpperCase(),
+                      abbreviation: prty.allianceId.toUpperCase(),
+                      colors: ['#4B5563']
+                    }
+                  : null;
                 const isCurrent = personId === person.id;
                 const partyColorStyle = prty?.colors?.[0] || '#6B7280';
                 const partyAbbr = prty?.abbreviation || person.partyId || 'IND';
+                const allianceAbbr = partyAlliance?.abbreviation;
+                const allianceColorStyle = partyAlliance?.colors?.[0] || '#4B5563';
+                const allianceName = partyAlliance?.name;
 
                 return (
                   <button
@@ -258,23 +329,38 @@ const SearchablePersonSelect: React.FC<SearchablePersonSelectProps> = ({
                         <div className="text-xs font-bold truncate text-white">
                           {person.name}
                         </div>
-                        <div className="text-[10px] text-zinc-400 flex items-center gap-1.5">
+                        <div className="text-[10px] text-zinc-400 flex items-center gap-1.5 flex-wrap">
                           <span
-                            className="inline-block w-2 h-2 rounded-full"
+                            className="inline-block w-2 h-2 rounded-full shrink-0"
                             style={{ backgroundColor: partyColorStyle }}
                           />
-                          <span>{prty?.name || partyAbbr}</span>
+                          <span className="truncate">{prty?.name || partyAbbr}</span>
+                          {allianceAbbr && (
+                            <>
+                              <span className="text-zinc-600 shrink-0">•</span>
+                              <span className="text-zinc-300 font-semibold truncate">{allianceName || allianceAbbr}</span>
+                            </>
+                          )}
                         </div>
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2 shrink-0">
+                    <div className="flex items-center gap-1.5 shrink-0">
                       <span
-                        className="text-[10px] font-black uppercase px-2 py-0.5 rounded text-white tracking-wider"
+                        className="text-[10px] font-black uppercase px-2 py-0.5 rounded text-white tracking-wider shadow-sm"
                         style={{ backgroundColor: partyColorStyle }}
                       >
                         {partyAbbr}
                       </span>
+                      {allianceAbbr && (
+                        <span
+                          className="text-[10px] font-black uppercase px-1.5 py-0.5 rounded text-white tracking-wider shadow-sm border border-white/20"
+                          style={{ backgroundColor: allianceColorStyle }}
+                          title={`Alliance: ${allianceName || allianceAbbr}`}
+                        >
+                          {allianceAbbr}
+                        </span>
+                      )}
                       {isCurrent && <Check size={14} className="text-[#FFD700]" />}
                     </div>
                   </button>
@@ -306,27 +392,41 @@ export const ElectModal: React.FC<ElectModalProps> = ({
   previousPartyAbbreviation = 'new constituency',
   personsList,
   partiesList,
+  alliancesList,
   onClose,
   onConfirm
 }) => {
+  // Reactive fallback to Dexie database for alliances if not passed in props
+  const dbAlliances = useLiveQuery(() => db.alliances.toArray(), []) || [];
+  const effectiveAlliancesList = useMemo(() => {
+    return (alliancesList && alliancesList.length > 0) ? alliancesList : dbAlliances;
+  }, [alliancesList, dbAlliances]);
+
   // Initialize candidate draft rows auto-populated from active (non-suspended) personsList / partiesList
   const [candidates, setCandidates] = useState<CandidateDraft[]>(() => {
     const activePersons = personsList.filter((p) => !p.isSuspended);
     const activeParties = partiesList.filter((p) => !p.isSuspended);
 
     const getPartyInfo = (person?: Person) => {
-      if (!person) return { partyId: 'independent', partyAbbreviation: 'IND', partyColor: '#A1A1AA' };
+      if (!person) return { partyId: 'independent', partyAbbreviation: 'IND', partyColor: '#A1A1AA', allianceAbbreviation: undefined, allianceColor: undefined };
       const party = activeParties.find(
         (prty) => prty.id === person.partyId || prty.abbreviation?.toLowerCase() === person.partyId?.toLowerCase()
       );
       if (party) {
+        const partyAlliance = party.allianceId && party.allianceId !== 'independent'
+          ? (alliancesList || []).find(
+              (a) => a.id === party.allianceId || a.abbreviation?.toLowerCase() === party.allianceId.toLowerCase()
+            )
+          : null;
         return {
           partyId: party.id,
           partyAbbreviation: party.abbreviation || 'IND',
-          partyColor: party.colors?.[0] || '#2563EB'
+          partyColor: party.colors?.[0] || '#2563EB',
+          allianceAbbreviation: partyAlliance?.abbreviation || (party.allianceId && party.allianceId !== 'independent' ? party.allianceId.toUpperCase() : undefined),
+          allianceColor: partyAlliance?.colors?.[0] || '#4B5563'
         };
       }
-      return { partyId: 'independent', partyAbbreviation: 'IND', partyColor: '#A1A1AA' };
+      return { partyId: 'independent', partyAbbreviation: 'IND', partyColor: '#A1A1AA', allianceAbbreviation: undefined, allianceColor: undefined };
     };
 
     const c1 = activePersons[0];
@@ -343,6 +443,8 @@ export const ElectModal: React.FC<ElectModalProps> = ({
         partyId: c1Party.partyId,
         partyAbbreviation: c1Party.partyAbbreviation,
         partyColor: c1Party.partyColor,
+        allianceAbbreviation: c1Party.allianceAbbreviation,
+        allianceColor: c1Party.allianceColor,
         votes: 0
       },
       {
@@ -352,6 +454,8 @@ export const ElectModal: React.FC<ElectModalProps> = ({
         partyId: c2Party.partyId,
         partyAbbreviation: c2Party.partyAbbreviation,
         partyColor: c2Party.partyColor,
+        allianceAbbreviation: c2Party.allianceAbbreviation,
+        allianceColor: c2Party.allianceColor,
         votes: 0
       },
       {
@@ -401,6 +505,12 @@ export const ElectModal: React.FC<ElectModalProps> = ({
       partiesList.filter((p) => !p.isSuspended).map((p) => [p.id, p])
     );
 
+    const alliancesMap = new Map<string, Alliance>();
+    effectiveAlliancesList.forEach((a) => {
+      alliancesMap.set(a.id, a);
+      if (a.abbreviation) alliancesMap.set(a.abbreviation.toLowerCase(), a);
+    });
+
     return sorted
       .filter((p) => {
         // Exclude members of suspended parties
@@ -410,11 +520,23 @@ export const ElectModal: React.FC<ElectModalProps> = ({
         const prty = activePartiesMap.get(p.partyId);
         const partyAbbr = (prty?.abbreviation || p.partyId || "").toLowerCase();
         const partyName = (prty?.name || "").toLowerCase();
+        const pAlliance = prty?.allianceId && prty.allianceId !== 'independent'
+          ? alliancesMap.get(prty.allianceId) || alliancesMap.get(prty.allianceId.toLowerCase())
+          : null;
+        const allianceAbbr = (pAlliance?.abbreviation || (prty?.allianceId && prty.allianceId !== 'independent' ? prty.allianceId : "")).toLowerCase();
+        const allianceName = (pAlliance?.name || "").toLowerCase();
         const name = (p.name || "").toLowerCase();
-        return name.includes(q) || partyAbbr.includes(q) || partyName.includes(q);
+
+        return (
+          name.includes(q) ||
+          partyAbbr.includes(q) ||
+          partyName.includes(q) ||
+          (allianceAbbr && allianceAbbr.includes(q)) ||
+          (allianceName && allianceName.includes(q))
+        );
       })
       .slice(0, 8);
-  }, [personsList, partiesList, quickSearchQuery]);
+  }, [personsList, partiesList, effectiveAlliancesList, quickSearchQuery]);
 
   // Add new candidate row (defaults to Independent - IND)
   const handleAddCandidate = () => {
@@ -447,6 +569,14 @@ export const ElectModal: React.FC<ElectModalProps> = ({
     const partyColor = personParty?.colors?.[0] ? personParty.colors[0] : '#A1A1AA';
     const partyId = personParty?.id ? personParty.id : 'independent';
 
+    const candAlliance = personParty?.allianceId && personParty.allianceId !== 'independent'
+      ? effectiveAlliancesList.find(
+          (a) => a.id === personParty.allianceId || a.abbreviation?.toLowerCase() === personParty.allianceId?.toLowerCase()
+        )
+      : null;
+    const allianceAbbreviation = candAlliance?.abbreviation || (personParty?.allianceId && personParty.allianceId !== 'independent' ? personParty.allianceId.toUpperCase() : undefined);
+    const allianceColor = candAlliance?.colors?.[0] || '#4B5563';
+
     setCandidates((prev) => [
       ...prev,
       {
@@ -456,6 +586,8 @@ export const ElectModal: React.FC<ElectModalProps> = ({
         partyId,
         partyAbbreviation,
         partyColor,
+        allianceAbbreviation,
+        allianceColor,
         votes: 0
       }
     ]);
@@ -485,7 +617,9 @@ export const ElectModal: React.FC<ElectModalProps> = ({
               candidateName: customName !== undefined ? customName : c.candidateName,
               partyId: 'independent',
               partyAbbreviation: 'IND',
-              partyColor: '#A1A1AA'
+              partyColor: '#A1A1AA',
+              allianceAbbreviation: undefined,
+              allianceColor: undefined
             };
           }
           return c;
@@ -504,7 +638,9 @@ export const ElectModal: React.FC<ElectModalProps> = ({
               candidateName: 'None of the above',
               partyId: 'nota',
               partyAbbreviation: 'NOTA',
-              partyColor: '#6B7280'
+              partyColor: '#6B7280',
+              allianceAbbreviation: undefined,
+              allianceColor: undefined
             };
           }
           return c;
@@ -534,6 +670,14 @@ export const ElectModal: React.FC<ElectModalProps> = ({
     const partyColor = personParty?.colors?.[0] ? personParty.colors[0] : '#A1A1AA';
     const partyId = personParty?.id ? personParty.id : 'independent';
 
+    const candAlliance = personParty?.allianceId && personParty.allianceId !== 'independent'
+      ? effectiveAlliancesList.find(
+          (a) => a.id === personParty.allianceId || a.abbreviation?.toLowerCase() === personParty.allianceId?.toLowerCase()
+        )
+      : null;
+    const allianceAbbreviation = candAlliance?.abbreviation || (personParty?.allianceId && personParty.allianceId !== 'independent' ? personParty.allianceId.toUpperCase() : undefined);
+    const allianceColor = candAlliance?.colors?.[0] || '#4B5563';
+
     setCandidates((prev) =>
       prev.map((c) => {
         if (c.tempId === tempId) {
@@ -543,7 +687,9 @@ export const ElectModal: React.FC<ElectModalProps> = ({
             candidateName: selectedPerson.name,
             partyId,
             partyAbbreviation,
-            partyColor
+            partyColor,
+            allianceAbbreviation,
+            allianceColor
           };
         }
         return c;
@@ -640,6 +786,7 @@ export const ElectModal: React.FC<ElectModalProps> = ({
         partyId: c.partyId,
         partyAbbreviation: c.partyAbbreviation,
         partyColor: c.partyColor,
+        allianceAbbreviation: c.allianceAbbreviation,
         votes: typeof c.votes === 'number' ? c.votes : 0
       }));
 
@@ -766,6 +913,20 @@ export const ElectModal: React.FC<ElectModalProps> = ({
                     const partyColor = prty?.colors?.[0] || '#3B82F6';
                     const partyAbbr = prty?.abbreviation || p.partyId || 'IND';
 
+                    const partyAlliance = prty?.allianceId && prty.allianceId !== 'independent'
+                      ? effectiveAlliancesList.find(
+                          (a) => a.id === prty.allianceId || a.abbreviation?.toLowerCase() === prty.allianceId.toLowerCase()
+                        ) || {
+                          id: prty.allianceId,
+                          name: prty.allianceId.toUpperCase(),
+                          abbreviation: prty.allianceId.toUpperCase(),
+                          colors: ['#4B5563']
+                        }
+                      : null;
+                    const allianceAbbr = partyAlliance?.abbreviation;
+                    const allianceColor = partyAlliance?.colors?.[0] || '#4B5563';
+                    const allianceName = partyAlliance?.name;
+
                     return (
                       <button
                         key={p.id}
@@ -780,17 +941,37 @@ export const ElectModal: React.FC<ElectModalProps> = ({
                             referrerPolicy="no-referrer"
                             className="w-6 h-6 rounded-full object-cover bg-zinc-700 shrink-0"
                           />
-                          <span className="font-bold text-white group-hover:text-[#FFD700] truncate">
-                            {p.name}
-                          </span>
+                          <div className="min-w-0">
+                            <span className="font-bold text-white group-hover:text-[#FFD700] truncate block">
+                              {p.name}
+                            </span>
+                            <div className="text-[10px] text-zinc-400 flex items-center gap-1.5 truncate">
+                              <span>{prty?.name || partyAbbr}</span>
+                              {allianceAbbr && (
+                                <>
+                                  <span className="text-zinc-600">•</span>
+                                  <span className="text-zinc-300 font-semibold">{allianceName || allianceAbbr}</span>
+                                </>
+                              )}
+                            </div>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2 shrink-0">
+                        <div className="flex items-center gap-1.5 shrink-0">
                           <span
-                            className="text-[10px] font-black uppercase px-2 py-0.5 rounded text-white"
+                            className="text-[10px] font-black uppercase px-2 py-0.5 rounded text-white shadow-sm"
                             style={{ backgroundColor: partyColor }}
                           >
                             {partyAbbr}
                           </span>
+                          {allianceAbbr && (
+                            <span
+                              className="text-[10px] font-black uppercase px-1.5 py-0.5 rounded text-white shadow-sm border border-white/20"
+                              style={{ backgroundColor: allianceColor }}
+                              title={`Alliance: ${allianceName || allianceAbbr}`}
+                            >
+                              {allianceAbbr}
+                            </span>
+                          )}
                           <span className="text-[11px] font-bold text-[#FFD700] bg-[#FFD700]/10 px-2 py-0.5 rounded border border-[#FFD700]/20 flex items-center gap-1">
                             <Plus size={11} /> Add
                           </span>
@@ -836,8 +1017,11 @@ export const ElectModal: React.FC<ElectModalProps> = ({
                     candidateName={cand.candidateName}
                     partyAbbreviation={cand.partyAbbreviation}
                     partyColor={cand.partyColor}
+                    allianceAbbreviation={cand.allianceAbbreviation}
+                    allianceColor={cand.allianceColor}
                     personsList={personsList}
                     partiesList={partiesList}
+                    alliancesList={effectiveAlliancesList}
                     onSelect={handlePersonSelect}
                   />
 
@@ -862,10 +1046,21 @@ export const ElectModal: React.FC<ElectModalProps> = ({
                   </div>
 
                   {/* Party Abbreviation & Color */}
-                  <div className="w-full md:w-28">
-                    <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1">
-                      Party Abbr.
-                    </label>
+                  <div className="w-full md:w-32">
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">
+                        Party Abbr.
+                      </label>
+                      {cand.allianceAbbreviation && (
+                        <span
+                          className="text-[9px] px-1.5 py-0.2 rounded font-black uppercase text-white shadow-sm border border-white/20"
+                          style={{ backgroundColor: cand.allianceColor || '#4B5563' }}
+                          title={`Alliance: ${cand.allianceAbbreviation}`}
+                        >
+                          {cand.allianceAbbreviation}
+                        </span>
+                      )}
+                    </div>
                     <input
                       type="text"
                       value={cand.partyAbbreviation}
@@ -921,9 +1116,18 @@ export const ElectModal: React.FC<ElectModalProps> = ({
               <CheckCircle size={14} /> Projected Winner Preview
             </h4>
             <div className="flex flex-wrap items-center justify-between text-sm gap-2">
-              <div>
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-white font-bold text-base">{winner.candidateName}</span>{' '}
                 <span className="text-[#FFD700] font-semibold">({winner.partyAbbreviation})</span>
+                {winner.allianceAbbreviation && (
+                  <span
+                    className="text-xs px-1.5 py-0.5 rounded font-black uppercase text-white shadow-sm border border-white/20"
+                    style={{ backgroundColor: winner.allianceColor || '#4B5563' }}
+                    title={`Alliance: ${winner.allianceAbbreviation}`}
+                  >
+                    {winner.allianceAbbreviation}
+                  </span>
+                )}
               </div>
               <div className="text-right text-xs text-zinc-400">
                 Votes: <strong className="text-white font-mono">{typeof winner.votes === 'number' ? winner.votes.toLocaleString() : 0}</strong> | Margin: <strong className="text-[#FFD700] font-mono">{marginOfVictory.toLocaleString()}</strong>

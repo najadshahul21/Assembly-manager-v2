@@ -5,13 +5,13 @@ import { db } from '../db';
 import { EntityCard } from '../components/EntityCards';
 import { EntityType } from '../types';
 import { motion } from 'motion/react';
-import { Users, Flag, Shield, Landmark, Award, TrendingUp, AlertCircle, MapPin, User, Network, ArrowRight } from 'lucide-react';
+import { Users, Flag, Shield, Landmark, Award, TrendingUp, AlertCircle, MapPin, User, ArrowRight } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { formatPersonName } from '../utils/governmentUtils';
 
 export const Dashboard: React.FC = () => {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, isViewerMode } = useAuth();
 
   const personCount = useLiveQuery(() => db.persons.count()) || 0;
   const partyCount = useLiveQuery(() => db.parties.count()) || 0;
@@ -239,7 +239,6 @@ export const Dashboard: React.FC = () => {
   const quickOps = [
     { name: 'Appoint', icon: Award, color: 'bg-[#FFD700]', text: 'text-black', path: '/designations' },
     { name: 'Constituencies', icon: MapPin, color: 'bg-white/10', text: 'text-white', path: '/constituencies' },
-    { name: 'Relationships', icon: Network, color: 'bg-[#06B6D4]/20 border border-[#06B6D4]/40', text: 'text-[#06B6D4]', path: '/graph' },
     { name: 'Sessions', icon: Landmark, color: 'bg-white/10', text: 'text-white', path: '/assemblies' },
     { name: 'Analytics', icon: TrendingUp, color: 'bg-white/10', text: 'text-white', path: '/' },
     { name: 'Archive', icon: Shield, color: 'bg-white/10', text: 'text-white', path: '/' },
@@ -256,58 +255,16 @@ export const Dashboard: React.FC = () => {
         >
           <div className="relative z-10">
             <h2 className="text-3xl sm:text-4xl font-black mb-2 gold-text">
-              WELCOME, {(user?.username || user?.name || 'ADMINISTRATOR').toUpperCase()}
+              WELCOME, {(user?.username || user?.name || (isViewerMode ? 'GUEST' : 'ADMINISTRATOR')).toUpperCase()}
             </h2>
-            <p className="text-gray-400 max-w-2xl">Manage the legislative ecosystem of {activeAssembly?.name || 'the Legislative Assembly'}. Monitor sessions, appointments, and party dynamics from your premium visual dashboard.</p>
+            <p className="text-gray-400 max-w-2xl">
+              {isViewerMode 
+                ? `Exploring the legislative ecosystem of ${activeAssembly?.name || 'the Legislative Assembly'}. Explore orders and sessions from your visual dashboard.`
+                : `Manage the legislative ecosystem of ${activeAssembly?.name || 'the Legislative Assembly'}. Monitor sessions, appointments, and party dynamics from your premium visual dashboard.`
+              }
+            </p>
           </div>
           <div className="absolute right-0 top-0 w-64 h-64 bg-[#D32F2F]/10 blur-[100px] -z-10" />
-        </motion.div>
-      </section>
-
-      {/* Relationship Graph Showcase Feature Card */}
-      <section>
-        <motion.div
-          initial={{ opacity: 0, y: 15 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.15 }}
-          onClick={() => navigate('/graph')}
-          className="relative group p-6 sm:p-8 rounded-3xl bg-gradient-to-r from-[#0C1222] via-[#090D18] to-[#120D1A] border border-[#FFD700]/20 hover:border-[#FFD700]/50 transition-all cursor-pointer overflow-hidden shadow-2xl"
-        >
-          <div className="absolute top-0 right-0 w-96 h-96 bg-gradient-to-bl from-[#FFD700]/10 via-[#06B6D4]/5 to-transparent rounded-full blur-3xl pointer-events-none group-hover:scale-110 transition-transform duration-700" />
-          <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
-            <div className="flex items-start sm:items-center gap-4">
-              <div className="w-14 h-14 rounded-2xl bg-[#FFD700]/10 border border-[#FFD700]/30 flex items-center justify-center text-[#FFD700] shadow-lg shadow-[#FFD700]/10 shrink-0 group-hover:scale-105 transition-transform">
-                <Network size={28} />
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-black uppercase tracking-widest text-[#FFD700] bg-[#FFD700]/10 border border-[#FFD700]/30 px-2 py-0.5 rounded-full">
-                    Interactive Network
-                  </span>
-                  <span className="text-[10px] font-mono text-gray-400 uppercase">
-                    Force-Directed Topology
-                  </span>
-                </div>
-                <h3 className="text-xl sm:text-2xl font-black text-white mt-1 group-hover:text-[#FFD700] transition-colors">
-                  Legislative Relationship Graph
-                </h3>
-                <p className="text-xs sm:text-sm text-gray-400 max-w-2xl mt-1">
-                  Explore full dynamic relations between legislators, ruling coalitions, opposition parties, constitutional designations, seats, and orders with instant search, physics control, and neighborhood isolation.
-                </p>
-              </div>
-            </div>
-
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                navigate('/graph');
-              }}
-              className="inline-flex items-center justify-center gap-2 px-6 py-3 bg-[#FFD700] hover:bg-[#FFE55C] text-black font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-lg shadow-[#FFD700]/20 shrink-0 group-hover:translate-x-1"
-            >
-              <span>Explore Graph</span>
-              <ArrowRight size={16} />
-            </button>
-          </div>
         </motion.div>
       </section>
 
@@ -638,7 +595,7 @@ export const Dashboard: React.FC = () => {
             <h3 className="text-lg font-bold uppercase tracking-widest text-white">Quick Operations</h3>
          </div>
          <div className="flex flex-wrap gap-6">
-            {quickOps.map((item, i) => (
+            {quickOps.filter(op => !isViewerMode || op.name !== 'Appoint').map((item, i) => (
               <motion.div 
                 key={`op-${item.name}`} 
                 whileHover={{ y: -5 }} 

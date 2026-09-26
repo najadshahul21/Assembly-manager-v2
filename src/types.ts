@@ -126,6 +126,7 @@ export interface CandidateResult {
   partyId?: string;
   partyAbbreviation: string;
   partyColor?: string;
+  allianceAbbreviation?: string;
   votes: number;
 }
 

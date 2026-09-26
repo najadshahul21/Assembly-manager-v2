@@ -4,11 +4,13 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db';
 import { Person, Assembly } from '../types';
 import { Landmark, ArrowDown, UserMinus, ShieldCheck, Award, Users, Shield, Calendar, MapPin, ExternalLink, Crown, Settings2 } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 import { LeadershipCouncilModal } from '../components/LeadershipCouncilModal';
 import { prefixRole, formatPersonName } from '../utils/governmentUtils';
 
 export const CabinetPage: React.FC = () => {
   const navigate = useNavigate();
+  const { isViewerMode } = useAuth();
   const [demoteConfirm, setDemoteConfirm] = React.useState<{ person: Person; role: string } | null>(null);
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
   const [isLeadershipModalOpen, setIsLeadershipModalOpen] = React.useState(false);
@@ -269,17 +271,19 @@ export const CabinetPage: React.FC = () => {
         </div>
 
         <div className="flex flex-wrap gap-3">
-          <button 
-            onClick={() => setIsAdjustMode(!isAdjustMode)}
-            className={`px-6 py-3 rounded-2xl text-xs font-bold uppercase tracking-widest transition-all flex items-center gap-2 cursor-pointer border ${
-              isAdjustMode 
-                ? 'bg-[#FFD700] text-black border-[#FFD700] shadow-lg shadow-[#FFD700]/20' 
-                : 'bg-white/5 hover:bg-white/10 text-white border-white/10'
-            }`}
-          >
-            <Settings2 size={14} />
-            {isAdjustMode ? 'Finish Adjusting' : 'Adjust Portfolios'}
-          </button>
+          {!isViewerMode && (
+            <button 
+              onClick={() => setIsAdjustMode(!isAdjustMode)}
+              className={`px-6 py-3 rounded-2xl text-xs font-bold uppercase tracking-widest transition-all flex items-center gap-2 cursor-pointer border ${
+                isAdjustMode 
+                  ? 'bg-[#FFD700] text-black border-[#FFD700] shadow-lg shadow-[#FFD700]/20' 
+                  : 'bg-white/5 hover:bg-white/10 text-white border-white/10'
+              }`}
+            >
+              <Settings2 size={14} />
+              {isAdjustMode ? 'Finish Adjusting' : 'Adjust Portfolios'}
+            </button>
+          )}
           <button 
             onClick={() => navigate(`/assembly/${activeAssembly.id}`)}
             className="px-6 py-3 bg-white/5 hover:bg-white/10 rounded-2xl text-xs font-bold uppercase tracking-widest transition-all flex items-center gap-2 cursor-pointer border border-white/10"

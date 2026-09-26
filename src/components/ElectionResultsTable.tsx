@@ -77,6 +77,11 @@ export const ElectionResultsTable: React.FC<ElectionResultsTableProps> = ({
                     <span className="pl-2 font-bold text-[#60a5fa] text-base sm:text-lg">
                       {cand.partyAbbreviation}
                     </span>
+                    {cand.allianceAbbreviation && (
+                      <span className="ml-1.5 text-xs text-zinc-400 font-semibold uppercase">
+                        ({cand.allianceAbbreviation})
+                      </span>
+                    )}
                   </td>
 
                   {/* Candidate Column */}

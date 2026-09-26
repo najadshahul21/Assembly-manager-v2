@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, Plus, Home, Users, Flag, Landmark, Shield, Menu, X, Award, MapPin, LogOut, Stamp, Network } from 'lucide-react';
+import { Search, Plus, Home, Users, Flag, Landmark, Shield, Menu, X, Award, MapPin, LogOut, Stamp, Network, Eye, EyeOff } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useNavigate, useLocation } from 'react-router';
 import { useDbLookup } from '../context/DbLookupContext';
@@ -16,11 +16,10 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSearch, onPlusClick 
   const navigate = useNavigate();
   const location = useLocation();
   const { loaded } = useDbLookup();
-  const { user, logout } = useAuth();
+  const { user, logout, isViewerMode, toggleViewerMode } = useAuth();
 
   const navItems = [
     { title: 'Dashboard', icon: Home, path: '/' },
-    { title: 'Relationships', icon: Network, path: '/graph' },
     { title: 'Assemblies', icon: Landmark, path: '/assemblies' },
     { title: 'Cabinet', icon: Award, path: '/cabinet' },
     { title: 'Orders', icon: Stamp, path: '/orders' },
@@ -169,6 +168,20 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSearch, onPlusClick 
             </div>
           </div>
           <div className="flex items-center gap-3 sm:gap-4 ml-4">
+            <button
+              onClick={toggleViewerMode}
+              title={isViewerMode ? "Disable Viewer Mode (Show Admin Controls)" : "Enable Viewer Mode (Hide Admin Controls)"}
+              className={`p-2 rounded-xl border transition-all flex items-center gap-2 group ${
+                isViewerMode 
+                  ? "bg-[#FFD700]/10 border-[#FFD700]/20 text-[#FFD700]" 
+                  : "bg-white/5 border-white/10 text-gray-400 hover:bg-white/10"
+              }`}
+            >
+              {isViewerMode ? <EyeOff size={18} /> : <Eye size={18} />}
+              <span className="text-[10px] font-black uppercase tracking-widest hidden xl:inline">
+                {isViewerMode ? "Viewer Mode" : "Admin Mode"}
+              </span>
+            </button>
             <div className="text-right hidden sm:block">
               <p className="text-xs font-bold text-white truncate max-w-[140px]">{user?.name || user?.username || 'Admin'}</p>
               <p className="text-[10px] text-[#FFD700] uppercase tracking-wider font-semibold truncate max-w-[140px]">@{user?.username || 'admin'}</p>
@@ -199,15 +212,17 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSearch, onPlusClick 
         </div>
 
         {/* Floating Action Button */}
-        <motion.button
-          whileHover={{ scale: 1.1 }}
-          whileTap={{ scale: 0.9 }}
-          onClick={onPlusClick}
-          className="fixed right-6 bottom-6 sm:right-10 sm:bottom-10 w-16 h-16 rounded-full bg-[#D32F2F] shadow-2xl shadow-[#D32F2F]/40 flex items-center justify-center text-white z-30"
-          id="main-fab"
-        >
-          <Plus size={32} />
-        </motion.button>
+        {!isViewerMode && (
+          <motion.button
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.9 }}
+            onClick={onPlusClick}
+            className="fixed right-6 bottom-6 sm:right-10 sm:bottom-10 w-16 h-16 rounded-full bg-[#D32F2F] shadow-2xl shadow-[#D32F2F]/40 flex items-center justify-center text-white z-30"
+            id="main-fab"
+          >
+            <Plus size={32} />
+          </motion.button>
+        )}
       </main>
     </div>
   );

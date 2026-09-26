@@ -12,6 +12,7 @@ import {
   Clock, ArrowDownWideNarrow, ArrowUpNarrowWide
 } from 'lucide-react';
 import { ReleaseOrderModal } from '../components/ReleaseOrderModal';
+import { useAuth } from '../context/AuthContext';
 import { compareOrdersReverseChronological } from '../utils/governmentUtils';
 import { formatAppDate } from '../utils/dateUtils';
 
@@ -21,6 +22,7 @@ interface OrdersPageProps {
 
 export const OrdersPage: React.FC<OrdersPageProps> = ({ searchQuery = '' }) => {
   const navigate = useNavigate();
+  const { isViewerMode } = useAuth();
 
   // State
   const [localSearch, setLocalSearch] = useState('');
@@ -243,15 +245,17 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({ searchQuery = '' }) => {
         </div>
 
         {/* Release Order Action Button */}
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setIsReleaseModalOpen(true)}
-            className="px-5 py-3 rounded-xl bg-gradient-to-r from-[#FFD700] via-[#FFC000] to-[#E6B800] text-black font-black uppercase text-xs tracking-wider shadow-lg shadow-[#FFD700]/20 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center gap-2.5 cursor-pointer"
-          >
-            <Plus size={18} className="stroke-[3]" />
-            <span>Release Order</span>
-          </button>
-        </div>
+        {!isViewerMode && (
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setIsReleaseModalOpen(true)}
+              className="px-5 py-3 rounded-xl bg-gradient-to-r from-[#FFD700] via-[#FFC000] to-[#E6B800] text-black font-black uppercase text-xs tracking-wider shadow-lg shadow-[#FFD700]/20 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center gap-2.5 cursor-pointer"
+            >
+              <Plus size={18} className="stroke-[3]" />
+              <span>Release Order</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Quick Stats Grid */}
@@ -403,12 +407,14 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({ searchQuery = '' }) => {
                   : "No official orders have been issued yet. Legislators in charge of designations can release official orders."}
               </p>
             </div>
-            <button
-              onClick={() => setIsReleaseModalOpen(true)}
-              className="px-5 py-2.5 rounded-xl bg-[#FFD700]/15 border border-[#FFD700]/30 text-[#FFD700] hover:bg-[#FFD700]/25 text-xs font-bold uppercase tracking-wider transition-all inline-flex items-center gap-2 cursor-pointer"
-            >
-              <Plus size={16} /> Release First Order
-            </button>
+            {!isViewerMode && (
+              <button
+                onClick={() => setIsReleaseModalOpen(true)}
+                className="px-5 py-2.5 rounded-xl bg-[#FFD700]/15 border border-[#FFD700]/30 text-[#FFD700] hover:bg-[#FFD700]/25 text-xs font-bold uppercase tracking-wider transition-all inline-flex items-center gap-2 cursor-pointer"
+              >
+                <Plus size={16} /> Release First Order
+              </button>
+            )}
           </div>
         ) : (
           filteredOrders.map(order => {
@@ -542,7 +548,28 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({ searchQuery = '' }) => {
                       <ExternalLink size={13} /> View Order
                     </button>
 
-                    <div className="flex items-center gap-1">
+                    {!isViewerMode && (
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => handleCopyOrder(order)}
+                          title="Copy order text"
+                          className="p-2 rounded-xl text-gray-400 hover:text-white hover:bg-white/5 transition-colors"
+                        >
+                          {copiedId === order.id ? <Check size={16} className="text-emerald-400" /> : <Copy size={16} />}
+                        </button>
+  
+                        <button
+                          type="button"
+                          onClick={() => setOrderToDelete(order)}
+                          title="Revoke / Delete Order"
+                          className="p-2 rounded-xl text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    )}
+                    {isViewerMode && (
                       <button
                         type="button"
                         onClick={() => handleCopyOrder(order)}
@@ -551,16 +578,7 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({ searchQuery = '' }) => {
                       >
                         {copiedId === order.id ? <Check size={16} className="text-emerald-400" /> : <Copy size={16} />}
                       </button>
-
-                      <button
-                        type="button"
-                        onClick={() => setOrderToDelete(order)}
-                        title="Revoke / Delete Order"
-                        className="p-2 rounded-xl text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-colors"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
+                    )}
                   </div>
                 </div>
               </motion.div>
