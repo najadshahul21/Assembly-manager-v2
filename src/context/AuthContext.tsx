@@ -19,6 +19,8 @@ const DEFAULT_ADMIN: UserProfile = {
 interface AuthContextType {
   user: UserProfile | null;
   profiles: UserProfile[];
+  isViewerMode: boolean;
+  toggleViewerMode: () => void;
   login: (username: string, password: string) => { success: boolean; error?: string };
   register: (data: { name: string; username: string; password: string; imageUrl?: string }) => { success: boolean; error?: string };
   logout: () => void;
@@ -27,6 +29,17 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [isViewerMode, setIsViewerMode] = useState(() => {
+    return localStorage.getItem('assembly_viewer_mode') === 'true';
+  });
+
+  const toggleViewerMode = () => {
+    setIsViewerMode(prev => {
+      const next = !prev;
+      localStorage.setItem('assembly_viewer_mode', String(next));
+      return next;
+    });
+  };
   const [profiles, setProfiles] = useState<UserProfile[]>(() => {
     try {
       const savedProfiles = localStorage.getItem('assembly_manager_profiles');
@@ -134,7 +147,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return (
-    <AuthContext.Provider value={{ user, profiles, login, register, logout }}>
+    <AuthContext.Provider value={{ user, profiles, isViewerMode, toggleViewerMode, login, register, logout }}>
       {children}
     </AuthContext.Provider>
   );

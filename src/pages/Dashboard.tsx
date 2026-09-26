@@ -11,7 +11,7 @@ import { formatPersonName } from '../utils/governmentUtils';
 
 export const Dashboard: React.FC = () => {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, isViewerMode } = useAuth();
 
   const personCount = useLiveQuery(() => db.persons.count()) || 0;
   const partyCount = useLiveQuery(() => db.parties.count()) || 0;
@@ -256,9 +256,14 @@ export const Dashboard: React.FC = () => {
         >
           <div className="relative z-10">
             <h2 className="text-3xl sm:text-4xl font-black mb-2 gold-text">
-              WELCOME, {(user?.username || user?.name || 'ADMINISTRATOR').toUpperCase()}
+              WELCOME, {(user?.username || user?.name || (isViewerMode ? 'GUEST' : 'ADMINISTRATOR')).toUpperCase()}
             </h2>
-            <p className="text-gray-400 max-w-2xl">Manage the legislative ecosystem of {activeAssembly?.name || 'the Legislative Assembly'}. Monitor sessions, appointments, and party dynamics from your premium visual dashboard.</p>
+            <p className="text-gray-400 max-w-2xl">
+              {isViewerMode 
+                ? `Exploring the legislative ecosystem of ${activeAssembly?.name || 'the Legislative Assembly'}. Explore relationships, orders, and sessions from your visual dashboard.`
+                : `Manage the legislative ecosystem of ${activeAssembly?.name || 'the Legislative Assembly'}. Monitor sessions, appointments, and party dynamics from your premium visual dashboard.`
+              }
+            </p>
           </div>
           <div className="absolute right-0 top-0 w-64 h-64 bg-[#D32F2F]/10 blur-[100px] -z-10" />
         </motion.div>
@@ -638,7 +643,7 @@ export const Dashboard: React.FC = () => {
             <h3 className="text-lg font-bold uppercase tracking-widest text-white">Quick Operations</h3>
          </div>
          <div className="flex flex-wrap gap-6">
-            {quickOps.map((item, i) => (
+            {quickOps.filter(op => !isViewerMode || op.name !== 'Appoint').map((item, i) => (
               <motion.div 
                 key={`op-${item.name}`} 
                 whileHover={{ y: -5 }} 

@@ -148,7 +148,10 @@ const generateSeatLayout = (totalSeats: number) => {
   return positions;
 };
 
+import { useAuth } from "../context/AuthContext";
+
 export const EntityPage: React.FC = () => {
+  const { isViewerMode } = useAuth();
   const { type, id } = useParams<{ type: string; id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
@@ -3440,7 +3443,7 @@ export const EntityPage: React.FC = () => {
           <span>Back</span>
         </button>
         <div className="flex items-center gap-2">
-          {entityType === EntityType.PERSON && !(entity as Person).isSuspended && (
+          {entityType === EntityType.PERSON && !(entity as Person).isSuspended && !isViewerMode && (
             <button
               onClick={handleSuspendPerson}
               title="Suspend Politician"
@@ -3451,7 +3454,7 @@ export const EntityPage: React.FC = () => {
               <UserMinus size={18} />
             </button>
           )}
-          {entityType === EntityType.PARTY && !(entity as Party).isSuspended && (
+          {entityType === EntityType.PARTY && !(entity as Party).isSuspended && !isViewerMode && (
             <button
               onClick={handleSuspendParty}
               title="Suspend Party"
@@ -3462,7 +3465,7 @@ export const EntityPage: React.FC = () => {
               <UserMinus size={18} />
             </button>
           )}
-          {!isDissolvedRecord && id !== 'governor' && !(entity as any).isSuspended && (
+          {!isDissolvedRecord && id !== 'governor' && !(entity as any).isSuspended && !isViewerMode && (
             <button
               onClick={() => setShowEditModal(true)}
               title="Modify Entry"
@@ -3474,7 +3477,7 @@ export const EntityPage: React.FC = () => {
             </button>
           )}
           {entityType === EntityType.ASSEMBLY &&
-            (entity as Assembly).isActive !== false && (
+            (entity as Assembly).isActive !== false && !isViewerMode && (
               <button
                 onClick={() => setShowDeactivatePopup(true)}
                 title="End Term / Deactivate"
@@ -3485,7 +3488,7 @@ export const EntityPage: React.FC = () => {
                 <HistoryIcon size={18} />
               </button>
             )}
-          {id !== 'governor' && !(entity as any).isSuspended && (
+          {id !== 'governor' && !(entity as any).isSuspended && !isViewerMode && (
             <button
               onClick={() => setShowDeletePopup(true)}
               title="Delete Record"
@@ -3526,7 +3529,7 @@ export const EntityPage: React.FC = () => {
             </div>
 
             <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto justify-start sm:justify-end pt-4 sm:pt-0 border-t sm:border-t-0 border-white/5">
-              {!isDissolvedRecord && (
+              {!isDissolvedRecord && !isViewerMode && (
                 (entity as Constituency).currentIncumbentId !== "vacant" ? (
                   <button
                     onClick={() => setShowVacateMlaReasonModal(true)}
@@ -3744,7 +3747,7 @@ export const EntityPage: React.FC = () => {
                     Current Incumbent
                   </h3>
                   {(entity as Designation).incumbentId !== "vacant"
-                    ? !isDissolvedRecord && (
+                    ? !isDissolvedRecord && !isViewerMode && (
                         <button
                           onClick={() => setShowDeletePopup(true)}
                           className="flex items-center gap-2 text-xs text-red-500 hover:underline uppercase font-bold"
@@ -3752,7 +3755,7 @@ export const EntityPage: React.FC = () => {
                           <UserMinus size={14} /> Remove Incumbent
                         </button>
                       )
-                    : !isDissolvedRecord && (
+                    : !isDissolvedRecord && !isViewerMode && (
                         <button
                           onClick={() => setShowAppointPopup(true)}
                           className="flex items-center gap-2 text-xs gold-text hover:underline uppercase font-bold"
@@ -4135,7 +4138,7 @@ export const EntityPage: React.FC = () => {
                                 className="text-gray-600"
                               />
                             </div>
-                            {!isDissolvedRecord && (
+                            {!isDissolvedRecord && !isViewerMode && (
                               <button
                                 onClick={() => setShowDeletePopup(true)}
                                 className="flex items-center gap-2 text-xs text-red-500 hover:bg-red-500/10 px-4 py-2 rounded-lg transition-colors font-bold uppercase"
@@ -4157,7 +4160,7 @@ export const EntityPage: React.FC = () => {
                               requires immediate appointment from the
                               legislative pool.
                             </p>
-                            {!isDissolvedRecord && (
+                            {!isDissolvedRecord && !isViewerMode && (
                               <button
                                 onClick={() => setShowAppointPopup(true)}
                                 className="mt-6 px-10 py-3 bg-[#FFD700] text-black font-black rounded-xl hover:scale-105 transition-transform"
@@ -4357,7 +4360,7 @@ export const EntityPage: React.FC = () => {
                         <Users size={16} /> Party Cadre (
                         {relatedPersons?.length || 0})
                       </h4>
-                      {!isDissolvedRecord && (
+                      {!isDissolvedRecord && !isViewerMode && (
                         <button
                           onClick={() => setShowAddPersonModal(true)}
                           className="flex items-center gap-2 px-3 py-1.5 bg-[#FFD700]/10 hover:bg-[#FFD700]/20 rounded-lg text-[#FFD700] text-[10px] font-black uppercase tracking-widest border border-[#FFD700]/20 transition-all"
@@ -4533,34 +4536,40 @@ export const EntityPage: React.FC = () => {
                                 >
                                   View Profile
                                 </button>
-                                <span className="text-white/20">•</span>
+                                {!isViewerMode && (
+                                  <>
+                                    <span className="text-white/20">•</span>
+                                    <button
+                                      onClick={() => {
+                                        setCouncilSearchQuery("");
+                                        setAppointingCouncilRole("leader");
+                                      }}
+                                      className="text-[10px] text-[#FFD700]/70 hover:text-[#FFD700] transition-colors uppercase font-black tracking-widest"
+                                    >
+                                      Change
+                                    </button>
+                                    <span className="text-white/20">•</span>
+                                    <button
+                                      onClick={() => handleRemoveCouncilMember("leader")}
+                                      className="text-[10px] text-red-500/70 hover:text-red-400 transition-colors uppercase font-black tracking-widest"
+                                    >
+                                      Remove
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            ) : (
+                              !isViewerMode && (
                                 <button
                                   onClick={() => {
                                     setCouncilSearchQuery("");
                                     setAppointingCouncilRole("leader");
                                   }}
-                                  className="text-[10px] text-[#FFD700]/70 hover:text-[#FFD700] transition-colors uppercase font-black tracking-widest"
+                                  className="mt-3 px-4 py-1.5 bg-[#FFD700]/10 hover:bg-[#FFD700]/20 text-[#FFD700] rounded-xl text-[10px] font-black uppercase tracking-widest border border-[#FFD700]/20 transition-all flex items-center gap-1.5 mx-auto"
                                 >
-                                  Change
+                                  <UserPlus size={12} /> Appoint Leader
                                 </button>
-                                <span className="text-white/20">•</span>
-                                <button
-                                  onClick={() => handleRemoveCouncilMember("leader")}
-                                  className="text-[10px] text-red-500/70 hover:text-red-400 transition-colors uppercase font-black tracking-widest"
-                                >
-                                  Remove
-                                </button>
-                              </div>
-                            ) : (
-                              <button
-                                onClick={() => {
-                                  setCouncilSearchQuery("");
-                                  setAppointingCouncilRole("leader");
-                                }}
-                                className="mt-3 px-4 py-1.5 bg-[#FFD700]/10 hover:bg-[#FFD700]/20 text-[#FFD700] rounded-xl text-[10px] font-black uppercase tracking-widest border border-[#FFD700]/20 transition-all flex items-center gap-1.5 mx-auto"
-                              >
-                                <UserPlus size={12} /> Appoint Leader
-                              </button>
+                              )
                             )}
                           </div>
                         </div>
@@ -4603,34 +4612,40 @@ export const EntityPage: React.FC = () => {
                                 >
                                   View Profile
                                 </button>
-                                <span className="text-white/20">•</span>
+                                {!isViewerMode && (
+                                  <>
+                                    <span className="text-white/20">•</span>
+                                    <button
+                                      onClick={() => {
+                                        setCouncilSearchQuery("");
+                                        setAppointingCouncilRole("chairman");
+                                      }}
+                                      className="text-[10px] text-[#FFD700]/70 hover:text-[#FFD700] transition-colors uppercase font-black tracking-widest"
+                                    >
+                                      Change
+                                    </button>
+                                    <span className="text-white/20">•</span>
+                                    <button
+                                      onClick={() => handleRemoveCouncilMember("chairman")}
+                                      className="text-[10px] text-red-500/70 hover:text-red-400 transition-colors uppercase font-black tracking-widest"
+                                    >
+                                      Remove
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            ) : (
+                              !isViewerMode && (
                                 <button
                                   onClick={() => {
                                     setCouncilSearchQuery("");
                                     setAppointingCouncilRole("chairman");
                                   }}
-                                  className="text-[10px] text-[#FFD700]/70 hover:text-[#FFD700] transition-colors uppercase font-black tracking-widest"
+                                  className="mt-3 px-4 py-1.5 bg-[#FFD700]/10 hover:bg-[#FFD700]/20 text-[#FFD700] rounded-xl text-[10px] font-black uppercase tracking-widest border border-[#FFD700]/20 transition-all flex items-center gap-1.5 mx-auto"
                                 >
-                                  Change
+                                  <UserPlus size={12} /> Appoint Chairman
                                 </button>
-                                <span className="text-white/20">•</span>
-                                <button
-                                  onClick={() => handleRemoveCouncilMember("chairman")}
-                                  className="text-[10px] text-red-500/70 hover:text-red-400 transition-colors uppercase font-black tracking-widest"
-                                >
-                                  Remove
-                                </button>
-                              </div>
-                            ) : (
-                              <button
-                                onClick={() => {
-                                  setCouncilSearchQuery("");
-                                  setAppointingCouncilRole("chairman");
-                                }}
-                                className="mt-3 px-4 py-1.5 bg-[#FFD700]/10 hover:bg-[#FFD700]/20 text-[#FFD700] rounded-xl text-[10px] font-black uppercase tracking-widest border border-[#FFD700]/20 transition-all flex items-center gap-1.5 mx-auto"
-                              >
-                                <UserPlus size={12} /> Appoint Chairman
-                              </button>
+                              )
                             )}
                           </div>
                         </div>
@@ -4673,34 +4688,40 @@ export const EntityPage: React.FC = () => {
                                 >
                                   View Profile
                                 </button>
-                                <span className="text-white/20">•</span>
+                                {!isViewerMode && (
+                                  <>
+                                    <span className="text-white/20">•</span>
+                                    <button
+                                      onClick={() => {
+                                        setCouncilSearchQuery("");
+                                        setAppointingCouncilRole("founder");
+                                      }}
+                                      className="text-[10px] text-[#D32F2F]/70 hover:text-[#D32F2F] transition-colors uppercase font-black tracking-widest"
+                                    >
+                                      Change
+                                    </button>
+                                    <span className="text-white/20">•</span>
+                                    <button
+                                      onClick={() => handleRemoveCouncilMember("founder")}
+                                      className="text-[10px] text-red-500/70 hover:text-red-400 transition-colors uppercase font-black tracking-widest"
+                                    >
+                                      Remove
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            ) : (
+                              !isViewerMode && (
                                 <button
                                   onClick={() => {
                                     setCouncilSearchQuery("");
                                     setAppointingCouncilRole("founder");
                                   }}
-                                  className="text-[10px] text-[#D32F2F]/70 hover:text-[#D32F2F] transition-colors uppercase font-black tracking-widest"
+                                  className="mt-3 px-4 py-1.5 bg-[#D32F2F]/10 hover:bg-[#D32F2F]/20 text-[#D32F2F] rounded-xl text-[10px] font-black uppercase tracking-widest border border-[#D32F2F]/20 transition-all flex items-center gap-1.5 mx-auto"
                                 >
-                                  Change
+                                  <UserPlus size={12} /> Appoint Founder
                                 </button>
-                                <span className="text-white/20">•</span>
-                                <button
-                                  onClick={() => handleRemoveCouncilMember("founder")}
-                                  className="text-[10px] text-red-500/70 hover:text-red-400 transition-colors uppercase font-black tracking-widest"
-                                >
-                                  Remove
-                                </button>
-                              </div>
-                            ) : (
-                              <button
-                                onClick={() => {
-                                  setCouncilSearchQuery("");
-                                  setAppointingCouncilRole("founder");
-                                }}
-                                className="mt-3 px-4 py-1.5 bg-[#D32F2F]/10 hover:bg-[#D32F2F]/20 text-[#D32F2F] rounded-xl text-[10px] font-black uppercase tracking-widest border border-[#D32F2F]/20 transition-all flex items-center gap-1.5 mx-auto"
-                              >
-                                <UserPlus size={12} /> Appoint Founder
-                              </button>
+                              )
                             )}
                           </div>
                         </div>
@@ -4723,15 +4744,17 @@ export const EntityPage: React.FC = () => {
                             </p>
                           </div>
                         </div>
-                        <button
-                          onClick={() => {
-                            setSearchQuery("");
-                            setShowManageHighCommandModal(true);
-                          }}
-                          className="flex items-center gap-2 px-4 py-2 bg-[#D32F2F]/10 hover:bg-[#D32F2F]/20 rounded-xl text-[#D32F2F] text-[10px] font-black uppercase tracking-widest border border-[#D32F2F]/20 transition-all"
-                        >
-                          <Plus size={14} /> Assign Commanders
-                        </button>
+                        {!isViewerMode && (
+                          <button
+                            onClick={() => {
+                              setSearchQuery("");
+                              setShowManageHighCommandModal(true);
+                            }}
+                            className="flex items-center gap-2 px-4 py-2 bg-[#D32F2F]/10 hover:bg-[#D32F2F]/20 rounded-xl text-[#D32F2F] text-[10px] font-black uppercase tracking-widest border border-[#D32F2F]/20 transition-all"
+                          >
+                            <Plus size={14} /> Assign Commanders
+                          </button>
+                        )}
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                         {Array.isArray(highCommandMembers) &&
@@ -5425,7 +5448,7 @@ export const EntityPage: React.FC = () => {
                                 <ExternalLink size={12} />
                               </button>
 
-                              {!isDissolvedRecord && (
+                              {!isDissolvedRecord && !isViewerMode && (
                                 <button
                                   onClick={() => setIsLeadershipModalOpen(true)}
                                   className="text-[#FFD700] hover:underline font-bold text-[11px] transition-all cursor-pointer"
@@ -5459,7 +5482,7 @@ export const EntityPage: React.FC = () => {
                             </p>
                           </div>
 
-                          {!isDissolvedRecord ? (
+                          {!isDissolvedRecord && !isViewerMode ? (
                             <button
                               onClick={() => setIsLeadershipModalOpen(true)}
                               className="w-full py-2.5 bg-white/5 hover:bg-[#FFD700]/10 hover:text-[#FFD700] border border-white/10 hover:border-[#FFD700]/30 rounded-xl text-xs font-bold uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer"
@@ -5469,7 +5492,7 @@ export const EntityPage: React.FC = () => {
                             </button>
                           ) : (
                             <span className="text-[10px] text-zinc-600 font-mono italic">
-                              Vacant during dissolution
+                              {isViewerMode ? "Login as admin to appoint" : "Vacant during dissolution"}
                             </span>
                           )}
                         </div>
