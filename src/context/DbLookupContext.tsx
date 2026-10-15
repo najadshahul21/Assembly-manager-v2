@@ -1,7 +1,12 @@
-import React, { createContext, useContext, useEffect } from 'react';
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db, ensureConstitutionalDesignations } from '../db';
-import { Person, Party, Alliance, Assembly, Designation, Constituency } from '../types';
+import React, { createContext, useContext, useEffect, useState } from 'react';
+import { 
+  collection, 
+  onSnapshot, 
+  query 
+} from 'firebase/firestore';
+import { db } from '../firebase';
+import { useAuth } from './AuthContext';
+import { Person, Party, Alliance, Assembly, Designation, Constituency, LegislativeOrder } from '../types';
 
 interface DbLookupContextType {
   loaded: boolean;
@@ -11,6 +16,7 @@ interface DbLookupContextType {
   designations: Designation[];
   persons: Person[];
   constituencies: Constituency[];
+  orders: LegislativeOrder[];
   partiesMap: Record<string, Party>;
   alliancesMap: Record<string, Alliance>;
   assembliesMap: Record<string, Assembly>;
@@ -21,78 +27,109 @@ interface DbLookupContextType {
 const DbLookupContext = createContext<DbLookupContextType | null>(null);
 
 export const DbLookupProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user } = useAuth();
+  const [data, setData] = useState<any>(null);
+  const [loaded, setLoaded] = useState(false);
+
   useEffect(() => {
-    ensureConstitutionalDesignations();
-  }, []);
-
-  const data = useLiveQuery(async () => {
-    try {
-      const [rawParties, rawAlliances, assemblies, rawDesignations, rawPersons, constituencies] = await Promise.all([
-        db.parties.toArray(),
-        db.alliances.toArray(),
-        db.assemblies.toArray(),
-        db.designations.toArray(),
-        db.persons.toArray(),
-        db.constituencies.toArray(),
-      ]);
-
-      const parties = rawParties.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
-      const alliances = rawAlliances.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
-      const persons = rawPersons.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
-      const designations = rawDesignations.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
-
-      const partiesMap: Record<string, Party> = {};
-      parties.forEach(p => {
-        partiesMap[p.id] = p;
-      });
-
-      const alliancesMap: Record<string, Alliance> = {};
-      alliances.forEach(a => {
-        alliancesMap[a.id] = a;
-      });
-
-      const assembliesMap: Record<string, Assembly> = {};
-      assemblies.forEach(a => {
-        assembliesMap[a.id] = a;
-      });
-
-      const personsMap: Record<string, Person> = {};
-      persons.forEach(p => {
-        personsMap[p.id] = p;
-      });
-
-      const constituenciesMap: Record<string, Constituency> = {};
-      constituencies.forEach(c => {
-        constituenciesMap[c.id] = c;
-      });
-
-      return {
-        parties,
-        alliances,
-        assemblies,
-        designations,
-        persons,
-        constituencies,
-        partiesMap,
-        alliancesMap,
-        assembliesMap,
-        personsMap,
-        constituenciesMap,
-      };
-    } catch (err) {
-      console.error("DbLookupContext query error:", err);
-      return null;
+    if (!user) {
+      setData(null);
+      setLoaded(false);
+      return;
     }
-  }, []);
+
+    // Initialize constitutional designations
+    import('../firestoreService').then(m => m.firestoreService.ensureConstitutionalDesignations());
+
+    const uid = user.uid;
+    const collections = [
+      'parties',
+      'alliances',
+      'assemblies',
+      'designations',
+      'persons',
+      'constituencies',
+      'orders'
+    ];
+
+    const unsubscribes: (() => void)[] = [];
+    const localData: any = {
+      parties: [],
+      alliances: [],
+      assemblies: [],
+      designations: [],
+      persons: [],
+      constituencies: [],
+      orders: []
+    };
+
+    let collectionsLoaded = 0;
+
+    collections.forEach((colName) => {
+      const q = query(collection(db, 'users', uid, colName));
+      const unsub = onSnapshot(q, (snapshot) => {
+        const docs = snapshot.docs.map(doc => doc.data() as any);
+        
+        // Sorting
+        if (colName === 'parties' || colName === 'alliances' || colName === 'persons' || colName === 'designations') {
+          docs.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
+        } else if (colName === 'orders') {
+          docs.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        }
+
+        localData[colName] = docs;
+
+        // Process maps
+        const partiesMap: Record<string, Party> = {};
+        localData.parties.forEach((p: Party) => { partiesMap[p.id] = p; });
+
+        const alliancesMap: Record<string, Alliance> = {};
+        localData.alliances.forEach((a: Alliance) => { alliancesMap[a.id] = a; });
+
+        const assembliesMap: Record<string, Assembly> = {};
+        localData.assemblies.forEach((a: Assembly) => { assembliesMap[a.id] = a; });
+
+        const personsMap: Record<string, Person> = {};
+        localData.persons.forEach((p: Person) => { personsMap[p.id] = p; });
+
+        const constituenciesMap: Record<string, Constituency> = {};
+        localData.constituencies.forEach((c: Constituency) => { constituenciesMap[c.id] = c; });
+
+        setData({
+          ...localData,
+          partiesMap,
+          alliancesMap,
+          assembliesMap,
+          personsMap,
+          constituenciesMap
+        });
+
+        if (collectionsLoaded < collections.length) {
+           collectionsLoaded++;
+           if (collectionsLoaded === collections.length) {
+             setLoaded(true);
+           }
+        }
+      }, (err) => {
+        console.error(`Error loading ${colName}:`, err);
+      });
+      unsubscribes.push(unsub);
+    });
+
+    return () => {
+      unsubscribes.forEach(unsub => unsub());
+    };
+  }, [user]);
 
   const value: DbLookupContextType = {
-    loaded: !!data,
+    loaded,
     parties: data?.parties || [],
     alliances: data?.alliances || [],
     assemblies: data?.assemblies || [],
     designations: data?.designations || [],
     persons: data?.persons || [],
     constituencies: data?.constituencies || [],
+    orders: data?.orders || [],
     partiesMap: data?.partiesMap || {},
     alliancesMap: data?.alliancesMap || {},
     assembliesMap: data?.assembliesMap || {},
@@ -114,3 +151,5 @@ export const useDbLookup = () => {
   }
   return context;
 };
+
+

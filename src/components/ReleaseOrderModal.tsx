@@ -4,11 +4,12 @@ import {
   X, Calendar, FileText, Stamp, User, Shield, Landmark, 
   Scale, CheckCircle2, AlertCircle, AtSign, Search, Check, Sparkles, Building2, Hash
 } from 'lucide-react';
-import { db } from '../db';
+import { firestoreService } from '../firestoreService';
 import { LegislativeOrder, Person, Party, Assembly, Designation, Constituency, formatOfficeOfHonble } from '../types';
 import { isMinisterialRole } from '../utils/governmentUtils';
 import { nanoid } from 'nanoid';
-import { useLiveQuery } from 'dexie-react-hooks';
+import { useDbLookup } from '../context/DbLookupContext';
+import { getSystemDateString, getSystemTimestamp } from '../utils/dateUtils';
 
 interface ReleaseOrderModalProps {
   isOpen: boolean;
@@ -35,15 +36,42 @@ export const ReleaseOrderModal: React.FC<ReleaseOrderModalProps> = ({
   initialDesignationId,
   initialPersonId
 }) => {
-  // Form State
-  const [date, setDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
+  const { 
+    persons, 
+    parties, 
+    assemblies, 
+    designations, 
+    constituencies, 
+    orders,
+    partiesMap: rawPartiesMap,
+    personsMap: rawPersonsMap
+  } = useDbLookup();
+
+  const partiesMap = useMemo(() => {
+    const map = new Map<string, Party>();
+    if (rawPartiesMap) {
+      Object.entries(rawPartiesMap).forEach(([id, p]) => map.set(id, p as Party));
+    }
+    return map;
+  }, [rawPartiesMap]);
+
+  const personsMap = useMemo(() => {
+    const map = new Map<string, Person>();
+    if (rawPersonsMap) {
+      Object.entries(rawPersonsMap).forEach(([id, p]) => map.set(id, p as Person));
+    }
+    return map;
+  }, [rawPersonsMap]);
+
+  const ordersList = orders;
+
+  const [date, setDate] = useState<string>(() => getSystemDateString());
   const [slNo, setSlNo] = useState<string>('');
   const [orderName, setOrderName] = useState('');
   const [selectedDesignationKey, setSelectedDesignationKey] = useState<string>('');
   const [orderContent, setOrderContent] = useState('');
   const [taggedPersonIds, setTaggedPersonIds] = useState<string[]>([]);
   
-  // UI & Mention State
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionCursorIndex, setMentionCursorIndex] = useState<number | null>(null);
   const [mentionSelectedIndex, setMentionSelectedIndex] = useState(0);
@@ -57,34 +85,9 @@ export const ReleaseOrderModal: React.FC<ReleaseOrderModalProps> = ({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const mentionBoxRef = useRef<HTMLDivElement>(null);
 
-  // Live database queries
-  const persons = useLiveQuery(async () => {
-    const list = await db.persons.toArray();
-    return list.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
-  }) || [];
-
-  const parties = useLiveQuery(() => db.parties.toArray()) || [];
-  const assemblies = useLiveQuery(() => db.assemblies.toArray()) || [];
-  const designations = useLiveQuery(() => db.designations.toArray()) || [];
-  const constituencies = useLiveQuery(() => db.constituencies.toArray()) || [];
-
-  const partiesMap = useMemo(() => {
-    const map = new Map<string, Party>();
-    parties.forEach(p => map.set(p.id, p));
-    return map;
-  }, [parties]);
-
-  const personsMap = useMemo(() => {
-    const map = new Map<string, Person>();
-    persons.forEach(p => map.set(p.id, p));
-    return map;
-  }, [persons]);
-
   const activeAssembly = useMemo(() => {
     return assemblies.find(a => a.isActive !== false) || null;
   }, [assemblies]);
-
-  const ordersList = useLiveQuery(() => db.orders.toArray()) || [];
 
   // Build Comprehensive List of Designations
   // REQUIREMENT 2: An order can only be produced by an office that currently has an incumbent; a vacant office cannot produce an order!
@@ -445,7 +448,7 @@ export const ReleaseOrderModal: React.FC<ReleaseOrderModalProps> = ({
   // Reset form when closed
   useEffect(() => {
     if (!isOpen) {
-      setDate(new Date().toISOString().split('T')[0]);
+      setDate(getSystemDateString());
       setSlNo('');
       setOrderName('');
       setSelectedDesignationKey('');
@@ -670,7 +673,7 @@ export const ReleaseOrderModal: React.FC<ReleaseOrderModalProps> = ({
         orderNumber,
         orderName: orderName.trim(),
         date,
-        timestamp: new Date(date).getTime() || Date.now(),
+        timestamp: new Date(date).getTime() || getSystemTimestamp(),
         byDesignationId: selectedOption.id,
         byDesignationName: selectedOption.name,
         byOfficeTitle: frozenOfficeTitle,
@@ -693,11 +696,11 @@ export const ReleaseOrderModal: React.FC<ReleaseOrderModalProps> = ({
         signerImageUrl: frozenImageUrl,
         content: orderContent.trim(),
         taggedPersonIds: finalTaggedIds,
-        createdAt: Date.now(),
-        updatedAt: Date.now()
+        createdAt: getSystemTimestamp(),
+        updatedAt: getSystemTimestamp()
       };
 
-      await db.orders.put(newOrder);
+      await firestoreService.saveOrder(newOrder);
 
       if (onSuccess) {
         onSuccess(newOrder);

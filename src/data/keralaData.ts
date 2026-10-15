@@ -1,4 +1,5 @@
 import { Alliance, Party, Person, Constituency } from '../types';
+import { getSystemTimestamp } from '../utils/dateUtils';
 
 export const alliancesData: Alliance[] = [
   {
@@ -12,7 +13,7 @@ export const alliancesData: Alliance[] = [
     leaderId: 'pinarayi-vijayan',
     foundedDate: '1980-01-01',
     leadingPartyId: 'cpim',
-    updatedAt: Date.now()
+    updatedAt: getSystemTimestamp()
   },
   {
     id: 'udf',
@@ -25,7 +26,7 @@ export const alliancesData: Alliance[] = [
     leaderId: 'v-d-satheesan',
     foundedDate: '1978-07-01',
     leadingPartyId: 'inc',
-    updatedAt: Date.now()
+    updatedAt: getSystemTimestamp()
   },
   {
     id: 'nda',
@@ -38,7 +39,7 @@ export const alliancesData: Alliance[] = [
     leaderId: 'k-surendran',
     foundedDate: '1998-05-01',
     leadingPartyId: 'bjp',
-    updatedAt: Date.now()
+    updatedAt: getSystemTimestamp()
   }
 ];
 
@@ -53,7 +54,7 @@ export const partiesData: Party[] = [
     founded: '1964-11-07',
     chairman: 'M. V. Govindan',
     headquarters: 'AKG Centre, Thiruvananthapuram',
-    updatedAt: Date.now()
+    updatedAt: getSystemTimestamp()
   },
   {
     id: 'cpi',
@@ -65,7 +66,7 @@ export const partiesData: Party[] = [
     founded: '1925-12-26',
     chairman: 'Binoy Viswam',
     headquarters: 'MN Smarakam, Thiruvananthapuram',
-    updatedAt: Date.now()
+    updatedAt: getSystemTimestamp()
   },
   {
     id: 'inc',
@@ -77,7 +78,7 @@ export const partiesData: Party[] = [
     founded: '1885-12-28',
     chairman: 'K. Sudhakaran',
     headquarters: 'Indira Bhavan, Thiruvananthapuram',
-    updatedAt: Date.now()
+    updatedAt: getSystemTimestamp()
   },
   {
     id: 'iuml',
@@ -89,7 +90,7 @@ export const partiesData: Party[] = [
     founded: '1948-03-10',
     chairman: 'Panakkad Sadiq Ali Thangal',
     headquarters: 'Grace House, Kozhikode',
-    updatedAt: Date.now()
+    updatedAt: getSystemTimestamp()
   },
   {
     id: 'kcm',
@@ -101,7 +102,7 @@ export const partiesData: Party[] = [
     founded: '1979-10-09',
     chairman: 'Jose K. Mani',
     headquarters: 'State Committee Office, Kottayam',
-    updatedAt: Date.now()
+    updatedAt: getSystemTimestamp()
   },
   {
     id: 'bjp',
@@ -113,7 +114,7 @@ export const partiesData: Party[] = [
     founded: '1980-04-06',
     chairman: 'K. Surendran',
     headquarters: 'K. G. Marar Bhavan, Thiruvananthapuram',
-    updatedAt: Date.now()
+    updatedAt: getSystemTimestamp()
   },
   {
     id: 'ncp',
@@ -125,7 +126,7 @@ export const partiesData: Party[] = [
     founded: '1999-06-10',
     chairman: 'P. C. Chacko',
     headquarters: 'NCP Office, Thiruvananthapuram',
-    updatedAt: Date.now()
+    updatedAt: getSystemTimestamp()
   },
   {
     id: 'jds',
@@ -137,7 +138,7 @@ export const partiesData: Party[] = [
     founded: '1999-07-13',
     chairman: 'Mathew T. Thomas',
     headquarters: 'JDS State Head Office, Thiruvananthapuram',
-    updatedAt: Date.now()
+    updatedAt: getSystemTimestamp()
   },
   {
     id: 'rmpi',
@@ -149,7 +150,7 @@ export const partiesData: Party[] = [
     founded: '2016-10-21',
     chairman: 'T. L. Santhosh',
     headquarters: 'Onchiyam, Kozhikode',
-    updatedAt: Date.now()
+    updatedAt: getSystemTimestamp()
   },
   {
     id: 'kc',
@@ -161,7 +162,7 @@ export const partiesData: Party[] = [
     founded: '1964-10-09',
     chairman: 'P. J. Joseph',
     headquarters: 'Thodupuzha, Idukki',
-    updatedAt: Date.now()
+    updatedAt: getSystemTimestamp()
   },
   {
     id: 'independent',
@@ -173,7 +174,7 @@ export const partiesData: Party[] = [
     founded: '1950-01-01',
     chairman: 'None',
     headquarters: 'None',
-    updatedAt: Date.now()
+    updatedAt: getSystemTimestamp()
   }
 ];
 
@@ -331,7 +332,7 @@ export const getPersonsData = (): Person[] => {
       designations: ['governor'],
       assemblyRoles: {},
       isSuspended: false,
-      updatedAt: Date.now()
+      updatedAt: getSystemTimestamp()
     }
   ];
 
@@ -351,7 +352,7 @@ export const getPersonsData = (): Person[] => {
       designations: [],
       assemblyRoles,
       isSuspended: false,
-      updatedAt: Date.now()
+      updatedAt: getSystemTimestamp()
     });
   });
 
@@ -373,7 +374,7 @@ export const getConstituenciesData = (): Constituency[] => {
       currentAssemblyId: '15th-assembly',
       createdInAssemblyId: '15th-assembly',
       history: [],
-      updatedAt: Date.now()
+      updatedAt: getSystemTimestamp()
     });
   });
 

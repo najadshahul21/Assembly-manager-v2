@@ -150,21 +150,23 @@ export const AssemblyInfoboxTable: React.FC<AssemblyInfoboxTableProps> = ({
           </div>
         </div>
 
-        {precededByAssembly && (
-          <div className="flex flex-col sm:flex-row hover:bg-white/[0.015] transition-colors border-b border-zinc-800/80">
-            <div className="w-full sm:w-48 shrink-0 px-5 py-3 sm:py-3.5 font-bold text-zinc-100 select-none">
-              Preceded by
-            </div>
-            <div className="px-5 pb-3 sm:py-3.5 text-white flex-1">
+        <div className="flex flex-col sm:flex-row hover:bg-white/[0.015] transition-colors border-b border-zinc-800/80">
+          <div className="w-full sm:w-48 shrink-0 px-5 py-3 sm:py-3.5 font-bold text-zinc-100 select-none">
+            Preceded by
+          </div>
+          <div className="px-5 pb-3 sm:py-3.5 text-white flex-1">
+            {precededByAssembly ? (
               <button
                 onClick={() => onNavigateAssembly(precededByAssembly.id)}
                 className="font-bold hover:underline text-left transition-colors"
               >
                 {precededByAssembly.name}
               </button>
-            </div>
+            ) : (
+              <span className="text-zinc-500 italic">office established</span>
+            )}
           </div>
-        )}
+        </div>
 
         {/* Leadership Section Header */}
         <div className="bg-[#12161f]/50 px-5 py-2 border-b border-zinc-800/80">

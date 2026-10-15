@@ -6,10 +6,11 @@ import {
   Plus, Trash2, History, MapPin, Copy, Sparkles, Check, 
   AlertCircle, Layers, CheckCircle2 
 } from 'lucide-react';
-import { db, freezeAssembly } from '../db';
+import { firestoreService } from '../firestoreService';
 import { EntityType, Assembly, Person } from '../types';
+import { getSystemTimestamp, getSystemDateString } from '../utils/dateUtils';
 import { nanoid } from 'nanoid';
-import { useLiveQuery } from 'dexie-react-hooks';
+import { useDbLookup } from '../context/DbLookupContext';
 import { 
   computeAssemblyGovernmentComposition, 
   isSpeakerOrDeputySpeakerRole, 
@@ -44,6 +45,14 @@ const createDefaultBulkPerson = (partyId = 'independent'): BulkPersonItem => ({
 
 export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClose, editData }) => {
   const { register, handleSubmit, reset, setValue, control, watch } = useForm();
+  const { 
+    persons, 
+    parties, 
+    alliances, 
+    assemblies, 
+    constituencies, 
+    designations 
+  } = useDbLookup();
   
   // Bulk Person State
   const [isBulkMode, setIsBulkMode] = useState(false);
@@ -114,24 +123,8 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
     input.click();
   };
 
-  // Data for relations
-  const persons = useLiveQuery(async () => {
-    const list = await db.persons.toArray();
-    return list.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
-  }) || [];
-  const parties = useLiveQuery(async () => {
-    const list = await db.parties.toArray();
-    return list.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
-  }) || [];
-  const alliances = useLiveQuery(async () => {
-    const list = await db.alliances.toArray();
-    return list.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
-  }) || [];
-  const assemblies = useLiveQuery(() => db.assemblies.toArray()) || [];
   const activeAssembly = assemblies.find(a => a.isActive);
-  const constituenciesCount = useLiveQuery(() => db.constituencies.count()) || 0;
-  const constituencies = useLiveQuery(() => db.constituencies.toArray()) || [];
-  const designations = useLiveQuery(() => db.designations.toArray()) || [];
+  const constituenciesCount = constituencies.length;
 
   const assemblyGovComposition = React.useMemo(() => {
     if (type !== EntityType.ASSEMBLY) {
@@ -558,7 +551,7 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
     }
 
     setIsSubmittingBulk(true);
-    const now = Date.now();
+    const now = getSystemTimestamp();
     try {
       const payloads = bulkPersons.map(p => ({
         id: nanoid(),
@@ -572,7 +565,9 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
         updatedAt: now
       }));
 
-      await db.persons.bulkAdd(payloads);
+      for (const payload of payloads) {
+        await firestoreService.savePerson(payload as any);
+      }
       
       setBulkPersons([createDefaultBulkPerson(), createDefaultBulkPerson()]);
       setBulkErrors({});
@@ -580,16 +575,7 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
       onClose();
     } catch (error: any) {
       console.error('Error saving bulk persons:', error);
-      const isQuotaError = error?.name === 'QuotaExceededError' || error?.message?.includes('QuotaExceeded') || String(error).includes('QuotaExceeded');
-      if (isQuotaError) {
-        alert(
-          "Error saving persons: Storage Quota Exceeded.\n\n" +
-          "Your browser's local database storage is full. This usually happens if you uploaded large images directly.\n\n" +
-          "Auto-compression is enabled for future uploads! For existing data, you can clear some old entities or your browser's site data to free up space."
-        );
-      } else {
-        alert(`Error saving persons:\n${error?.message || error || 'Unknown database error'}`);
-      }
+      alert(`Error saving persons:\n${error?.message || error || 'Unknown database error'}`);
     } finally {
       setIsSubmittingBulk(false);
     }
@@ -598,7 +584,7 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
   const onSubmit = async (data: any) => {
     const isEdit = !!(editData && editData.id);
     const id = isEdit ? editData.id : nanoid();
-    const now = Date.now();
+    const now = getSystemTimestamp();
 
     try {
       if (isEdit && type === EntityType.ASSEMBLY && editData && !editData.isActive) {
@@ -610,7 +596,7 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
       if (isEdit && (type === EntityType.DESIGNATION || type === EntityType.CONSTITUENCY) && editData) {
         const asmId = type === EntityType.DESIGNATION ? editData.assemblyId : editData.currentAssemblyId;
         if (asmId) {
-          const asm = await db.assemblies.get(asmId);
+          const asm = assemblies.find(a => a.id === asmId);
           if (asm && !asm.isActive) {
             alert("This record belongs to a dissolved assembly and cannot be modified.");
             onClose();
@@ -630,9 +616,9 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
           isSuspended: editData?.isSuspended || false,
           updatedAt: now
         };
-        isEdit ? await db.persons.update(id, payload) : await db.persons.add(payload);
+        await firestoreService.savePerson(payload);
       } else if (type === EntityType.PARTY) {
-        const payload = {
+        const payload: any = {
           id,
           name: data.name,
           logoUrl: data.logoUrl || `https://api.dicebear.com/7.x/initials/svg?seed=${data.name}`,
@@ -643,7 +629,7 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
           isSuspended: editData?.isSuspended || false,
           updatedAt: now
         };
-        isEdit ? await db.parties.update(id, payload) : await db.parties.add(payload);
+        await firestoreService.saveParty(payload);
       } else if (type === EntityType.ALLIANCE) {
         // Validate leader, chairman, founder are not suspended and do not belong to a suspended party
         const councilRoles: { id?: string; name: string }[] = [
@@ -666,7 +652,7 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
           }
         }
 
-        const payload = {
+        const payload: any = {
           id,
           name: data.name,
           logoUrl: data.logoUrl || `https://api.dicebear.com/7.x/shapes/svg?seed=${data.name}`,
@@ -679,7 +665,7 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
           highCommandIds: editData?.highCommandIds || [],
           updatedAt: now
         };
-        isEdit ? await db.alliances.update(id, payload) : await db.alliances.add(payload);
+        await firestoreService.saveAlliance(payload);
       } else if (type === EntityType.ASSEMBLY) {
         const isActive = data.isActive === undefined ? (isEdit ? editData.isActive : true) : data.isActive;
         
@@ -688,19 +674,19 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
           const otherActiveAssemblies = assemblies.filter(a => a.isActive && a.id !== id);
           for (const other of otherActiveAssemblies) {
              // Dissolve other active assemblies
-             await db.assemblies.update(other.id, { 
+             await firestoreService.saveAssembly({
+               ...other,
                isActive: false, 
                updatedAt: now,
-               // Optionally add to history or notes here
              });
              
-             await freezeAssembly(other.id);
+             await firestoreService.freezeAssembly(other.id);
              
              // Vacate all designations of those assemblies
-             const relatedDesignations = await db.designations.where('assemblyId').equals(other.id).toArray();
+             const relatedDesignations = designations.filter(d => d.assemblyId === other.id);
              for (const d of relatedDesignations) {
                if (d.incumbentId !== 'vacant') {
-                 await db.designations.update(d.id, {
+                 await firestoreService.updateDesignation(d.id, {
                    incumbentId: 'vacant',
                    history: [...(d.history || []), { personId: d.incumbentId, reason: 'expiry', date: now }],
                    updatedAt: now
@@ -795,7 +781,7 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
         const assembliesCount = assemblies.length;
         const nextSlNo = isEdit ? (editData.slNo || assembliesCount) : (assembliesCount + 1);
 
-        const payload = {
+        const payload: any = {
           id,
           slNo: nextSlNo,
           name: data.name,
@@ -817,13 +803,13 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
           isActive: isActive,
           precededById: data.precededById
         };
-        isEdit ? await db.assemblies.update(id, payload) : await db.assemblies.add(payload);
+        await firestoreService.saveAssembly(payload);
 
         // If new assembly, all master constituencies transition to this new assembly (vacant by default)
         if (!isEdit) {
-          const masterConstituencies = await db.constituencies.toArray();
+          const masterConstituencies = constituencies;
           for (const con of masterConstituencies) {
-            await db.constituencies.update(con.id, {
+            await firestoreService.updateConstituency(con.id, {
               currentIncumbentId: 'vacant',
               currentAssemblyId: id,
               updatedAt: now
@@ -833,10 +819,10 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
 
         // Auto-vacate designations and ministers if current one is dissolving
         if (isDissolving) {
-          await freezeAssembly(id);
+          await firestoreService.freezeAssembly(id);
 
           // Reset assembly leaders to vacant
-          await db.assemblies.update(id, {
+          await firestoreService.updateAssembly(id, {
             leaders: {
               chiefMinister: 'vacant',
               deputyChiefMinister: 'vacant',
@@ -847,14 +833,14 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
               chiefSecretary: 'vacant',
             },
             updatedAt: now
-          });
+          } as any);
 
           // Vacate designations tied to this assembly or ministerial designations
-          const allDesignations = await db.designations.toArray();
+          const allDesignations = designations;
           const relatedDesignations = allDesignations.filter(d => d.assemblyId === id || isMinisterialRole(d.name));
           for (const d of relatedDesignations) {
             if (d.incumbentId && d.incumbentId !== 'vacant') {
-              await db.designations.update(d.id, {
+              await firestoreService.updateDesignation(d.id, {
                 incumbentId: 'vacant',
                 history: [...(d.history || []), { personId: d.incumbentId, reason: 'expiry', date: now }],
                 updatedAt: now
@@ -863,10 +849,10 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
           }
           
           // Also vacate all constituencies belonging to this assembly
-          const relatedConstituencies = await db.constituencies.where('currentAssemblyId').equals(id).toArray();
+          const relatedConstituencies = constituencies.filter(c => c.currentAssemblyId === id);
           for (const con of relatedConstituencies) {
             if (con.currentIncumbentId && con.currentIncumbentId !== 'vacant') {
-              await db.constituencies.update(con.id, {
+              await firestoreService.updateConstituency(con.id, {
                 currentIncumbentId: 'vacant',
                 history: [...(con.history || []), { 
                   personId: con.currentIncumbentId, 
@@ -880,7 +866,7 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
           }
 
           // Also expire roles for all persons in this assembly
-          const allPersons = await db.persons.toArray();
+          const allPersons = persons;
           for (const p of allPersons) {
             if (p.assemblyRoles && p.assemblyRoles[id]) {
               const expiringRoles = p.assemblyRoles[id].split(', ');
@@ -896,7 +882,8 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
                 });
               }
               const isMlaInThisAssembly = relatedConstituencies.some(c => c.currentIncumbentId === p.id);
-              await db.persons.update(p.id, {
+              await firestoreService.savePerson({
+                ...p,
                 assemblyRoles: newAssemblyRoles,
                 roleHistory: newHistory,
                 updatedAt: now,
@@ -931,7 +918,7 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
             if (isSpeaker || isMinister) {
               const targetAsm = assemblies.find(a => a.id === data.assemblyId);
               const govRes = computeAssemblyGovernmentComposition(
-                targetAsm,
+                targetAsm as Assembly,
                 constituencies,
                 parties,
                 alliances,
@@ -949,13 +936,12 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
             }
           }
 
-          // No changes needed for designation creation logic as it uses provided assemblyId
           const history = Array.isArray(data.history) ? data.history.map((h: any) => ({
             ...h,
             date: h.date ? new Date(h.date).getTime() : now
           })) : [];
 
-          const payload = {
+          const payload: any = {
             id,
             name: data.name,
             incumbentId: data.incumbentId || 'vacant',
@@ -965,15 +951,16 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
             history: history.length > 0 ? history : (data.incumbentId && data.incumbentId !== 'vacant' ? [{ personId: data.incumbentId, reason: 'appointment', date: now }] : []),
             updatedAt: now
           };
-          isEdit ? await db.designations.update(id, payload) : await db.designations.add(payload);
+          await firestoreService.saveDesignation(payload);
           
           if (data.incumbentId && data.incumbentId !== 'vacant') {
             if (!isEdit || data.incumbentId !== editData?.incumbentId) {
-              const person = await db.persons.get(data.incumbentId);
+              const person = persons.find(p => p.id === data.incumbentId);
               if (person) {
                 const currentDesignations = Array.isArray(person.designations) ? person.designations : [];
                 if (!currentDesignations.includes(id)) {
-                  await db.persons.update(data.incumbentId, {
+                  await firestoreService.savePerson({
+                    ...person,
                     designations: [...currentDesignations, id]
                   });
                 }
@@ -981,9 +968,10 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
             }
           }
           if (isEdit && editData?.incumbentId && editData.incumbentId !== data.incumbentId && editData.incumbentId !== 'vacant') {
-            const oldPerson = await db.persons.get(editData.incumbentId);
+            const oldPerson = persons.find(p => p.id === editData.incumbentId);
             if (oldPerson && Array.isArray(oldPerson.designations)) {
-              await db.persons.update(editData.incumbentId, {
+              await firestoreService.savePerson({
+                ...oldPerson,
                 designations: oldPerson.designations.filter((dId: string) => dId !== id)
               });
             }
@@ -1015,25 +1003,17 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
           state: data.state || editData?.state || (activeAssembly as any)?.state || '',
           history: isEdit ? (editData?.history || []) : [],
           lastElectionResult: isEdit ? editData?.lastElectionResult : undefined,
+          localBodies: localBodiesParsed,
           updatedAt: now
         };
-        isEdit ? await db.constituencies.update(id, payload) : await db.constituencies.add(payload);
+        await firestoreService.saveConstituency(payload);
       }
 
       reset();
       onClose();
     } catch (error: any) {
       console.error('Error saving entity:', error);
-      const isQuotaError = error?.name === 'QuotaExceededError' || error?.message?.includes('QuotaExceeded') || String(error).includes('QuotaExceeded');
-      if (isQuotaError) {
-        alert(
-          "Error saving entity: Storage Quota Exceeded.\n\n" +
-          "Your browser's local database storage is full. This usually happens if you uploaded large images directly.\n\n" +
-          "We have now enabled auto-compression for future uploads! For existing data, you can clear some old entities or your browser's site data to free up space."
-        );
-      } else {
-        alert(`Error saving entity:\n${error?.message || error || 'Unknown database error'}`);
-      }
+      alert(`Error saving entity:\n${error?.message || error || 'Unknown database error'}`);
     }
   };
 
@@ -1717,7 +1697,7 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
                    </h4>
                    <button 
                      type="button" 
-                     onClick={() => appendHistory({ personId: '', reason: 'appointment', date: new Date().toISOString().split('T')[0] })}
+                     onClick={() => appendHistory({ personId: '', reason: 'appointment', date: getSystemDateString() })}
                      className="p-2 bg-[#FFD700]/10 hover:bg-[#FFD700]/20 rounded-lg text-[#FFD700] transition-all"
                    >
                      <Plus size={16} />

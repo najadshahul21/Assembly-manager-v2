@@ -1,12 +1,13 @@
 import React from 'react';
 import { useNavigate } from 'react-router';
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '../db';
-import { Person, Assembly } from '../types';
+import { useDbLookup } from '../context/DbLookupContext';
+import { firestoreService } from '../firestoreService';
+import { Person, Assembly, Party, Alliance, Designation, Constituency } from '../types';
 import { Landmark, ArrowDown, UserMinus, ShieldCheck, Award, Users, Shield, Calendar, MapPin, ExternalLink, Crown, Settings2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { LeadershipCouncilModal } from '../components/LeadershipCouncilModal';
 import { prefixRole, formatPersonName } from '../utils/governmentUtils';
+import { getSystemTimestamp } from '../utils/dateUtils';
 
 export const CabinetPage: React.FC = () => {
   const navigate = useNavigate();
@@ -16,25 +17,24 @@ export const CabinetPage: React.FC = () => {
   const [isLeadershipModalOpen, setIsLeadershipModalOpen] = React.useState(false);
   const [isAdjustMode, setIsAdjustMode] = React.useState(false);
 
-  const constituencies = useLiveQuery(() => db.constituencies.toArray()) || [];
-  const parties = useLiveQuery(() => db.parties.toArray()) || [];
-  const alliances = useLiveQuery(() => db.alliances.toArray()) || [];
-  const persons = useLiveQuery(() => db.persons.toArray()) || [];
+  const { 
+    constituencies, 
+    parties: allParties, 
+    alliances: allAlliances, 
+    persons: allPersons, 
+    assemblies, 
+    designations 
+  } = useDbLookup();
 
-  const activeAssembly = useLiveQuery(async () => {
-    const all = await db.assemblies.toArray();
-    return all.find(a => a.isActive !== false) || null;
-  });
+  const activeAssembly = React.useMemo(() => {
+    return assemblies.find(a => a.isActive !== false) || null;
+  }, [assemblies]);
 
-  const cabinetMembers = useLiveQuery(async () => {
+  const cabinetMembers = React.useMemo(() => {
     if (!activeAssembly) return [];
     
     const targetAssemblyId = activeAssembly.id;
-    const currentAssembly = await db.assemblies.get(targetAssemblyId) || activeAssembly;
-    const allPersons = await db.persons.toArray();
-    const allParties = await db.parties.toArray();
-    const allAlliances = await db.alliances.toArray();
-    const designations = await db.designations.where('assemblyId').equals(targetAssemblyId).toArray();
+    const currentAssembly = assemblies.find(a => a.id === targetAssemblyId) || activeAssembly;
 
     const isCabinetRole = (role: string) => {
       const r = role.toLowerCase();
@@ -53,12 +53,10 @@ export const CabinetPage: React.FC = () => {
              r.includes('chief secretary');
     };
 
-    // Find holders of key constitutional designations and ministerial designations
-    const specialDesignations = designations.filter(d => isCabinetRole(d.name));
+    const specialDesignations = designations.filter(d => isCabinetRole(d.name) && d.assemblyId === targetAssemblyId);
 
     const cabinetData: Map<string, { person: Person; roles: { name: string; canDemote: boolean }[] }> = new Map();
 
-    // 1. Add people with ministerial roles (from assemblyRoles)
     const ministers = allPersons.filter(p => !p.isSuspended && p.assemblyRoles && p.assemblyRoles[targetAssemblyId]);
     for (const p of ministers) {
       const roles = p.assemblyRoles[targetAssemblyId].split(', ').filter(isCabinetRole);
@@ -74,14 +72,12 @@ export const CabinetPage: React.FC = () => {
       }
     }
 
-    // 2. Add people holding special designations
     for (const d of specialDesignations) {
       if (d.incumbentId && d.incumbentId !== 'vacant') {
         const holder = allPersons.find(p => p.id === d.incumbentId);
         if (holder && !holder.isSuspended) {
           const entry = cabinetData.get(holder.id) || { person: holder, roles: [] };
           if (isCabinetRole(d.name)) {
-            // Avoid duplicates
             if (!entry.roles.some(r => r.name === d.name)) {
               entry.roles.push({
                 name: d.name,
@@ -94,7 +90,6 @@ export const CabinetPage: React.FC = () => {
       }
     }
 
-    // 3. Add leadership council members (except leader of opposition & deputy leader of opposition, and house leaders)
     if (currentAssembly.leaders) {
       for (const [role, pId] of Object.entries(currentAssembly.leaders)) {
         if (
@@ -107,14 +102,13 @@ export const CabinetPage: React.FC = () => {
           const holder = allPersons.find(p => p.id === pId);
           if (holder && !holder.isSuspended) {
             const entry = cabinetData.get(holder.id) || { person: holder, roles: [] };
-            const displayName = role.replace(/([A-Z])/g, ' $1'); // camelCase to Space Case
+            const displayName = role.replace(/([A-Z])/g, ' $1');
             const capitalizedDisplayName = displayName.charAt(0).toUpperCase() + displayName.slice(1);
             
-            // Avoid duplicates
             if (!entry.roles.some(r => r.name.toLowerCase() === capitalizedDisplayName.toLowerCase())) {
               entry.roles.push({
                 name: capitalizedDisplayName,
-                canDemote: false // Managed via assembly settings / appointments
+                canDemote: false
               });
             }
             cabinetData.set(holder.id, entry);
@@ -181,7 +175,7 @@ export const CabinetPage: React.FC = () => {
       if (rankA !== rankB) return rankA - rankB;
       return (a.person.name || '').localeCompare(b.person.name || '', undefined, { sensitivity: 'base' });
     });
-  }, [activeAssembly]);
+  }, [activeAssembly, assemblies, allPersons, allParties, allAlliances, designations]);
 
   const handleDemote = (person: Person, roleToRemove: string) => {
     if (!activeAssembly || !activeAssembly.isActive) {
@@ -198,7 +192,7 @@ export const CabinetPage: React.FC = () => {
     }
 
     const { person, role: roleToRemove } = demoteConfirm;
-    const now = Date.now();
+    const now = getSystemTimestamp();
     const assemblyId = activeAssembly.id;
 
     try {
@@ -213,19 +207,18 @@ export const CabinetPage: React.FC = () => {
         }
       }
 
-      await db.persons.update(person.id, {
+      await firestoreService.savePerson({
+        ...person,
         assemblyRoles: updatedRoles,
         updatedAt: now
       });
 
-      // 2. Remove from Designations
-      const designations = await db.designations
-        .where('assemblyId').equals(assemblyId)
-        .and(d => d.name === roleToRemove && d.incumbentId === person.id)
-        .toArray();
+      const relatedDesignations = designations.filter(d => 
+        d.assemblyId === assemblyId && d.name === roleToRemove && d.incumbentId === person.id
+      );
       
-      for (const d of designations) {
-        await db.designations.update(d.id, {
+      for (const d of relatedDesignations) {
+        await firestoreService.updateDesignation(d.id, {
           incumbentId: 'vacant',
           updatedAt: now
         });
@@ -450,9 +443,9 @@ export const CabinetPage: React.FC = () => {
         <LeadershipCouncilModal
           assembly={activeAssembly}
           constituencies={constituencies}
-          parties={parties}
-          alliances={alliances}
-          persons={persons}
+          parties={allParties}
+          alliances={allAlliances}
+          persons={allPersons}
           onClose={() => setIsLeadershipModalOpen(false)}
         />
       )}

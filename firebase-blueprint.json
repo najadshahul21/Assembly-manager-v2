@@ -1,0 +1,110 @@
+{
+  "collections": {
+    "users": {
+      "documents": {
+        "{uid}": {
+          "collections": {
+            "persons": {
+              "documents": {
+                "{personId}": {
+                  "fields": {
+                    "id": { "type": "string" },
+                    "name": { "type": "string" },
+                    "partyId": { "type": "string" },
+                    "updatedAt": { "type": "number" }
+                  }
+                }
+              }
+            },
+            "parties": {
+              "documents": {
+                "{partyId}": {
+                  "fields": {
+                    "id": { "type": "string" },
+                    "name": { "type": "string" },
+                    "abbreviation": { "type": "string" },
+                    "allianceId": { "type": "string" },
+                    "updatedAt": { "type": "number" }
+                  }
+                }
+              }
+            },
+            "alliances": {
+              "documents": {
+                "{allianceId}": {
+                  "fields": {
+                    "id": { "type": "string" },
+                    "name": { "type": "string" },
+                    "abbreviation": { "type": "string" },
+                    "updatedAt": { "type": "number" }
+                  }
+                }
+              }
+            },
+            "assemblies": {
+              "documents": {
+                "{assemblyId}": {
+                  "fields": {
+                    "id": { "type": "string" },
+                    "name": { "type": "string" },
+                    "slNo": { "type": "string" },
+                    "partyControlId": { "type": "string" },
+                    "precededById": { "type": "string" },
+                    "updatedAt": { "type": "number" }
+                  }
+                }
+              }
+            },
+            "designations": {
+              "documents": {
+                "{designationId}": {
+                  "fields": {
+                    "id": { "type": "string" },
+                    "name": { "type": "string" },
+                    "incumbentId": { "type": "string" },
+                    "constituency": { "type": "string" },
+                    "assemblyId": { "type": "string" },
+                    "constituencyId": { "type": "string" },
+                    "updatedAt": { "type": "number" }
+                  }
+                }
+              }
+            },
+            "constituencies": {
+              "documents": {
+                "{constituencyId}": {
+                  "fields": {
+                    "id": { "type": "string" },
+                    "slNo": { "type": "string" },
+                    "name": { "type": "string" },
+                    "currentIncumbentId": { "type": "string" },
+                    "currentAssemblyId": { "type": "string" },
+                    "updatedAt": { "type": "number" }
+                  }
+                }
+              }
+            },
+            "orders": {
+              "documents": {
+                "{orderId}": {
+                  "fields": {
+                    "id": { "type": "string" },
+                    "slNo": { "type": "string" },
+                    "orderName": { "type": "string" },
+                    "date": { "type": "string" },
+                    "timestamp": { "type": "number" },
+                    "byDesignationId": { "type": "string" },
+                    "byDesignationName": { "type": "string" },
+                    "signerPersonId": { "type": "string" },
+                    "taggedPersonIds": { "type": "array" },
+                    "updatedAt": { "type": "number" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

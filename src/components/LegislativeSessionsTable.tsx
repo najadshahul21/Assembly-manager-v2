@@ -183,6 +183,17 @@ export const LegislativeSessionsTable: React.FC<LegislativeSessionsTableProps> =
                 </tr>
               );
             })}
+            <tr className="bg-zinc-900/10 border-t border-zinc-800/30">
+              <td className="w-16 sm:w-20 px-3 sm:px-4 py-4 border-r border-zinc-800/90 text-zinc-600 font-mono text-sm text-center bg-black/10">
+                --
+              </td>
+              {showAssembly && <td className="border-r border-zinc-800/90" />}
+              <td className="px-4 sm:px-6 py-4">
+                <span className="text-zinc-500 italic font-bold uppercase tracking-[0.2em] text-[10px]">
+                  office established
+                </span>
+              </td>
+            </tr>
           </tbody>
         </table>
       </div>

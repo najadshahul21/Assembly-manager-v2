@@ -1,12 +1,12 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Person, Party, Alliance, ElectionResult, CandidateResult } from '../types';
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '../db';
+import { Person, Party, Alliance, ElectionResult, CandidateResult, Designation, Assembly } from '../types';
+import { useDbLookup } from '../context/DbLookupContext';
 import { 
   Vote, Plus, Trash2, X, CheckCircle, Search, AlertCircle, 
   ChevronDown, User, Check, Sparkles, UserPlus 
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { getSystemTimestamp } from '../utils/dateUtils';
 
 /**
  * Shared helper to find a person's primary active designation (e.g. Minister, Speaker, or MLA)
@@ -448,22 +448,18 @@ export const ElectModal: React.FC<ElectModalProps> = ({
   onClose,
   onConfirm
 }) => {
-  // Reactive fallback to Dexie database for alliances if not passed in props
-  const dbAlliances = useLiveQuery(() => db.alliances.toArray(), []) || [];
+  const { alliances: dbAlliances, designations: dbDesignations, assemblies: dbAssemblies } = useDbLookup();
+
   const effectiveAlliancesList = useMemo(() => {
-    return (alliancesList && alliancesList.length > 0) ? alliancesList : dbAlliances;
+    return (alliancesList && alliancesList.length > 0) ? alliancesList : (dbAlliances || []);
   }, [alliancesList, dbAlliances]);
 
-  // Fallback for designations and assemblies
-  const dbDesignations = useLiveQuery(() => db.designations.toArray(), []) || [];
-  const dbAssemblies = useLiveQuery(() => db.assemblies.toArray(), []) || [];
-
   const effectiveDesignationsList = useMemo(() => {
-    return (designationsList && designationsList.length > 0) ? designationsList : dbDesignations;
+    return (designationsList && designationsList.length > 0) ? designationsList : (dbDesignations || []);
   }, [designationsList, dbDesignations]);
 
   const effectiveAssembliesList = useMemo(() => {
-    return (assembliesList && assembliesList.length > 0) ? assembliesList : dbAssemblies;
+    return (assembliesList && assembliesList.length > 0) ? assembliesList : (dbAssemblies || []);
   }, [assembliesList, dbAssemblies]);
 
   // Initialize candidate draft rows auto-populated from active (non-suspended) personsList / partiesList
@@ -607,7 +603,7 @@ export const ElectModal: React.FC<ElectModalProps> = ({
     setCandidates((prev) => [
       ...prev,
       {
-        tempId: `draft-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+        tempId: `draft-${getSystemTimestamp()}-${Math.random().toString(36).substr(2, 4)}`,
         candidateName: '',
         partyId: 'independent',
         partyAbbreviation: 'IND',
@@ -644,7 +640,7 @@ export const ElectModal: React.FC<ElectModalProps> = ({
     setCandidates((prev) => [
       ...prev,
       {
-        tempId: `draft-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+        tempId: `draft-${getSystemTimestamp()}-${Math.random().toString(36).substr(2, 4)}`,
         personId: person.id,
         candidateName: person.name,
         partyId,
@@ -870,7 +866,7 @@ export const ElectModal: React.FC<ElectModalProps> = ({
           ? `${winnerPartyAbbr} gain from ${previousPartyAbbreviation}`
           : `${winnerPartyAbbr} hold`,
         swingText: 'Swing',
-        electionDate: Date.now()
+        electionDate: getSystemTimestamp()
       };
 
       const winnerPersonId = winner.personId !== 'nota' ? winner.personId : undefined;

@@ -1,114 +1,115 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { useNavigate } from 'react-router';
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '../db';
+import { useDbLookup } from '../context/DbLookupContext';
 import { EntityCard } from '../components/EntityCards';
-import { EntityType } from '../types';
+import { EntityType, Assembly, Person, Party, Alliance, Designation, Constituency } from '../types';
 import { motion } from 'motion/react';
 import { Users, Flag, Shield, Landmark, Award, TrendingUp, AlertCircle, MapPin, User, ArrowRight } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { formatPersonName } from '../utils/governmentUtils';
+import { getSystemTimestamp, getSystemDateString } from '../utils/dateUtils';
 
 export const Dashboard: React.FC = () => {
   const navigate = useNavigate();
   const { user, isViewerMode } = useAuth();
+  const { 
+    persons: allPersons, 
+    parties: allParties, 
+    alliances: allAlliances, 
+    assemblies: allAssemblies, 
+    constituencies: allConstituencies, 
+    designations: allDesignations,
+    personsMap,
+    partiesMap
+  } = useDbLookup();
 
-  const personCount = useLiveQuery(() => db.persons.count()) || 0;
-  const partyCount = useLiveQuery(() => db.parties.count()) || 0;
-  const persons = useLiveQuery(async () => {
-    const list = await db.persons.orderBy('updatedAt').reverse().toArray();
-    return list.filter(p => !p.isSuspended).slice(0, 4);
-  }) || [];
-  const parties = useLiveQuery(async () => {
-    const list = await db.parties.orderBy('updatedAt').reverse().toArray();
-    return list.filter(p => !p.isSuspended).slice(0, 4);
-  }) || [];
+  const personCount = allPersons.length;
+  const partyCount = allParties.length;
+  
+  const persons = React.useMemo(() => {
+    return [...allPersons]
+      .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+      .filter(p => !p.isSuspended)
+      .slice(0, 4);
+  }, [allPersons]);
 
-  const activeAssembly = useLiveQuery(async () => {
-    const list = await db.assemblies.toArray();
-    return list.find(a => a.isActive !== false) || list[0] || null;
-  });
+  const parties = React.useMemo(() => {
+    return [...allParties]
+      .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+      .filter(p => !p.isSuspended)
+      .slice(0, 4);
+  }, [allParties]);
 
-  const stateLeadership = useLiveQuery(async () => {
-    // 1. Fetch Governor designation safely (non-mutating) with a fallback structure if not loaded yet
-    const governorDesig = (await db.designations.get('governor')) || {
+  const activeAssembly = React.useMemo(() => {
+    return allAssemblies.find(a => a.isActive !== false) || allAssemblies[0] || null;
+  }, [allAssemblies]);
+
+  const stateLeadership = React.useMemo(() => {
+    const governorDesig = allDesignations.find(d => d.id === 'governor') || {
       id: 'governor',
       name: "Hon'ble Governor",
       incumbentId: 'vacant',
-      dateOfSigning: new Date().toISOString().split('T')[0],
+      dateOfSigning: getSystemDateString(),
       constituency: '',
       history: [],
-      updatedAt: Date.now()
+      updatedAt: getSystemTimestamp()
     };
 
     let governorPerson = null;
     let governorParty = null;
     if (governorDesig && governorDesig.incumbentId && governorDesig.incumbentId !== 'vacant') {
-      governorPerson = await db.persons.get(governorDesig.incumbentId);
+      governorPerson = personsMap[governorDesig.incumbentId];
       if (governorPerson && governorPerson.isSuspended) {
         governorPerson = null;
       }
       if (governorPerson && governorPerson.partyId && governorPerson.partyId !== 'independent') {
-        governorParty = await db.parties.get(governorPerson.partyId);
+        governorParty = partiesMap[governorPerson.partyId];
       }
     }
 
-    // 2. Fetch current active assembly (only an active assembly isActive !== false can hold office)
-    const allAssemblies = await db.assemblies.toArray();
-    const activeAssembly = allAssemblies.find(a => a.isActive !== false) || null;
-
-    let speakerPerson = null;
-    let speakerParty = null;
-    let cmPerson = null;
-    let cmParty = null;
+    let speakerPerson: any = null;
+    let speakerParty: any = null;
+    let cmPerson: any = null;
+    let cmParty: any = null;
     let isAssemblyVacant = false;
 
     if (activeAssembly) {
-      // Fetch all constituencies belonging to this active assembly
-      const assemblyConstituencies = await db.constituencies
-        .where('currentAssemblyId')
-        .equals(activeAssembly.id)
-        .toArray();
-
-      // Collect all active MLA IDs (who hold a non-vacant seat in this assembly)
-      const activeMlaMap = new Map<string, string>(); // personId -> constituencyName
+      const assemblyConstituencies = allConstituencies.filter(c => c.currentAssemblyId === activeAssembly.id);
+      const activeMlaMap = new Map<string, string>();
       assemblyConstituencies.forEach(c => {
         if (c.currentIncumbentId && c.currentIncumbentId !== 'vacant') {
           activeMlaMap.set(c.currentIncumbentId, c.name);
         }
       });
 
-      // If there are no active MLAs elected to this assembly, the assembly is considered vacant
       if (activeMlaMap.size === 0) {
         isAssemblyVacant = true;
       } else if (activeAssembly.leaders) {
         const speakerId = activeAssembly.leaders.speaker;
         const cmId = activeAssembly.leaders.chiefMinister;
 
-        // Speaker MUST be an active elected MLA in this active assembly and not suspended
         if (speakerId && speakerId !== 'vacant' && activeMlaMap.has(speakerId)) {
-          const person = await db.persons.get(speakerId);
+          const person = personsMap[speakerId];
           if (person && !person.isSuspended) {
             speakerPerson = {
               ...person,
               constituencyName: activeMlaMap.get(speakerId) || person.constituencyName
             };
             if (speakerPerson.partyId && speakerPerson.partyId !== 'independent') {
-              speakerParty = await db.parties.get(speakerPerson.partyId);
+              speakerParty = partiesMap[speakerPerson.partyId];
             }
           }
         }
 
-        // Chief Minister MUST be an active elected MLA in this active assembly and not suspended
         if (cmId && cmId !== 'vacant' && activeMlaMap.has(cmId)) {
-          const person = await db.persons.get(cmId);
+          const person = personsMap[cmId];
           if (person && !person.isSuspended) {
             cmPerson = {
               ...person,
               constituencyName: activeMlaMap.get(cmId) || person.constituencyName
             };
             if (cmPerson.partyId && cmPerson.partyId !== 'independent') {
-              cmParty = await db.parties.get(cmPerson.partyId);
+              cmParty = partiesMap[cmPerson.partyId];
             }
           }
         }
@@ -134,19 +135,9 @@ export const Dashboard: React.FC = () => {
         isAssemblyVacant
       }
     };
-  }, []);
+  }, [allDesignations, allConstituencies, activeAssembly, personsMap, partiesMap]);
   
-  const dashboardStats = useLiveQuery(async () => {
-    const [allDesignations, allParties, allAlliances, allPersons, allAssemblies, allConstituencies] = await Promise.all([
-      db.designations.toArray(),
-      db.parties.toArray(),
-      db.alliances.toArray(),
-      db.persons.toArray(),
-      db.assemblies.toArray(),
-      db.constituencies.toArray()
-    ]);
-
-    // Gather active assemblies and constituencies corresponding to active assemblies
+  const dashboardStats = React.useMemo(() => {
     const activeAssemblies = allAssemblies.filter(a => a.isActive !== false);
     const activeAssemblyIds = new Set(activeAssemblies.map(a => a.id));
     const activeConstituencies = allConstituencies.filter(c => c.currentAssemblyId && activeAssemblyIds.has(c.currentAssemblyId));
@@ -204,7 +195,7 @@ export const Dashboard: React.FC = () => {
       strongestAlliance: strAlliance ? { name: strAlliance.abbreviation || strAlliance.name, count: allianceLegCounts[strAllianceId!] } : null,
       totalVacancies
     };
-  }, []);
+  }, [allDesignations, allParties, allAlliances, allPersons, allAssemblies, allConstituencies]);
 
   const stats = [
     { label: 'Registered Politicians', value: personCount, icon: Users, color: 'text-[#FFD700]' },

@@ -1,8 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router';
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '../db';
-import { LegislativeOrder, Person, Party, Designation, formatOfficeOfHonble } from '../types';
+import { useDbLookup } from '../context/DbLookupContext';
+import { firestoreService } from '../firestoreService';
+import { LegislativeOrder, Person, Party, formatOfficeOfHonble } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   FileText, Stamp, Plus, Calendar, User, Search, Filter, 
@@ -35,25 +35,18 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({ searchQuery = '' }) => {
   const [orderToDelete, setOrderToDelete] = useState<LegislativeOrder | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  // Queries
-  const orders = useLiveQuery(async () => {
-    const list = await db.orders.toArray();
-    return list.sort(compareOrdersReverseChronological);
-  }) || [];
-
-  const persons = useLiveQuery(() => db.persons.toArray()) || [];
-  const parties = useLiveQuery(() => db.parties.toArray()) || [];
-  const designations = useLiveQuery(() => db.designations.toArray()) || [];
+  // Data from Context
+  const { orders, persons, parties, designations } = useDbLookup();
 
   const personsMap = useMemo(() => {
     const map = new Map<string, Person>();
-    persons.forEach(p => map.set(p.id, p));
+    (persons || []).forEach(p => map.set(p.id, p));
     return map;
   }, [persons]);
 
   const partiesMap = useMemo(() => {
     const map = new Map<string, Party>();
-    parties.forEach(p => map.set(p.id, p));
+    (parties || []).forEach(p => map.set(p.id, p));
     return map;
   }, [parties]);
 
@@ -62,7 +55,7 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({ searchQuery = '' }) => {
 
   // Filtered Orders
   const filteredOrders = useMemo(() => {
-    return orders.filter(order => {
+    return (orders || []).filter(order => {
       // Category filter
       if (selectedCategory !== 'all') {
         if (selectedCategory === 'cabinet' && order.byCategory !== 'cabinet') return false;
@@ -117,11 +110,12 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({ searchQuery = '' }) => {
 
   // Statistics
   const stats = useMemo(() => {
-    const total = orders.length;
-    const executive = orders.filter(o => o.byCategory === 'cabinet').length;
-    const legislative = orders.filter(o => o.byCategory === 'mla' || o.byCategory === 'speaker').length;
-    const judicial = orders.filter(o => o.byCategory === 'judiciary').length;
-    const gubernatorial = orders.filter(o => o.byCategory === 'governor').length;
+    const list = orders || [];
+    const total = list.length;
+    const executive = list.filter(o => o.byCategory === 'cabinet').length;
+    const legislative = list.filter(o => o.byCategory === 'mla' || o.byCategory === 'speaker').length;
+    const judicial = list.filter(o => o.byCategory === 'judiciary').length;
+    const gubernatorial = list.filter(o => o.byCategory === 'governor').length;
     return { total, executive, legislative, judicial, gubernatorial };
   }, [orders]);
 
@@ -139,7 +133,7 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({ searchQuery = '' }) => {
   const handleDeleteOrder = async () => {
     if (!orderToDelete) return;
     try {
-      await db.orders.delete(orderToDelete.id);
+      await firestoreService.deleteOrder(orderToDelete.id);
       if (viewingOrder?.id === orderToDelete.id) {
         setViewingOrder(null);
       }
@@ -330,7 +324,7 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({ searchQuery = '' }) => {
               className="w-full bg-[#121212] border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#FFD700]/50 appearance-none cursor-pointer"
             >
               <option value="all">All Issuing Designations</option>
-              {Array.from(new Set(orders.map(o => o.byDesignationName))).filter(Boolean).map(name => (
+              {Array.from(new Set((orders || []).map(o => o.byDesignationName))).filter(Boolean).map(name => (
                 <option key={name} value={name}>{name}</option>
               ))}
             </select>
@@ -345,7 +339,7 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({ searchQuery = '' }) => {
               className="w-full bg-[#121212] border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#FFD700]/50 appearance-none cursor-pointer"
             >
               <option value="all">All Mentioned / Signers</option>
-              {persons.map(p => (
+              {(persons || []).map(p => (
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))}
             </select>
@@ -666,7 +660,7 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({ searchQuery = '' }) => {
                   <div className="w-12 h-12 rounded-xl bg-black/40 border border-[#FFD700]/30 flex items-center justify-center text-[#FFD700] overflow-hidden shrink-0">
                     {(viewingOrder.signerImageUrl || (viewingOrder.signerPersonId && personsMap.get(viewingOrder.signerPersonId)?.imageUrl)) ? (
                       <img 
-                        src={viewingOrder.signerImageUrl || personsMap.get(viewingOrder.signerPersonId!)?.imageUrl} 
+                        src={viewingOrder.signerImageUrl || (viewingOrder.signerPersonId ? personsMap.get(viewingOrder.signerPersonId)?.imageUrl : undefined)} 
                         alt={viewingOrder.signerPersonName || 'Incumbent'} 
                         className="w-full h-full object-cover" 
                       />
@@ -685,9 +679,9 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({ searchQuery = '' }) => {
                       {viewingOrder.signerPersonName ? (
                         <>
                           <span>({viewingOrder.signerPersonName})</span>
-                          {(viewingOrder.signerPartyAbbr || partiesMap.get(personsMap.get(viewingOrder.signerPersonId || '')?.partyId || '')?.abbreviation) && (
+                          {(viewingOrder.signerPartyAbbr || (viewingOrder.signerPersonId ? partiesMap.get(personsMap.get(viewingOrder.signerPersonId)?.partyId || '')?.abbreviation : undefined)) && (
                             <span className="text-gray-400 font-normal">
-                              • {viewingOrder.signerPartyAbbr || partiesMap.get(personsMap.get(viewingOrder.signerPersonId || '')?.partyId || '')?.abbreviation}
+                              • {viewingOrder.signerPartyAbbr || (viewingOrder.signerPersonId ? partiesMap.get(personsMap.get(viewingOrder.signerPersonId)?.partyId || '')?.abbreviation : undefined)}
                             </span>
                           )}
                         </>

@@ -1,5 +1,6 @@
 import Dexie, { type Table } from 'dexie';
 import { Person, Party, Alliance, Assembly, Designation, Constituency, LegislativeOrder } from './types';
+import { getSystemTimestamp, getSystemDateString } from './utils/dateUtils';
 
 export class LegislativeDB extends Dexie {
   persons!: Table<Person>;
@@ -67,28 +68,28 @@ export const ensureConstitutionalDesignations = async () => {
         id: 'governor',
         name: "Hon'ble Governor",
         incumbentId: 'vacant',
-        dateOfSigning: new Date().toISOString().split('T')[0],
+        dateOfSigning: getSystemDateString(),
         constituency: stateTitle,
         history: [],
-        updatedAt: Date.now()
+        updatedAt: getSystemTimestamp()
       },
       {
         id: 'high-court',
         name: 'High Court',
         incumbentId: 'vacant',
-        dateOfSigning: new Date().toISOString().split('T')[0],
+        dateOfSigning: getSystemDateString(),
         constituency: 'Judiciary',
         history: [],
-        updatedAt: Date.now()
+        updatedAt: getSystemTimestamp()
       },
       {
         id: 'supreme-court',
         name: 'Supreme Court',
         incumbentId: 'vacant',
-        dateOfSigning: new Date().toISOString().split('T')[0],
+        dateOfSigning: getSystemDateString(),
         constituency: 'Judiciary',
         history: [],
-        updatedAt: Date.now()
+        updatedAt: getSystemTimestamp()
       }
     ];
 
@@ -316,7 +317,7 @@ export const freezeAssembly = async (assemblyId: string) => {
       } else if (entries.length > 0) {
         earliestDate = Math.min(...entries.map((e) => toTime(e.date)));
       } else {
-        earliestDate = Date.now();
+        earliestDate = getSystemTimestamp();
       }
 
       return { pId, earliestDate, isActive, removal };

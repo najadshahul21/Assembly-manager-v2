@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from "react";
 import { useParams, useNavigate, useLocation } from "react-router";
-import { useLiveQuery } from "dexie-react-hooks";
-import { db, reindexConstituencies, freezeAssembly } from "../db";
+import { useDbLookup } from "../context/DbLookupContext";
+import { firestoreService } from "../firestoreService";
 import {
   EntityType,
   Person,
@@ -69,7 +69,7 @@ import { AllianceConstituentPartiesTable } from "../components/AllianceConstitue
 import { LegislativeSessionsTable } from "../components/LegislativeSessionsTable";
 import { buildLegislativeSessionsList, extractOrdinal } from "../data/legislativeHistoryData";
 import { LegislativeRolesHistoryWidget } from "../components/LegislativeRolesHistoryWidget";
-import { formatAppDate, formatAppDateTime } from "../utils/dateUtils";
+import { formatAppDate, formatAppDateTime, getSystemTimestamp } from "../utils/dateUtils";
 
 const getAssemblyChronologicalScore = (assembly?: Assembly | null) => {
   if (!assembly) return 0;
@@ -172,133 +172,7 @@ export const EntityPage: React.FC = () => {
     if (!id || !entity || entityType !== EntityType.CONSTITUENCY) return;
 
     try {
-      await db.transaction("rw", [db.persons, db.constituencies, db.parties, db.assemblies], async () => {
-        // Fetch fresh constituency record within transaction
-        const con = await db.constituencies.get(id);
-        if (!con) return;
-
-        const now = Date.now();
-        const oldIncumbentId = con.currentIncumbentId;
-        const newIncumbentId = winnerPersonId || "vacant";
-
-        // 1. Vacate old incumbent if they are different from winner
-        if (oldIncumbentId && oldIncumbentId !== 'vacant' && oldIncumbentId !== winnerPersonId) {
-          const oldPerson = await db.persons.get(oldIncumbentId);
-          if (oldPerson && con.currentAssemblyId) {
-            const assemblyRoles = { ...(oldPerson.assemblyRoles || {}) };
-            const mlaRole = `MLA for ${con.name}`;
-            
-            // Remove the role
-            const roles = (assemblyRoles[con.currentAssemblyId] || "").split(", ").map(r => r.trim()).filter(Boolean);
-            const updatedRoles = roles.filter(r => r !== mlaRole && r !== `${con.name} MLA`);
-            
-            if (updatedRoles.length === 0) {
-              delete assemblyRoles[con.currentAssemblyId];
-            } else {
-              assemblyRoles[con.currentAssemblyId] = updatedRoles.join(", ");
-            }
-
-            const pRoleHistory = [...(oldPerson.roleHistory || [])];
-            pRoleHistory.push({
-              role: mlaRole,
-              assemblyId: con.currentAssemblyId,
-              date: now,
-              action: "expiry"
-            });
-
-            await db.persons.update(oldIncumbentId, {
-              assemblyRoles,
-              roleHistory: pRoleHistory,
-              constituencyName: "", // No longer MLA of this constituency
-              updatedAt: now,
-            });
-
-            // Remove independent support if applicable
-            const assembly = await db.assemblies.get(con.currentAssemblyId);
-            if (assembly && assembly.independentSupports && assembly.independentSupports[oldIncumbentId]) {
-              const supports = { ...assembly.independentSupports };
-              delete supports[oldIncumbentId];
-              await db.assemblies.update(con.currentAssemblyId, {
-                independentSupports: supports,
-                updatedAt: now
-              });
-            }
-          }
-        }
-
-        if (winnerPersonId && winnerPersonId !== "vacant") {
-          const person = await db.persons.get(winnerPersonId);
-          if (!person || person.isSuspended) {
-            throw new Error(`Candidate "${person?.name || winnerPersonId}" is suspended and cannot be elected.`);
-          }
-          if (person.partyId && person.partyId !== 'independent') {
-            const party = await db.parties.get(person.partyId);
-            if (party?.isSuspended) {
-              throw new Error(`Candidate "${person.name}" belongs to suspended party "${party.name}" and cannot be elected.`);
-            }
-          }
-
-          // 2. If the winner was already an MLA of ANOTHER constituency, vacate them from there
-          const otherCons = await db.constituencies.where("currentIncumbentId").equals(winnerPersonId).toArray();
-          for (const otherCon of otherCons) {
-            if (otherCon.id !== con.id) {
-              const otherConHistory = [...(otherCon.history || [])];
-              otherConHistory.push({
-                personId: winnerPersonId,
-                assemblyId: otherCon.currentAssemblyId || "unknown",
-                date: now,
-                reason: "Resigned (Elected to other seat)"
-              });
-              
-              await db.constituencies.update(otherCon.id, {
-                currentIncumbentId: "vacant",
-                history: otherConHistory,
-                updatedAt: now
-              });
-            }
-          }
-
-          if (con.currentAssemblyId) {
-            const assemblyRoles = { ...(person.assemblyRoles || {}) };
-            const mlaRole = `MLA for ${con.name}`;
-            
-            const roles = (assemblyRoles[con.currentAssemblyId] || "").split(", ").map(r => r.trim()).filter(Boolean);
-            if (!roles.includes(mlaRole)) {
-              roles.push(mlaRole);
-              assemblyRoles[con.currentAssemblyId] = roles.join(", ");
-            }
-            
-            const pRoleHistory = [...(person.roleHistory || [])];
-            pRoleHistory.push({
-              role: mlaRole,
-              assemblyId: con.currentAssemblyId,
-              date: now,
-              action: "appointment"
-            });
-
-            await db.persons.update(winnerPersonId, {
-              assemblyRoles,
-              roleHistory: pRoleHistory,
-              constituencyName: con.name,
-              updatedAt: now,
-            });
-          }
-        }
-
-        const historyEntry = {
-          personId: newIncumbentId,
-          assemblyId: con.currentAssemblyId || currentActiveAssembly?.id || "assembly",
-          date: now,
-          reason: "election",
-        };
-
-        await db.constituencies.update(id, {
-          currentIncumbentId: newIncumbentId,
-          lastElectionResult: result,
-          history: [...(con.history || []), historyEntry],
-          updatedAt: now,
-        });
-      });
+      await firestoreService.confirmElection(id, winnerPersonId, result, currentActiveAssembly?.id);
       setShowElectModal(false);
     } catch (error: any) {
       console.error("Failed to confirm election:", error);
@@ -346,159 +220,123 @@ export const EntityPage: React.FC = () => {
 
   const entityType = type as EntityType;
 
-  // Generic data fetching
-  const entity = useLiveQuery(async () => {
-    if (!id) return null;
+  const { 
+    persons: personsList, 
+    parties: partiesList, 
+    assemblies: assembliesList, 
+    alliances: alliancesList, 
+    constituencies: constituenciesList, 
+    designations: designationsList,
+    orders: ordersList,
+    loaded: dbLoaded
+  } = useDbLookup();
+
+  const entity = useMemo(() => {
+    if (!id || !dbLoaded) return null;
     switch (entityType) {
       case EntityType.PERSON:
-        return db.persons.get(id);
+        return personsList?.find(p => p.id === id);
       case EntityType.PARTY:
-        return db.parties.get(id);
+        return partiesList?.find(p => p.id === id);
       case EntityType.ALLIANCE:
-        return db.alliances.get(id);
+        return alliancesList?.find(a => a.id === id);
       case EntityType.ASSEMBLY:
-        return db.assemblies.get(id);
+        return assembliesList?.find(a => a.id === id);
       case EntityType.DESIGNATION:
-        return db.designations.get(id);
+        return designationsList?.find(d => d.id === id);
       case EntityType.CONSTITUENCY:
-        return db.constituencies.get(id);
+        return constituenciesList?.find(c => c.id === id);
       default:
         return null;
     }
-  }, [type, id]);
+  }, [id, entityType, personsList, partiesList, alliancesList, assembliesList, designationsList, dbLoaded]);
 
-  // Orders referencing or issued by this entity
-  const entityOrders = useLiveQuery(async () => {
-    if (!id) return [];
+  const entityOrders = useMemo(() => {
+    if (!id || !ordersList) return [];
     let matching: LegislativeOrder[] = [];
     if (entityType === EntityType.PERSON) {
-      // Use indexed queries for better performance
-      const signed = await db.orders.where('signerPersonId').equals(id).toArray();
-      const tagged = await db.orders.where('taggedPersonIds').equals(id).toArray();
-      
-      // Merge and unique-ify by ID
-      const merged = [...signed];
-      const seen = new Set(signed.map(o => o.id));
-      tagged.forEach(o => {
-        if (!seen.has(o.id)) {
-          merged.push(o);
-        }
-      });
-      matching = merged;
+      matching = ordersList.filter(o => o.signerPersonId === id || o.taggedPersonIds?.includes(id));
     } else if (entityType === EntityType.DESIGNATION) {
-      matching = await db.orders.where('byDesignationId').equals(id).toArray();
-      
-      // If we still need to filter by name (fallback for older records)
-      if (entity && (entity as Designation).name) {
-        const byName = await db.orders.where('byDesignationName').equals((entity as Designation).name).toArray();
-        const seen = new Set(matching.map(o => o.id));
-        byName.forEach(o => {
-          if (!seen.has(o.id)) {
-            matching.push(o);
-          }
-        });
-      }
+      matching = ordersList.filter(o => o.byDesignationId === id || (entity && (entity as Designation).name === o.byDesignationName));
     }
     return matching.sort(compareOrdersReverseChronological);
-  }, [id, entityType, entity]);
+  }, [id, entityType, entity, ordersList]);
 
-  // Related data fetching
-  const relatedPersons = useLiveQuery(async () => {
-    if (!id) return [];
+  const relatedPersons = useMemo(() => {
+    if (!id || !personsList) return [];
     let list: Person[] = [];
     if (entityType === EntityType.PARTY) {
-      list = await db.persons.where("partyId").equals(id).toArray();
+      list = personsList.filter(p => p.partyId === id);
     } else if (entityType === EntityType.ALLIANCE) {
-      const parties = await db.parties.where("allianceId").equals(id).toArray();
-      const pIds = parties.map((p) => p.id).filter(Boolean);
-      if (pIds.length > 0) {
-        list = await db.persons.where("partyId").anyOf(pIds).toArray();
-      }
+      const pIds = partiesList?.filter(p => p.allianceId === id).map(p => p.id) || [];
+      list = personsList.filter(p => pIds.includes(p.partyId));
     }
     return list.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
-  }, [type, id]);
+  }, [id, entityType, personsList, partiesList]);
 
-  const relatedParties = useLiveQuery(async () => {
-    if (!id) return [];
+  const relatedParties = useMemo(() => {
+    if (!id || !partiesList) return [];
     if (entityType === EntityType.ALLIANCE) {
-      const list = await db.parties.where("allianceId").equals(id).toArray();
-      return list.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
+      return partiesList.filter(p => p.allianceId === id).sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
     }
     return [];
-  }, [type, id]);
-
-  const partiesList = useLiveQuery(() => db.parties.toArray().then(items => items.sort((a, b) => (a.name || "").localeCompare(b.name || "", undefined, { sensitivity: "base" }))), []) || [];
-  const personsList = useLiveQuery(() => db.persons.toArray().then(items => items.sort((a, b) => (a.name || "").localeCompare(b.name || "", undefined, { sensitivity: "base" }))), []) || [];
-  const assembliesList = useLiveQuery(() => db.assemblies.toArray().then(items => items.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))), []) || [];
-  const alliancesList = useLiveQuery(() => db.alliances.toArray().then(items => items.sort((a, b) => (a.name || "").localeCompare(b.name || "", undefined, { sensitivity: "base" }))), []) || [];
-  const constituenciesList = useLiveQuery(() => db.constituencies.toArray().then(items => items.sort((a, b) => (parseInt(a.slNo) || 9999) - (parseInt(b.slNo) || 9999))), []) || [];
-  const designationsList = useLiveQuery(() => db.designations.toArray().then(items => items.sort((a, b) => (a.name || "").localeCompare(b.name || "", undefined, { sensitivity: "base" }))), []) || [];
+  }, [id, entityType, partiesList]);
 
   const currentActiveAssembly = useMemo(() => {
-    return getActiveAssembly(assembliesList);
+    return getActiveAssembly(assembliesList || []);
   }, [assembliesList]);
 
-  const leadingParty = useLiveQuery(async () => {
+  const leadingParty = useMemo(() => {
     if (entityType === EntityType.ALLIANCE && entity) {
       const lpId = (entity as Alliance).leadingPartyId;
-      if (typeof lpId === "string" && lpId) {
-        return db.parties.get(lpId);
-      }
+      return partiesList?.find(p => p.id === lpId) || null;
     }
     return null;
-  }, [entity, entityType]);
+  }, [entity, entityType, partiesList]);
 
-  const associatedConstituency = useLiveQuery(async () => {
+  const associatedConstituency = useMemo(() => {
     if (entityType === EntityType.DESIGNATION && entity) {
       const conId = (entity as Designation).constituencyId;
-      if (typeof conId === "string" && conId) {
-        return db.constituencies.get(conId);
-      }
+      return constituenciesList?.find(c => c.id === conId) || null;
     }
     return null;
-  }, [entity]);
+  }, [entity, entityType, constituenciesList]);
 
-  const associatedAssembly = useLiveQuery(async () => {
+  const associatedAssembly = useMemo(() => {
     if (entityType === EntityType.DESIGNATION && entity) {
       const asmId = (entity as Designation).assemblyId;
-      if (typeof asmId === "string" && asmId) {
-        return db.assemblies.get(asmId);
-      }
+      return assembliesList?.find(a => a.id === asmId) || null;
     }
     return null;
-  }, [entity]);
+  }, [entity, entityType, assembliesList]);
 
-  const partyAlliance = useLiveQuery(async () => {
+  const partyAlliance = useMemo(() => {
     if (entityType === EntityType.PARTY && entity) {
       const allianceId = (entity as Party).allianceId;
-      if (
-        typeof allianceId === "string" &&
-        allianceId &&
-        allianceId !== "independent"
-      ) {
-        return db.alliances.get(allianceId);
+      if (allianceId && allianceId !== "independent") {
+        return alliancesList?.find(a => a.id === allianceId) || null;
       }
     }
     return null;
-  }, [entity]);
+  }, [entity, entityType, alliancesList]);
 
-  const personParty = useLiveQuery(async () => {
+  const personParty = useMemo(() => {
     if (entityType === EntityType.PERSON && entity) {
       const partyId = (entity as Person).partyId;
-      if (typeof partyId === "string" && partyId && partyId !== "independent") {
-        return db.parties.get(partyId);
+      if (partyId && partyId !== "independent") {
+        return partiesList?.find(p => p.id === partyId) || null;
       }
     }
     return null;
-  }, [entity]);
+  }, [entity, entityType, partiesList]);
 
-  const constituencyPreviousPartyAbbr = useLiveQuery(async () => {
+  const constituencyPreviousPartyAbbr = useMemo(() => {
     if (entityType === EntityType.CONSTITUENCY && entity) {
       const con = entity as Constituency;
       if (con.currentIncumbentId && con.currentIncumbentId !== 'vacant') {
-        const person = await db.persons.get(con.currentIncumbentId);
+        const person = personsList?.find(p => p.id === con.currentIncumbentId);
         if (person?.partyId && person.partyId !== 'independent') {
-          const party = await db.parties.get(person.partyId);
+          const party = partiesList?.find(pt => pt.id === person.partyId);
           if (party?.abbreviation) return party.abbreviation;
         }
       }
@@ -507,69 +345,61 @@ export const EntityPage: React.FC = () => {
       }
     }
     return 'new constituency';
-  }, [entityType, entity?.id]);
+  }, [entityType, entity, personsList, partiesList]);
 
-  const constituencyCreationAssembly = useLiveQuery(async () => {
+  const constituencyCreationAssembly = useMemo(() => {
     if (entityType !== EntityType.CONSTITUENCY || !entity) return null;
     const con = entity as Constituency;
-    const allAssemblies = await db.assemblies.toArray();
-    return getConstituencyCreationAssembly(con, allAssemblies);
-  }, [entityType, entity]);
+    return getConstituencyCreationAssembly(con, assembliesList || []);
+  }, [entityType, entity, assembliesList]);
 
-  const constituencyCurrentAssembly = useLiveQuery(async () => {
+  const constituencyCurrentAssembly = useMemo(() => {
     if (entityType !== EntityType.CONSTITUENCY || !entity) return null;
     const con = entity as Constituency;
     if (con.currentAssemblyId) {
-      const a = await db.assemblies.get(con.currentAssemblyId);
-      if (a) return a;
+      return assembliesList?.find(a => a.id === con.currentAssemblyId) || null;
     }
-    const active = await db.assemblies.filter((a) => a.isActive !== false).first();
-    return active || null;
-  }, [entityType, entity]);
+    return assembliesList?.find(a => a.isActive !== false) || null;
+  }, [entityType, entity, assembliesList]);
 
-  const constituencyIncumbentPerson = useLiveQuery(async () => {
+  const constituencyIncumbentPerson = useMemo(() => {
     if (entityType !== EntityType.CONSTITUENCY || !entity) return null;
     const con = entity as Constituency;
     if (con.currentIncumbentId && con.currentIncumbentId !== "vacant") {
-      return db.persons.get(con.currentIncumbentId);
+      return personsList?.find(p => p.id === con.currentIncumbentId) || null;
     }
     return null;
-  }, [entityType, entity]);
+  }, [entityType, entity, personsList]);
 
-  const constituencyIncumbentParty = useLiveQuery(async () => {
+  const constituencyIncumbentParty = useMemo(() => {
     if (!constituencyIncumbentPerson?.partyId || constituencyIncumbentPerson.partyId === "independent") {
       return null;
     }
-    return db.parties.get(constituencyIncumbentPerson.partyId);
-  }, [constituencyIncumbentPerson]);
+    return partiesList?.find(p => p.id === constituencyIncumbentPerson.partyId) || null;
+  }, [constituencyIncumbentPerson, partiesList]);
 
-  const constituencyIncumbentAlliance = useLiveQuery(async () => {
+  const constituencyIncumbentAlliance = useMemo(() => {
     if (!constituencyIncumbentParty?.allianceId || constituencyIncumbentParty.allianceId === "independent") {
       return null;
     }
-    return db.alliances.get(constituencyIncumbentParty.allianceId);
-  }, [constituencyIncumbentParty]);
+    return alliancesList?.find(a => a.id === constituencyIncumbentParty.allianceId) || null;
+  }, [constituencyIncumbentParty, alliancesList]);
 
   const handleSaveConstituencyMetadata = async (updatedFields: Partial<Constituency>) => {
     if (!id || entityType !== EntityType.CONSTITUENCY) return;
-    await db.constituencies.update(id, {
-      ...updatedFields,
-      updatedAt: Date.now(),
-    });
+    await firestoreService.updateConstituency(id, updatedFields);
   };
 
-  const designationsFromConstituency = useLiveQuery(async () => {
+  const designationsFromConstituency = useMemo(() => {
     if (entityType === EntityType.CONSTITUENCY && entity) {
       const con = entity as Constituency;
-
       const results: any[] = [];
-      // Current state
+      
       if (con.currentAssemblyId) {
-        const assembly = await db.assemblies.get(con.currentAssemblyId);
-        const incumbent =
-          con.currentIncumbentId && con.currentIncumbentId !== "vacant"
-            ? await db.persons.get(con.currentIncumbentId)
-            : null;
+        const assembly = assembliesList?.find(a => a.id === con.currentAssemblyId);
+        const incumbent = con.currentIncumbentId && con.currentIncumbentId !== "vacant"
+          ? personsList?.find(p => p.id === con.currentIncumbentId)
+          : null;
         results.push({
           id: `current-${con.id}`,
           assembly,
@@ -579,16 +409,10 @@ export const EntityPage: React.FC = () => {
         });
       }
 
-      // History from Constituency record
       if (Array.isArray(con.history)) {
         for (const h of con.history) {
-          const assembly = h.assemblyId
-            ? await db.assemblies.get(h.assemblyId)
-            : null;
-          const incumbent =
-            h.personId && h.personId !== "vacant"
-              ? await db.persons.get(h.personId)
-              : null;
+          const assembly = h.assemblyId ? assembliesList?.find(a => a.id === h.assemblyId) : null;
+          const incumbent = h.personId && h.personId !== "vacant" ? personsList?.find(p => p.id === h.personId) : null;
           results.push({
             id: `hist-${con.id}-${h.date}`,
             assembly,
@@ -600,192 +424,121 @@ export const EntityPage: React.FC = () => {
         }
       }
 
-      // Legacy Designations
-      const legacyDesigs = await db.designations
-        .where("constituencyId")
-        .equals(id!)
-        .toArray();
+      const legacyDesigs = designationsList?.filter(d => d.constituencyId === id) || [];
       for (const d of legacyDesigs) {
         if (!results.some((r) => r.assembly?.id === d.assemblyId)) {
-          const assembly = d.assemblyId
-            ? await db.assemblies.get(d.assemblyId)
-            : null;
-          const incumbent =
-            d.incumbentId && d.incumbentId !== "vacant"
-              ? await db.persons.get(d.incumbentId)
-              : null;
+          const assembly = d.assemblyId ? assembliesList?.find(a => a.id === d.assemblyId) : null;
+          const incumbent = d.incumbentId && d.incumbentId !== "vacant" ? personsList?.find(p => p.id === d.incumbentId) : null;
           results.push({ ...d, assembly, incumbent, date: d.updatedAt });
         }
       }
 
       const sorted = results.sort((a, b) => (b.date || 0) - (a.date || 0));
-
-      // Deduplicate so there is only one representative entry per legislative assembly session
-      const uniqueSessions = sorted.filter((item, idx) => {
+      return sorted.filter((item, idx) => {
         const asmId = item.assembly?.id || "none";
-        return (
-          sorted.findIndex(
-            (other) => (other.assembly?.id || "none") === asmId,
-          ) === idx
-        );
+        return sorted.findIndex((other) => (other.assembly?.id || "none") === asmId) === idx;
       });
-
-      return uniqueSessions;
     }
     return [];
-  }, [entity, entityType, id]);
+  }, [entity, entityType, id, assembliesList, personsList, designationsList]);
 
-  const sessionRows = React.useMemo(() => {
-    if (!entity) return [];
+  const sessionRows = useMemo(() => {
+    if (!entity || !dbLoaded) return [];
     if (entityType === EntityType.CONSTITUENCY || entityType === EntityType.DESIGNATION) {
       return buildLegislativeSessionsList({
         entityType,
         entity,
-        assemblies: assembliesList,
-        persons: personsList,
-        parties: partiesList,
-        alliances: alliancesList,
-        designations: designationsList,
+        assemblies: assembliesList || [],
+        persons: personsList || [],
+        parties: partiesList || [],
+        alliances: alliancesList || [],
+        designations: designationsList || [],
       });
     }
     return [];
-  }, [entity, entityType, assembliesList, personsList, partiesList, alliancesList, designationsList]);
+  }, [entity, entityType, assembliesList, personsList, partiesList, alliancesList, designationsList, dbLoaded]);
 
-  const currentIncumbentPerson = useLiveQuery(async () => {
+  const currentIncumbentPerson = useMemo(() => {
     let personId = "vacant";
     if (entityType === EntityType.CONSTITUENCY && entity) {
       personId = (entity as Constituency).currentIncumbentId;
     } else if (entityType === EntityType.DESIGNATION && entity) {
       personId = (entity as Designation).incumbentId;
     }
-
     if (personId && personId !== "vacant") {
-      return db.persons.get(personId);
+      return personsList?.find(p => p.id === personId) || null;
     }
     return null;
-  }, [entity, entityType]);
+  }, [entity, entityType, personsList]);
 
-  const precededByAssembly = useLiveQuery(async () => {
-    if (
-      entityType === EntityType.ASSEMBLY &&
-      entity &&
-      (entity as Assembly).precededById
-    ) {
-      return db.assemblies.get((entity as Assembly).precededById!);
+  const precededByAssembly = useMemo(() => {
+    if (entityType === EntityType.ASSEMBLY && entity && (entity as Assembly).precededById) {
+      return assembliesList?.find(a => a.id === (entity as Assembly).precededById) || null;
     }
     return null;
-  }, [entity]);
+  }, [entity, entityType, assembliesList]);
 
-  const followedByAssembly = useLiveQuery(async () => {
+  const followedByAssembly = useMemo(() => {
     if (entityType === EntityType.ASSEMBLY && entity) {
-      return db.assemblies
-        .where("precededById")
-        .equals((entity as Assembly).id)
-        .first();
+      return assembliesList?.find(a => a.precededById === (entity as Assembly).id) || null;
     }
     return null;
-  }, [entity]);
+  }, [entity, entityType, assembliesList]);
 
-  const allianceLeadership = useLiveQuery(async () => {
+  const allianceLeadership = useMemo(() => {
     if (entityType !== EntityType.ALLIANCE || !entity) return null;
     const alliance = entity as Alliance;
-    const [leader, chairman, founder] = await Promise.all([
-      alliance.leaderId
-        ? db.persons.get(alliance.leaderId)
-        : Promise.resolve(null),
-      alliance.chairmanId
-        ? db.persons.get(alliance.chairmanId)
-        : Promise.resolve(null),
-      alliance.founderId
-        ? db.persons.get(alliance.founderId)
-        : Promise.resolve(null),
-    ]);
+    const leader = alliance.leaderId ? personsList?.find(p => p.id === alliance.leaderId) : null;
+    const chairman = alliance.chairmanId ? personsList?.find(p => p.id === alliance.chairmanId) : null;
+    const founder = alliance.founderId ? personsList?.find(p => p.id === alliance.founderId) : null;
     return { leader, chairman, founder };
-  }, [entity, entityType]);
+  }, [entity, entityType, personsList]);
 
-  const personHasActiveDesignation = React.useMemo(() => {
-    if (entityType !== EntityType.PERSON || !entity) return false;
+  const personHasActiveDesignation = useMemo(() => {
+    if (entityType !== EntityType.PERSON || !entity || !assembliesList) return false;
     const person = entity as Person;
-    
-    // Check if MLA (has constituencyName)
     if (person.constituencyName && person.constituencyName !== 'Special Role') return true;
-    
-    // Check if holds any roles in active assemblies
     const activeAssemblyIds = new Set(assembliesList.filter(a => a.isActive !== false).map(a => a.id));
-    
-    // Check assemblyRoles
     if (person.assemblyRoles) {
       for (const aId of Object.keys(person.assemblyRoles)) {
         if (activeAssemblyIds.has(aId)) return true;
       }
     }
-    
-    // Check designations
-    if (person.designations && person.designations.length > 0) {
-      // We assume if they have designations listed, they might be active, 
-      // but to be sure we should check if they are the incumbent of those designations
-      // However, designations in person object are usually IDs of active designations
-      return true;
-    }
-    
-    // Check if leader in any active assembly
+    if (person.designations && person.designations.length > 0) return true;
     for (const a of assembliesList) {
       if (a.isActive !== false && a.leaders) {
         if (Object.values(a.leaders).includes(person.id)) return true;
       }
     }
-
     return false;
   }, [entity, entityType, assembliesList]);
 
-  const highCommandMembers = useLiveQuery(async () => {
-    if (entityType !== EntityType.ALLIANCE || !entity || !id) return [];
+  const highCommandMembers = useMemo(() => {
+    if (entityType !== EntityType.ALLIANCE || !entity || !id || !personsList || !partiesList) return [];
     const alliance = entity as Alliance;
     const currentHighCommandIds = alliance.highCommandIds || [];
-
     if (currentHighCommandIds.length === 0) return [];
-
-    // Get all parties in this alliance
-    const allianceParties = await db.parties
-      .where("allianceId")
-      .equals(id)
-      .toArray();
-    const alliancePartyIds = allianceParties.map((p) => p.id);
-
-    // Get the persons in high command
-    const members = await db.persons
-      .where("id")
-      .anyOf(currentHighCommandIds)
-      .toArray();
-
-    // Filter to keep only those whose party is in the alliance and are not suspended
-    const validMembers = members.filter((m) =>
-      alliancePartyIds.includes(m.partyId) && !m.isSuspended,
-    );
-    const validMemberIds = validMembers.map((m) => m.id);
-
-    // Automatic removal check: if lists differ, update the DB
-    // We compare strings to avoid complex array comparison
-    if (
-      JSON.stringify(validMemberIds.sort()) !==
-      JSON.stringify([...currentHighCommandIds].sort())
-    ) {
-      await db.alliances.update(id, {
-        highCommandIds: validMemberIds,
-        updatedAt: Date.now(),
+    const alliancePartyIds = partiesList.filter(p => p.allianceId === id).map(p => p.id);
+    const members = personsList.filter(m => currentHighCommandIds.includes(m.id));
+    const validMembers = members.filter(m => alliancePartyIds.includes(m.partyId) && !m.isSuspended);
+    
+    // Automatic removal check
+    const validMemberIds = validMembers.map(m => m.id);
+    if (JSON.stringify(validMemberIds.sort()) !== JSON.stringify([...currentHighCommandIds].sort())) {
+      firestoreService.updateAlliance(id, {
+        highCommandIds: validMemberIds
       });
     }
-
     return validMembers.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
-  }, [entity, id, entityType]);
+  }, [entity, id, entityType, personsList, partiesList]);
 
-  const allianceMemberPartyIds = React.useMemo(() => {
-    if (entityType !== EntityType.ALLIANCE || !id) return new Set<string>();
+  const allianceMemberPartyIds = useMemo(() => {
+    if (entityType !== EntityType.ALLIANCE || !id || !partiesList) return new Set<string>();
     return new Set(partiesList.filter((p) => !p.isSuspended && p.allianceId === id).map((p) => p.id));
   }, [entityType, id, partiesList]);
 
-  const personsEligibleForHighCommand = React.useMemo(() => {
-    if (entityType !== EntityType.ALLIANCE || !id) return [];
+  const personsEligibleForHighCommand = useMemo(() => {
+    if (entityType !== EntityType.ALLIANCE || !id || !personsList) return [];
     if (allianceMemberPartyIds.size === 0) return [];
     return personsList
       .filter((p) => allianceMemberPartyIds.has(p.partyId) && !p.isSuspended)
@@ -793,260 +546,128 @@ export const EntityPage: React.FC = () => {
   }, [id, entityType, allianceMemberPartyIds, personsList]);
 
   const handleAppointCouncilMember = async (personId: string) => {
-    if (entityType !== EntityType.ALLIANCE || !id || !appointingCouncilRole) return;
+    if (entityType !== EntityType.ALLIANCE || !id || !appointingCouncilRole || !personsList) return;
     const person = personsList.find(p => p.id === personId);
     if (!person || person.isSuspended) {
       alert("This person is suspended and cannot be appointed to any alliance designation.");
       return;
     }
-    const party = partiesList.find(pt => pt.id === person.partyId);
+    const party = partiesList?.find(pt => pt.id === person.partyId);
     if (party?.isSuspended) {
       alert(`Cannot appoint member of suspended party "${party.name}".`);
       return;
     }
-    const updates: Partial<Alliance> = {
-      updatedAt: Date.now(),
-    };
-    if (appointingCouncilRole === "leader") {
-      updates.leaderId = personId;
-    } else if (appointingCouncilRole === "chairman") {
-      updates.chairmanId = personId;
-    } else if (appointingCouncilRole === "founder") {
-      updates.founderId = personId;
-    }
-    await db.alliances.update(id, updates);
+    const updates: Partial<Alliance> = {};
+    if (appointingCouncilRole === "leader") updates.leaderId = personId;
+    else if (appointingCouncilRole === "chairman") updates.chairmanId = personId;
+    else if (appointingCouncilRole === "founder") updates.founderId = personId;
+    await firestoreService.updateAlliance(id, updates);
     setAppointingCouncilRole(null);
     setCouncilSearchQuery("");
   };
 
-  const handleRemoveCouncilMember = async (
-    role: "leader" | "chairman" | "founder",
-  ) => {
+  const handleRemoveCouncilMember = async (role: "leader" | "chairman" | "founder") => {
     if (entityType !== EntityType.ALLIANCE || !id) return;
-    const updates: Partial<Alliance> = {
-      updatedAt: Date.now(),
-    };
-    if (role === "leader") {
-      updates.leaderId = "";
-    } else if (role === "chairman") {
-      updates.chairmanId = "";
-    } else if (role === "founder") {
-      updates.founderId = "";
-    }
-    await db.alliances.update(id, updates);
+    const updates: Partial<Alliance> = {};
+    if (role === "leader") updates.leaderId = "";
+    else if (role === "chairman") updates.chairmanId = "";
+    else if (role === "founder") updates.founderId = "";
+    await firestoreService.updateAlliance(id, updates);
   };
 
   const handleToggleHighCommand = async (personId: string) => {
-    if (entityType !== EntityType.ALLIANCE || !id) return;
+    if (entityType !== EntityType.ALLIANCE || !id || !personsList) return;
     const person = personsList.find(p => p.id === personId);
     if (!person || person.isSuspended) {
       alert("This person is suspended and cannot be appointed to the High Command.");
       return;
     }
-    const party = partiesList.find(pt => pt.id === person.partyId);
+    const party = partiesList?.find(pt => pt.id === person.partyId);
     if (party?.isSuspended) {
       alert(`Cannot appoint member of suspended party "${party.name}".`);
       return;
     }
     const alliance = entity as Alliance;
     const currentIds = alliance.highCommandIds || [];
-    let newIds: string[];
-
-    if (currentIds.includes(personId)) {
-      newIds = currentIds.filter((pid) => pid !== personId);
-    } else {
-      newIds = [...currentIds, personId];
-    }
-
-    await db.alliances.update(id, {
-      highCommandIds: newIds,
-      updatedAt: Date.now(),
-    });
+    let newIds: string[] = currentIds.includes(personId) 
+      ? currentIds.filter(pid => pid !== personId) 
+      : [...currentIds, personId];
+    await firestoreService.updateAlliance(id, { highCommandIds: newIds });
   };
 
   const getEntityLabel = () => {
     switch (entityType) {
-      case EntityType.PERSON:
-        return "Politician";
-      case EntityType.PARTY:
-        return "Political Party";
-      case EntityType.ALLIANCE:
-        return "Political Alliance";
-      case EntityType.ASSEMBLY:
-        return "Legislative Assembly";
-      case EntityType.DESIGNATION:
-        return "Official Designation";
-      case EntityType.CONSTITUENCY:
-        return "Assembly Constituency";
-      default:
-        return "";
+      case EntityType.PERSON: return "Politician";
+      case EntityType.PARTY: return "Political Party";
+      case EntityType.ALLIANCE: return "Political Alliance";
+      case EntityType.ASSEMBLY: return "Legislative Assembly";
+      case EntityType.DESIGNATION: return "Official Designation";
+      case EntityType.CONSTITUENCY: return "Assembly Constituency";
+      default: return "";
     }
   };
 
-  const personDesignations = useLiveQuery(async () => {
-    if (entityType !== EntityType.PERSON) return [];
-
-    // Get all designations where this person is the incumbent or was in history
-    const allDesignations = await db.designations.toArray();
-    const filtered = allDesignations.filter(
-      (d) =>
-        d.incumbentId === id ||
-        (Array.isArray(d.history) && d.history.some((h) => h.personId === id)),
-    );
-
-    const enriched = await Promise.all(
-      filtered.map(async (d) => {
-        const assembly = d.assemblyId
-          ? await db.assemblies.get(d.assemblyId)
-          : null;
-        return { ...d, assembly };
-      }),
-    );
-
-    // Also get all constituencies where this person is/was MLA
-    const allConstituencies = await db.constituencies.toArray();
-    const conFiltered = allConstituencies.filter(
-      (c) =>
-        c.currentIncumbentId === id ||
-        (Array.isArray(c.history) && c.history.some((h) => h.personId === id)),
-    );
-
-    const conEnriched = await Promise.all(
-      conFiltered.map(async (c) => {
-        // For constituencies, we might have multiple historical associations
-        const historyEntries = Array.isArray(c.history)
-          ? c.history.filter((h) => h.personId === id)
-          : [];
-        const currentEntry =
-          c.currentIncumbentId === id
-            ? { assemblyId: c.currentAssemblyId, isCurrent: true }
-            : null;
-
-        const results: any[] = [];
-        if (currentEntry) {
-          const assembly = currentEntry.assemblyId
-            ? await db.assemblies.get(currentEntry.assemblyId)
-            : null;
-          results.push({
-            id: `con-${c.id}-current`,
-            name: `${c.name} MLA`,
-            incumbentId: id,
-            assembly,
-            constituency: c.name,
-            date: c.updatedAt,
-          });
-        }
-
-        for (const h of historyEntries) {
-          // Skip if this history entry is just the record of the current appointment in the same assembly
-          if (
-            currentEntry &&
-            h.assemblyId === currentEntry.assemblyId &&
-            h.personId === id
-          ) {
-            // If we already added a current entry for this assembly, don't add the appointment history entry as a "Past Role"
-            continue;
-          }
-
-          const assembly = h.assemblyId
-            ? await db.assemblies.get(h.assemblyId)
-            : null;
-          results.push({
-            id: `con-${c.id}-${h.date}`,
-            name: `${c.name} MLA`,
-            incumbentId: "other", // marks it as past if ID doesn't match current precisely in sorting logic
-            assembly,
-            constituency: c.name,
-            date: h.date,
-            historyEntry: h,
-          });
-        }
-        return results;
-      }),
-    );
-
-    const finalListOfRoles = [...enriched, ...conEnriched.flat()];
-
-    // Sort by chronological score & date (Reverse chronologically: newest/most recent first)
+  const personDesignations = useMemo(() => {
+    if (entityType !== EntityType.PERSON || !id || !designationsList || !constituenciesList) return [];
+    const filtered = designationsList.filter(d => d.incumbentId === id || (Array.isArray(d.history) && d.history.some(h => h.personId === id)));
+    const enriched = filtered.map(d => ({ ...d, assembly: assembliesList?.find(a => a.id === d.assemblyId) }));
+    const conFiltered = constituenciesList.filter(c => c.currentIncumbentId === id || (Array.isArray(c.history) && c.history.some(h => h.personId === id)));
+    const conEnriched = conFiltered.flatMap(c => {
+      const historyEntries = Array.isArray(c.history) ? c.history.filter(h => h.personId === id) : [];
+      const currentEntry = c.currentIncumbentId === id ? { assemblyId: c.currentAssemblyId, isCurrent: true } : null;
+      const results: any[] = [];
+      if (currentEntry) {
+        results.push({ id: `con-${c.id}-current`, name: `${c.name} MLA`, incumbentId: id, assembly: assembliesList?.find(a => a.id === currentEntry.assemblyId), constituency: c.name, date: c.updatedAt });
+      }
+      for (const h of historyEntries) {
+        if (currentEntry && h.assemblyId === currentEntry.assemblyId && h.personId === id) continue;
+        results.push({ id: `con-${c.id}-${h.date}`, name: `${c.name} MLA`, incumbentId: "other", assembly: assembliesList?.find(a => a.id === h.assemblyId), constituency: c.name, date: h.date, historyEntry: h });
+      }
+      return results;
+    });
+    const finalListOfRoles = [...enriched, ...conEnriched];
     const sorted = finalListOfRoles.sort((a, b) => {
       const scoreA = getAssemblyChronologicalScore(a.assembly);
       const scoreB = getAssemblyChronologicalScore(b.assembly);
-      if (scoreA !== scoreB) {
-        return scoreB - scoreA;
-      }
-
-      const aDate =
-        a.date ||
-        (Array.isArray(a.history) &&
-          a.history.find((h: any) => h.personId === id)?.date) ||
-        0;
-      const bDate =
-        b.date ||
-        (Array.isArray(b.history) &&
-          b.history.find((h: any) => h.personId === id)?.date) ||
-        0;
+      if (scoreA !== scoreB) return scoreB - scoreA;
+      const aDate = a.date || (Array.isArray(a.history) && a.history.find((h: any) => h.personId === id)?.date) || 0;
+      const bDate = b.date || (Array.isArray(b.history) && b.history.find((h: any) => h.personId === id)?.date) || 0;
       return bDate - aDate;
     });
-
-    // Deduplicate so that for the same role name in the same assembly session, we only show it once
-    const unique = sorted.filter((item, idx) => {
+    return sorted.filter((item, idx) => {
       const key = `${item.name}-${item.assembly?.id || "none"}`;
-      return (
-        sorted.findIndex(
-          (other) => `${other.name}-${other.assembly?.id || "none"}` === key,
-        ) === idx
-      );
+      return sorted.findIndex(other => `${other.name}-${other.assembly?.id || "none"}` === key) === idx;
     });
+  }, [type, id, designationsList, constituenciesList, assembliesList]);
 
-    return unique;
-  }, [type, id]);
-
-  const personAssemblyRoles = useLiveQuery(async () => {
-    if (entityType !== EntityType.PERSON || !entity) return [];
-
+  const personAssemblyRoles = useMemo(() => {
+    if (entityType !== EntityType.PERSON || !entity || !assembliesList) return [];
     const person = entity as Person;
-    const allAssemblies = await db.assemblies.toArray();
     const roles: { assembly: Assembly; role: string }[] = [];
-
-    // Check leaders object in assemblies
-    allAssemblies.forEach((a) => {
+    assembliesList.forEach((a) => {
       if (a.leaders) {
         Object.entries(a.leaders).forEach(([role, pId]) => {
-          if (pId === id) {
-            roles.push({ assembly: a, role });
-          }
+          if (pId === id) roles.push({ assembly: a, role });
         });
       }
     });
-
-    // Check person's individual assembly roles (like Ministers)
     if (person.assemblyRoles) {
       for (const [aId, roleStr] of Object.entries(person.assemblyRoles)) {
-        const assembly = allAssemblies.find((a) => a.id === aId);
+        const assembly = assembliesList.find((a) => a.id === aId);
         if (assembly) {
-          const individualRoles = (roleStr as string).split(", ");
-          individualRoles.forEach((r) => {
-            // Avoid duplicates if already added from leaders or earlier in the split
-            if (!roles.some((rl) => rl.assembly.id === aId && rl.role === r)) {
-              roles.push({ assembly, role: r });
-            }
+          (roleStr as string).split(", ").forEach(r => {
+            if (!roles.some(rl => rl.assembly.id === aId && rl.role === r)) roles.push({ assembly, role: r });
           });
         }
       }
     }
-
-    // Sort roles reverse chronologically (newest assembly first)
-    roles.sort((a, b) => {
+    return roles.sort((a, b) => {
       const scoreA = getAssemblyChronologicalScore(a.assembly);
       const scoreB = getAssemblyChronologicalScore(b.assembly);
-      if (scoreA !== scoreB) {
-        return scoreB - scoreA;
-      }
+      if (scoreA !== scoreB) return scoreB - scoreA;
       return a.role.localeCompare(b.role);
     });
-
-    return roles;
-  }, [entity, type, id]);
+  }, [entity, type, id, assembliesList]);
 
   const activeRoles = React.useMemo(() => {
     if (entityType !== EntityType.PERSON || !entity) return [];
@@ -1220,186 +841,81 @@ export const EntityPage: React.FC = () => {
     id,
   ]);
 
-  const assemblyMembers =
-    useLiveQuery(async () => {
-      if (entityType !== EntityType.ASSEMBLY) return [];
+  const assemblyMembers = useMemo(() => {
+    if (entityType !== EntityType.ASSEMBLY || !id || !constituenciesList || !personsList || !designationsList) return [];
 
-      // Check for cached membership
-      const assemblyRecord = await db.assemblies.get(id!);
-      if (
-        assemblyRecord &&
-        !assemblyRecord.isActive &&
-        assemblyRecord.composition &&
-        assemblyRecord.composition.members
-      ) {
-        return assemblyRecord.composition.members;
-      }
+    const assemblyRecord = assembliesList?.find(a => a.id === id);
+    if (assemblyRecord && !assemblyRecord.isActive && assemblyRecord.composition?.members) {
+      return assemblyRecord.composition.members;
+    }
 
-      // Find all constituencies and designations
-      const cs = await db.constituencies.toArray();
-      const relevantCs = cs.filter(
-        (c) =>
-          c.currentAssemblyId === id ||
-          (c.history && c.history.some((h) => h.assemblyId === id)),
-      );
-      const ds = await db.designations
-        .where("assemblyId")
-        .equals(id!)
-        .toArray();
+    const relevantCs = constituenciesList.filter(c => c.currentAssemblyId === id || (c.history && c.history.some(h => h.assemblyId === id)));
+    const ds = designationsList.filter(d => d.assemblyId === id);
 
-      const membersListOutput: any[] = [];
-      const addedPersons = new Set<string>();
+    const membersListOutput: any[] = [];
+    const addedPersons = new Set<string>();
+    const toTime = (d: any) => typeof d === "number" ? d : d ? new Date(d).getTime() : 0;
 
-      const toTime = (d: any) =>
-        typeof d === "number" ? d : d ? new Date(d).getTime() : 0;
+    for (const con of relevantCs) {
+      const conHistory = (con.history || []).filter(h => (h.assemblyId || con.currentAssemblyId || id) === id);
+      const personIdsSet = new Set<string>();
+      if (con.currentAssemblyId === id && con.currentIncumbentId !== "vacant") personIdsSet.add(con.currentIncumbentId as string);
+      conHistory.forEach(h => { if (h.personId && h.personId !== "vacant") personIdsSet.add(h.personId); });
 
-      // Process Constituencies (including historical and by-elected)
-      for (const con of relevantCs) {
-        const conHistory = (con.history || []).filter(
-          (h) => (h.assemblyId || con.currentAssemblyId || id) === id,
-        );
+      const personAppointments = Array.from(personIdsSet).map(pId => {
+        const entries = conHistory.filter(h => h.personId === pId);
+        const electionOrAppt = entries.filter(h => h.reason === "election" || h.reason === "appointment");
+        const removal = entries.find(h => h.reason && h.reason !== "election" && h.reason !== "appointment");
+        const isActive = con.currentAssemblyId === id && con.currentIncumbentId === pId;
+        let earliestDate = electionOrAppt.length > 0 ? Math.min(...electionOrAppt.map(e => toTime(e.date))) : (removal ? toTime(removal.date) - 1 : (isActive ? toTime(con.updatedAt) : (entries.length > 0 ? Math.min(...entries.map(e => toTime(e.date))) : getSystemTimestamp())));
+        return { pId, earliestDate, isActive, removal };
+      });
 
-        const personIdsSet = new Set<string>();
-        if (
-          con.currentAssemblyId === id &&
-          con.currentIncumbentId !== "vacant"
-        ) {
-          personIdsSet.add(con.currentIncumbentId);
+      personAppointments.sort((a, b) => {
+        if (a.earliestDate !== b.earliestDate) return a.earliestDate - b.earliestDate;
+        if (a.removal && !b.removal) return -1;
+        if (!a.removal && b.removal) return 1;
+        return 0;
+      });
+
+      personAppointments.forEach(({ pId, isActive, removal }, index) => {
+        const p = personsList.find(item => item.id === pId);
+        if (p) {
+          let mlaStatusText = "";
+          if (!isActive && removal) mlaStatusText = removal.reason.charAt(0).toUpperCase() + removal.reason.slice(1);
+          else if (index > 0) mlaStatusText = "Byelected";
+          const party = partiesList?.find(item => item.id === p.partyId);
+          const alliance = party && party.allianceId !== "independent" ? alliancesList?.find(item => item.id === party.allianceId) : null;
+          let baseSubtitle = p.partyId === "independent" ? "Independent" : (party?.name || "Member");
+          if (alliance) baseSubtitle = `${baseSubtitle} • ${alliance.name}`;
+          membersListOutput.push({ id: p.id, uniqueKey: `${p.id}-${con.id}-${index}`, name: p.name, constituencyName: con.name, partyId: p.partyId, imageUrl: p.imageUrl, subtitleOverride: mlaStatusText ? `${mlaStatusText} | ${baseSubtitle} (${con.name})` : `${baseSubtitle} (${con.name})`, mlaStatusText: mlaStatusText || undefined });
+          addedPersons.add(p.id);
         }
-        conHistory.forEach((h) => {
-          if (h.personId && h.personId !== "vacant") {
-            personIdsSet.add(h.personId);
-          }
-        });
+      });
+    }
 
-        const personAppointments = Array.from(personIdsSet).map((pId) => {
-          const entries = conHistory.filter((h) => h.personId === pId);
-          const electionOrAppt = entries.filter(
-            (h) => h.reason === "election" || h.reason === "appointment"
-          );
-          const removal = entries.find(
-            (h) =>
-              h.reason &&
-              h.reason !== "election" &&
-              h.reason !== "appointment"
-          );
-          const isActive =
-            con.currentAssemblyId === id && con.currentIncumbentId === pId;
-
-          let earliestDate = 0;
-          if (electionOrAppt.length > 0) {
-            earliestDate = Math.min(...electionOrAppt.map((e) => toTime(e.date)));
-          } else if (removal) {
-            earliestDate = toTime(removal.date) - 1;
-          } else if (isActive) {
-            earliestDate = toTime(con.updatedAt);
-          } else if (entries.length > 0) {
-            earliestDate = Math.min(...entries.map((e) => toTime(e.date)));
-          } else {
-            earliestDate = Date.now();
-          }
-
-          return { pId, earliestDate, isActive, removal };
-        });
-
-        personAppointments.sort((a, b) => {
-          if (a.earliestDate !== b.earliestDate) return a.earliestDate - b.earliestDate;
-          if (a.removal && !b.removal) return -1;
-          if (!a.removal && b.removal) return 1;
-          return 0;
-        });
-
-        for (let index = 0; index < personAppointments.length; index++) {
-          const { pId, isActive, removal } = personAppointments[index];
-          const p = await db.persons.get(pId);
-          if (p) {
-            let mlaStatusText = "";
-            if (!isActive && removal) {
-              mlaStatusText =
-                removal.reason.charAt(0).toUpperCase() +
-                removal.reason.slice(1);
-            } else if (index > 0) {
-              mlaStatusText = "Byelected";
-            }
-
-            const party = await db.parties.get(p.partyId);
-            const alliance =
-              party && party.allianceId !== "independent"
-                ? await db.alliances.get(party.allianceId)
-                : null;
-            let baseSubtitle =
-              p.partyId === "independent"
-                ? "Independent"
-                : party?.name || "Member";
-            if (alliance) {
-              baseSubtitle = `${baseSubtitle} • ${alliance.name}`;
-            }
-
-            let finalSubtitle = `${baseSubtitle} (${con.name})`;
-            if (mlaStatusText) {
-              finalSubtitle = `${mlaStatusText} | ${finalSubtitle}`;
-            }
-
-            membersListOutput.push({
-              id: p.id,
-              uniqueKey: `${p.id}-${con.id}-${index}`,
-              name: p.name,
-              constituencyName: con.name,
-              partyId: p.partyId,
-              imageUrl: p.imageUrl,
-              subtitleOverride: finalSubtitle,
-              mlaStatusText: mlaStatusText || undefined,
-            });
-            addedPersons.add(p.id);
-          }
+    ds.forEach(d => {
+      if (d.incumbentId !== "vacant" && !addedPersons.has(d.incumbentId)) {
+        const p = personsList.find(item => item.id === d.incumbentId);
+        if (p) {
+          membersListOutput.push({ id: p.id, uniqueKey: `${p.id}-${d.id}`, name: p.name, constituencyName: d.constituency || "Special Role", partyId: p.partyId, imageUrl: p.imageUrl });
+          addedPersons.add(p.id);
         }
       }
+    });
+    return membersListOutput;
+  }, [entityType, id, constituenciesList, personsList, designationsList, assembliesList, partiesList, alliancesList]);
 
-      // Process Designations
-      for (const d of ds) {
-        if (d.incumbentId !== "vacant" && !addedPersons.has(d.incumbentId)) {
-          const p = await db.persons.get(d.incumbentId);
-          if (p) {
-            membersListOutput.push({
-              id: p.id,
-              uniqueKey: `${p.id}-${d.id}`,
-              name: p.name,
-              constituencyName: d.constituency || "Special Role",
-              partyId: p.partyId,
-              imageUrl: p.imageUrl,
-            });
-            addedPersons.add(p.id);
-          }
-        }
-      }
+  const assemblyPerformance = useMemo(() => {
+    if (entityType !== EntityType.ASSEMBLY || !id || !constituenciesList) return null;
 
-      return membersListOutput;
-    }, [type, id]) || [];
+    const linkedConstituencies = constituenciesList.filter(c => c.currentAssemblyId === id || (Array.isArray(c.history) && c.history.some(h => h.assemblyId === id)));
+    const assemblyRecord = assembliesList?.find(a => a.id === id);
 
-  const assemblyPerformance = useLiveQuery(async () => {
-    if (entityType !== EntityType.ASSEMBLY) return null;
-
-    // Query all constituencies linked with the assembly
-    const allCs = await db.constituencies.toArray();
-    const linkedConstituencies = allCs.filter(
-      (c) =>
-        c.currentAssemblyId === id! ||
-        (Array.isArray(c.history) && c.history.some((h) => h.assemblyId === id!)),
-    );
-
-    // Check for cached/frozen composition for dissolved assemblies
-    const assemblyRecord = await db.assemblies.get(id!);
-    if (
-      assemblyRecord &&
-      !assemblyRecord.isActive &&
-      assemblyRecord.composition
-    ) {
+    if (assemblyRecord && !assemblyRecord.isActive && assemblyRecord.composition) {
       const cached = assemblyRecord.composition;
       return {
-        totalSeats:
-          linkedConstituencies.length > 0
-            ? linkedConstituencies.length
-            : (cached.seatingLayout?.length || cached.totalSeats || 0),
+        totalSeats: linkedConstituencies.length > 0 ? linkedConstituencies.length : (cached.seatingLayout?.length || cached.totalSeats || 0),
         incumbentCount: cached.incumbentCount || 0,
         distribution: cached.distribution || [],
         government: cached.government || null,
@@ -1410,550 +926,173 @@ export const EntityPage: React.FC = () => {
       };
     }
 
-    // ... continue as before but if it's dissolved and result is ready, save it
-    const data = await (async () => {
-      const constituencies = linkedConstituencies;
-      const designations = await db.designations
-        .where("assemblyId")
-        .equals(id!)
-        .toArray();
+    const ds = designationsList?.filter(d => d.assemblyId === id) || [];
+    const pIds = [
+      ...linkedConstituencies.map(c => {
+        if (c.currentAssemblyId === id) return c.currentIncumbentId;
+        const hist = (c.history || []).sort((a, b) => b.date - a.date).find(h => h.assemblyId === id);
+        return hist && hist.personId ? hist.personId : "vacant";
+      }),
+      ...ds.map(d => d.incumbentId),
+    ].filter(pid => pid !== "vacant");
 
-      const pIds = [
-        ...constituencies.map((c) => {
-          if (c.currentAssemblyId === id!) {
-            return c.currentIncumbentId;
-          }
-          const hist = (c.history || [])
-            .sort((a, b) => b.date - a.date)
-            .find((h) => h.assemblyId === id!);
-          return hist && hist.personId ? hist.personId : "vacant";
-        }),
-        ...designations.map((d) => d.incumbentId),
-      ].filter((pid) => pid !== "vacant");
+    const uniquePIds = [...new Set(pIds)];
+    const incumbentPersons = personsList?.filter(p => uniquePIds.includes(p.id)) || [];
+    const partyIds = incumbentPersons.map(p => p.partyId);
+    const parties = partiesList?.filter(p => partyIds.includes(p.id)) || [];
+    const independentSupportMap = assemblyRecord?.independentSupports || {};
+    const supportedAllianceIds = Object.values(independentSupportMap);
+    const allianceIds = [...new Set([...parties.map(p => p.allianceId), ...supportedAllianceIds])].filter(Boolean);
+    const alliances = alliancesList?.filter(a => allianceIds.includes(a.id)) || [];
 
-      const uniquePIds = [...new Set(pIds)];
-      const incumbentPersons = uniquePIds.length > 0
-        ? await db.persons.where("id").anyOf(uniquePIds).toArray()
-        : [];
-
-      const personConstituencyMap: Record<string, string> = {};
-      constituencies.forEach((c) => {
-        let pId = "vacant";
-        if (c.currentAssemblyId === id!) {
-          pId = c.currentIncumbentId;
-        } else {
-          const hist = (c.history || [])
-            .sort((a, b) => b.date - a.date)
-            .find((h) => h.assemblyId === id!);
-          if (hist && hist.personId) pId = hist.personId;
-        }
-        if (pId && pId !== "vacant") {
-          personConstituencyMap[pId] = c.name;
-        }
-      });
-      designations.forEach((d) => {
-        if (d.incumbentId && d.incumbentId !== "vacant") {
-          personConstituencyMap[d.incumbentId] =
-            d.constituency || "Special Role";
-        }
-      });
-
-      const partyIds = incumbentPersons.map((p) => p.partyId);
-      const parties = partyIds.length > 0
-        ? await db.parties.where("id").anyOf(partyIds).toArray()
-        : [];
-
-      const independentSupportMap = assemblyRecord?.independentSupports || {};
-      const supportedAllianceIds = Object.values(independentSupportMap);
-      const allianceIds = [
-        ...new Set([
-          ...parties.map((p) => p.allianceId),
-          ...supportedAllianceIds,
-        ]),
-      ].filter(Boolean);
-      const alliances = allianceIds.length > 0
-        ? await db.alliances.where("id").anyOf(allianceIds).toArray()
-        : [];
-
-      const groups: {
-        [allianceId: string]: {
-          id: string;
-          name: string;
-          abbreviation: string;
-          totalSeats: number;
-          color: string;
-          parties: {
-            id: string;
-            name: string;
-            abbreviation: string;
-            seats: number;
-            color: string;
-          }[];
+    const groups: Record<string, any> = {};
+    incumbentPersons.forEach(person => {
+      const party = parties.find(p => p.id === person.partyId);
+      let allianceId = party ? party.allianceId : "independent";
+      if (person.partyId === "independent" && independentSupportMap[person.id]) {
+        const supAllianceId = independentSupportMap[person.id] as string;
+        if (alliances.some(a => a.id === supAllianceId)) allianceId = supAllianceId;
+      }
+      const alliance = alliances.find(a => a.id === allianceId);
+      if (!groups[allianceId]) {
+        groups[allianceId] = {
+          id: allianceId,
+          name: alliance ? alliance.name : (allianceId === "independent" ? "Independents" : allianceId),
+          abbreviation: alliance ? alliance.abbreviation : (allianceId === "independent" ? "IND" : allianceId),
+          totalSeats: 0,
+          color: alliance && (alliance as any).colors ? (alliance as any).colors[0] : "#666666",
+          parties: [],
         };
-      } = {};
-
-      incumbentPersons.forEach((person) => {
-        const party = parties.find((p) => p.id === person.partyId);
-        let allianceId = party ? party.allianceId : "independent";
-
-        // If independent and has supported alliance in this active assembly, associate with that alliance
-        if (
-          person.partyId === "independent" &&
-          independentSupportMap[person.id]
-        ) {
-          const supAllianceId = independentSupportMap[person.id];
-          if (alliances.some((a) => a.id === supAllianceId)) {
-            allianceId = supAllianceId;
-          }
-        }
-
-        const alliance = alliances.find((a) => a.id === allianceId);
-
-        if (!groups[allianceId]) {
-          groups[allianceId] = {
-            id: allianceId,
-            name: alliance
-              ? alliance.name
-              : allianceId === "independent"
-                ? "Independents"
-                : allianceId,
-            abbreviation: alliance
-              ? alliance.abbreviation
-              : allianceId === "independent"
-                ? "IND"
-                : allianceId,
-            totalSeats: 0,
-            color: alliance && alliance.colors ? alliance.colors[0] : "#666666",
-            parties: [],
-          };
-        }
-
-        groups[allianceId].totalSeats += 1;
-
-        if (party) {
-          let partyRef = groups[allianceId].parties.find(
-            (p) => p.id === party.id,
-          );
-          if (!partyRef) {
-            partyRef = {
-              id: party.id,
-              name: party.name,
-              abbreviation: party.abbreviation,
-              seats: 0,
-              color: party.colors ? party.colors[0] : "#999999",
-            };
-            groups[allianceId].parties.push(partyRef);
-          }
-          partyRef.seats += 1;
-        } else {
-          // Independent legislator (potentially with alliance support)
-          if (allianceId !== "independent") {
-            let partyRef = groups[allianceId].parties.find(
-              (p) => p.id === "independent-supporting",
-            );
-            if (!partyRef) {
-              partyRef = {
-                id: "independent-supporting",
-                name: "Independents (Supporting)",
-                abbreviation: "IND (S)",
-                seats: 0,
-                color: "#666666",
-              };
-              groups[allianceId].parties.push(partyRef);
-            }
-            partyRef.seats += 1;
-          }
-        }
-      });
-
-      Object.values(groups).forEach((group) => {
-        group.parties.sort((a, b) => b.seats - a.seats);
-      });
-
-      const sortedGroups = Object.entries(groups)
-        .map(([id, data]) => ({ ...data }))
-        .sort((a, b) => b.totalSeats - a.totalSeats);
-
-      // Fetch all constituencies to support historical and by-elected MLAs
-      const allCs = await db.constituencies.toArray();
-      const relevantCs = allCs.filter(
-        (c) =>
-          c.currentAssemblyId === id ||
-          (c.history && c.history.some((h) => h.assemblyId === id)),
-      );
-
-      const membersOutputList: any[] = [];
-      const addedPersons = new Set<string>();
-      const toTime = (d: any) =>
-        typeof d === "number" ? d : d ? new Date(d).getTime() : 0;
-
-      for (const con of relevantCs) {
-        const conHistory = (con.history || []).filter(
-          (h) => (h.assemblyId || con.currentAssemblyId || id) === id,
-        );
-
-        const personIdsSet = new Set<string>();
-        if (
-          con.currentAssemblyId === id &&
-          con.currentIncumbentId !== "vacant"
-        ) {
-          personIdsSet.add(con.currentIncumbentId);
-        }
-        conHistory.forEach((h) => {
-          if (h.personId && h.personId !== "vacant") {
-            personIdsSet.add(h.personId);
-          }
-        });
-
-        const personAppointments = Array.from(personIdsSet).map((pId) => {
-          const entries = conHistory.filter((h) => h.personId === pId);
-          const electionOrAppt = entries.filter(
-            (h) => h.reason === "election" || h.reason === "appointment"
-          );
-          const removal = entries.find(
-            (h) =>
-              h.reason &&
-              h.reason !== "election" &&
-              h.reason !== "appointment"
-          );
-          const isActive =
-            con.currentAssemblyId === id && con.currentIncumbentId === pId;
-
-          let earliestDate = 0;
-          if (electionOrAppt.length > 0) {
-            earliestDate = Math.min(...electionOrAppt.map((e) => toTime(e.date)));
-          } else if (removal) {
-            earliestDate = toTime(removal.date) - 1;
-          } else if (isActive) {
-            earliestDate = toTime(con.updatedAt);
-          } else if (entries.length > 0) {
-            earliestDate = Math.min(...entries.map((e) => toTime(e.date)));
-          } else {
-            earliestDate = Date.now();
-          }
-
-          return { pId, earliestDate, isActive, removal };
-        });
-
-        personAppointments.sort((a, b) => {
-          if (a.earliestDate !== b.earliestDate) return a.earliestDate - b.earliestDate;
-          if (a.removal && !b.removal) return -1;
-          if (!a.removal && b.removal) return 1;
-          return 0;
-        });
-
-        for (let index = 0; index < personAppointments.length; index++) {
-          const { pId, isActive, removal } = personAppointments[index];
-          const p = await db.persons.get(pId);
-          if (p) {
-            let mlaStatusText = "";
-            if (!isActive && removal) {
-              mlaStatusText =
-                removal.reason.charAt(0).toUpperCase() +
-                removal.reason.slice(1);
-            } else if (index > 0) {
-              mlaStatusText = "Byelected";
-            }
-
-            const party = await db.parties.get(p.partyId);
-            const alliance =
-              party && party.allianceId !== "independent"
-                ? await db.alliances.get(party.allianceId)
-                : null;
-            let baseSubtitle =
-              p.partyId === "independent"
-                ? "Independent"
-                : party?.name || "Member";
-            if (alliance) {
-              baseSubtitle = `${baseSubtitle} • ${alliance.name}`;
-            }
-
-            let finalSubtitle = `${baseSubtitle} (${con.name})`;
-            if (mlaStatusText) {
-              finalSubtitle = `${mlaStatusText} | ${finalSubtitle}`;
-            }
-
-            membersOutputList.push({
-              id: p.id,
-              uniqueKey: `${p.id}-${con.id}-${index}`,
-              name: p.name,
-              constituencyName: con.name,
-              partyId: p.partyId,
-              imageUrl: p.imageUrl,
-              subtitleOverride: finalSubtitle,
-              mlaStatusText: mlaStatusText || undefined,
-            });
-            addedPersons.add(p.id);
-          }
-        }
       }
-
-      // Process Designations
-      for (const d of designations) {
-        if (d.incumbentId !== "vacant" && !addedPersons.has(d.incumbentId)) {
-          const p = await db.persons.get(d.incumbentId);
-          if (p) {
-            membersOutputList.push({
-              id: p.id,
-              uniqueKey: `${p.id}-${d.id}`,
-              name: p.name,
-              constituencyName: d.constituency || "Special Role",
-              partyId: p.partyId,
-              imageUrl: p.imageUrl,
-            });
-            addedPersons.add(p.id);
-          }
+      groups[allianceId].totalSeats += 1;
+      if (party) {
+        let partyRef = groups[allianceId].parties.find((p: any) => p.id === party.id);
+        if (!partyRef) {
+          partyRef = { id: party.id, name: party.name, abbreviation: party.abbreviation, seats: 0, color: party.colors ? party.colors[0] : "#999999" };
+          groups[allianceId].parties.push(partyRef);
         }
+        partyRef.seats += 1;
+      } else if (allianceId !== "independent") {
+        let partyRef = groups[allianceId].parties.find((p: any) => p.id === "independent-supporting");
+        if (!partyRef) {
+          partyRef = { id: "independent-supporting", name: "Independents (Supporting)", abbreviation: "IND (S)", seats: 0, color: "#666666" };
+          groups[allianceId].parties.push(partyRef);
+        }
+        partyRef.seats += 1;
       }
+    });
 
-      return {
-        totalSeats: constituencies.length,
-        incumbentCount: incumbentPersons.length,
-        distribution: sortedGroups,
-        government: sortedGroups[0] || null,
-        opposition: sortedGroups[1] || null,
-        others: sortedGroups.slice(2),
-        members: membersOutputList,
-      };
-    })();
+    Object.values(groups).forEach(group => group.parties.sort((a: any, b: any) => b.seats - a.seats));
+    const sortedGroups = Object.entries(groups).map(([_, data]) => ({ ...data })).sort((a, b) => b.totalSeats - a.totalSeats);
 
-    return data;
-  }, [type, id]);
+    return {
+      totalSeats: linkedConstituencies.length,
+      incumbentCount: incumbentPersons.length,
+      distribution: sortedGroups,
+      government: sortedGroups[0] || null,
+      opposition: sortedGroups[1] || null,
+      others: sortedGroups.slice(2),
+      members: assemblyMembers,
+    };
+  }, [entityType, id, constituenciesList, assembliesList, designationsList, personsList, partiesList, alliancesList, assemblyMembers]);
 
   const [inspectorSeat, setInspectorSeat] = useState<any>(null);
 
-  const assemblySeats = useLiveQuery(async () => {
-    if (entityType !== EntityType.ASSEMBLY || !id) return [];
+  const assemblySeats = useMemo(() => {
+    if (entityType !== EntityType.ASSEMBLY || !id || !constituenciesList || !personsList || !partiesList || !alliancesList) return [];
 
-    const assemblyObj = await db.assemblies.get(id);
+    const assemblyObj = assembliesList?.find(a => a.id === id);
     if (assemblyObj && !assemblyObj.isActive && assemblyObj.composition?.seatingLayout) {
-      const allPersons = await db.persons.toArray();
-      const personsMap = new Map(allPersons.map((p) => [p.id, p]));
-
+      const personsMap = new Map(personsList.map(p => [p.id, p]));
       return assemblyObj.composition.seatingLayout.map((s: any) => {
-        let rawIncumbents = s.incumbents;
-        if (!rawIncumbents && s.politician) {
-          rawIncumbents = [
-            {
-              person: s.politician,
-              party: s.party,
-              alliance: s.alliance,
-            },
-          ];
-        }
-
-        const mergedIncumbents = (rawIncumbents || []).map((inc: any) => {
-          const dbP = inc.person?.id ? personsMap.get(inc.person.id) : null;
-          return {
-            ...inc,
-            person: dbP ? { ...inc.person, ...dbP } : inc.person,
-          };
-        });
-
+        let incumbents = s.incumbents || (s.politician ? [{ person: s.politician, party: s.party, alliance: s.alliance }] : []);
         return {
           ...s,
-          incumbents: mergedIncumbents,
+          incumbents: incumbents.map((inc: any) => {
+            const dbP = inc.person?.id ? personsMap.get(inc.person.id) : null;
+            return Object.assign({}, inc, { person: dbP ? Object.assign({}, inc.person || {}, dbP) : inc.person });
+          })
         };
       });
     }
 
-    const constituencies = await db.constituencies.toArray();
-    const parties = await db.parties.toArray();
-    const persons = await db.persons.toArray();
-    const alliances = await db.alliances.toArray();
+    const targetCs = constituenciesList.filter(c => c.currentAssemblyId === id || (Array.isArray(c.history) && c.history.some(h => h.assemblyId === id)));
+    const toTime = (d: any) => typeof d === "number" ? d : d ? new Date(d).getTime() : 0;
 
-    // Optimize lookups with Maps
-    const partiesMap = new Map(parties.map(p => [p.id, p]));
-    const personsMap = new Map(persons.map(p => [p.id, p]));
-    const alliancesMap = new Map(alliances.map(a => [a.id, a]));
+    const mappedSeats = targetCs.map(c => {
+      const hist = (c.history || []).filter(h => (h.assemblyId || c.currentAssemblyId || id) === id);
+      const personIdsSet = new Set<string>();
+      if (c.currentAssemblyId === id && c.currentIncumbentId !== "vacant") personIdsSet.add(c.currentIncumbentId as string);
+      hist.forEach(h => { if (h.personId && h.personId !== "vacant") personIdsSet.add(h.personId); });
 
-    const targetCs = constituencies.filter(
-      (c) =>
-        c.currentAssemblyId === id ||
-        (Array.isArray(c.history) && c.history.some((h) => h.assemblyId === id)),
-    );
+      const personAppointments = Array.from(personIdsSet).map(pId => {
+        const entries = hist.filter(h => h.personId === pId);
+        const electionOrAppt = entries.filter(h => h.reason === "election" || h.reason === "appointment");
+        const removal = entries.find(h => h.reason && h.reason !== "election" && h.reason !== "appointment");
+        const isActive = c.currentAssemblyId === id && c.currentIncumbentId === pId;
+        let earliestDate = electionOrAppt.length > 0 ? Math.min(...electionOrAppt.map(e => toTime(e.date))) : (removal ? toTime(removal.date) - 1 : (isActive ? toTime(c.updatedAt) : (entries.length > 0 ? Math.min(...entries.map(e => toTime(e.date))) : getSystemTimestamp())));
+        return { pId, earliestDate, isActive, removal };
+      }).sort((a, b) => a.earliestDate - b.earliestDate);
 
-    const mappedSeats = await Promise.all(
-      targetCs.map(async (c) => {
-        const toTime = (d: any) =>
-          typeof d === "number" ? d : d ? new Date(d).getTime() : 0;
-
-        const conHistory = (c.history || [])
-          .filter((h) => (h.assemblyId || c.currentAssemblyId || id) === id)
-          .sort((a, b) => toTime(a.date) - toTime(b.date));
-
-        const personIdsSet = new Set<string>();
-        conHistory.forEach((h) => {
-          if (h.personId && h.personId !== "vacant") {
-            personIdsSet.add(h.personId);
-          }
-        });
-        if (
-          c.currentAssemblyId === id &&
-          c.currentIncumbentId &&
-          c.currentIncumbentId !== "vacant"
-        ) {
-          personIdsSet.add(c.currentIncumbentId);
+      const incumbents = personAppointments.map(({ pId, isActive, removal }) => {
+        const p = personsList.find(item => item.id === pId);
+        const party = p ? partiesList.find(pt => pt.id === p.partyId) : null;
+        let allianceId = party?.allianceId;
+        if (p?.partyId === "independent" && assemblyObj?.independentSupports?.[p.id]) {
+          allianceId = assemblyObj.independentSupports[p.id];
         }
-
-        const personDataList = Array.from(personIdsSet).map((pId) => {
-          const p = personsMap.get(pId);
-          if (!p) return null;
-
-          const party = partiesMap.get(p.partyId);
-          let alliance: Alliance | undefined = undefined;
-          if (party) {
-            let partyAllianceId = party.allianceId;
-            if (
-              (!partyAllianceId || partyAllianceId === "independent") &&
-              assemblyObj
-            ) {
-              const supportedAllianceId =
-                assemblyObj.independentSupports?.[p.id];
-              if (supportedAllianceId) partyAllianceId = supportedAllianceId;
-            }
-            if (partyAllianceId && partyAllianceId !== "independent") {
-              alliance = alliancesMap.get(partyAllianceId);
-            }
-          }
-
-          const personEntries = conHistory.filter((h) => h.personId === pId);
-          const electionOrAppt = personEntries.filter(
-            (h) => h.reason === "election" || h.reason === "appointment"
-          );
-          const removal = personEntries.find(
-            (h) =>
-              h.reason &&
-              h.reason !== "election" &&
-              h.reason !== "appointment"
-          );
-
-          const isActiveIncumbent =
-            c.currentAssemblyId === id && c.currentIncumbentId === pId && !p.isSuspended;
-
-          let startDate = 0;
-          if (electionOrAppt.length > 0) {
-            startDate = Math.min(...electionOrAppt.map((e) => toTime(e.date)));
-          } else if (removal) {
-            startDate = toTime(removal.date) - 1;
-          } else if (isActiveIncumbent) {
-            startDate = toTime(c.updatedAt);
-          } else if (personEntries.length > 0) {
-            startDate = Math.min(...personEntries.map((e) => toTime(e.date)));
-          }
-
-          return {
-            person: p,
-            party,
-            alliance,
-            startDate,
-            electionDate:
-              electionOrAppt.length > 0
-                ? startDate
-                : isActiveIncumbent
-                ? toTime(c.updatedAt)
-                : undefined,
-            removalDate:
-              !isActiveIncumbent && removal
-                ? toTime(removal.date)
-                : p.isSuspended
-                ? toTime(p.updatedAt)
-                : undefined,
-            reason:
-              !isActiveIncumbent && removal
-                ? removal.reason
-                : p.isSuspended
-                ? "suspended"
-                : undefined,
-          };
-        }).filter(Boolean) as {
-          person: any;
-          party: any;
-          alliance: any;
-          startDate: number;
-          electionDate?: number;
-          removalDate?: number;
-          reason?: string;
-        }[];
-
-        // Sort chronologically by term start date
-        personDataList.sort((a, b) => {
-          if (a.startDate !== b.startDate) return a.startDate - b.startDate;
-          if (a.removalDate && !b.removalDate) return -1;
-          if (!a.removalDate && b.removalDate) return 1;
-          return 0;
-        });
-
-        const finalizedIncumbents = personDataList.map((inc, index) => ({
-          person: inc.person,
-          party: inc.party,
-          alliance: inc.alliance,
-          reason: inc.reason,
-          removalDate: inc.removalDate,
-          electionDate: inc.electionDate,
-          isByelected: index > 0,
-        }));
-
-        const lastInc = finalizedIncumbents[finalizedIncumbents.length - 1];
-        const isCurrentlyOccupied =
-          lastInc &&
-          !lastInc.removalDate &&
-          c.currentIncumbentId !== "vacant";
+        const alliance = allianceId ? alliancesList.find(a => a.id === allianceId || a.abbreviation?.toLowerCase() === allianceId?.toLowerCase()) : null;
 
         return {
-          constituency: c,
-          incumbents: finalizedIncumbents,
-          politician: isCurrentlyOccupied ? lastInc.person : undefined,
-          party: isCurrentlyOccupied ? lastInc.party : undefined,
-          alliance: isCurrentlyOccupied ? lastInc.alliance : undefined,
+          person: p!,
+          party: party || undefined,
+          alliance: alliance || undefined,
+          isActive,
+          removalReason: removal?.reason,
+          removalDate: removal ? toTime(removal.date) : undefined,
+          electionDate: isActive ? toTime(c.updatedAt) : undefined,
         };
-      }),
-    );
+      });
 
-    // Sort seats cleanly so they cluster beautifully by Party / Alliance
-    const sorted = mappedSeats.sort((a, b) => {
-      const primaryA = a.incumbents[a.incumbents.length - 1];
-      const primaryB = b.incumbents[b.incumbents.length - 1];
-      
-      const isVacantA = !primaryA;
-      const isVacantB = !primaryB;
-      if (isVacantA && !isVacantB) return 1;
-      if (!isVacantA && isVacantB) return -1;
-      if (isVacantA && isVacantB) return 0;
-
-      const allianceA = primaryA.alliance ? primaryA.alliance.id : "independent";
-      const allianceB = primaryB.alliance ? primaryB.alliance.id : "independent";
-
-      const govId = assemblyPerformance?.government?.id;
-      const oppId = assemblyPerformance?.opposition?.id;
-
-      const getRank = (allianceId: string) => {
-        if (govId && allianceId === govId) return 1;
-        if (oppId && allianceId === oppId) return 10;
-        if (allianceId === "independent") return 6;
-        return 5;
+      return {
+        constituency: c,
+        incumbents,
       };
+    });
 
-      const rankA = getRank(allianceA);
-      const rankB = getRank(allianceB);
+    const govId = assemblyPerformance?.government?.id;
+    const oppId = assemblyPerformance?.opposition?.id;
+
+    const getRank = (allianceId: string) => {
+      if (govId && allianceId === govId) return 1;
+      if (oppId && allianceId === oppId) return 10;
+      if (allianceId === "independent") return 6;
+      return 5;
+    };
+
+    const sorted = mappedSeats.sort((a, b) => {
+      const activeA = a.incumbents.find(i => i.isActive);
+      const activeB = b.incumbents.find(i => i.isActive);
+      if (!activeA && activeB) return 1;
+      if (activeA && !activeB) return -1;
+      if (!activeA && !activeB) return 0;
+      
+      const rankA = getRank(activeA.alliance?.id || "independent");
+      const rankB = getRank(activeB.alliance?.id || "independent");
 
       if (rankA !== rankB) return rankA - rankB;
 
-      const pIdA = primaryA.person.partyId;
-      const pIdB = primaryB.person.partyId;
+      const pIdA = activeA.person.partyId;
+      const pIdB = activeB.person.partyId;
       if (pIdA !== pIdB) return pIdA.localeCompare(pIdB);
 
-      const slA = parseInt(a.constituency.slNo) || 999;
-      const slB = parseInt(b.constituency.slNo) || 999;
+      const slA = parseInt(a.constituency.slNo || "999") || 999;
+      const slB = parseInt(b.constituency.slNo || "999") || 999;
       return slA - slB;
     });
 
     return sorted;
-  }, [
-    id,
-    entityType,
-    assemblyPerformance,
-  ]);
+  }, [id, entityType, constituenciesList, personsList, partiesList, alliancesList, assembliesList, assemblyPerformance]);
 
   const alliancesInAssembly = React.useMemo(() => {
     if (entityType !== EntityType.ASSEMBLY || !assemblySeats) return [];
@@ -1972,6 +1111,34 @@ export const EntityPage: React.FC = () => {
     return alliancesList.filter(a => allianceIds.has(a.id));
   }, [entityType, assemblySeats, alliancesList]);
 
+  const isDissolvedRecord = useMemo(() => {
+    if (!entity) return false;
+    if (entityType === EntityType.ASSEMBLY) return (entity as Assembly).isActive === false;
+    if (entityType === EntityType.CONSTITUENCY) {
+      const con = entity as Constituency;
+      const asm = assembliesList?.find((a) => a.id === con.currentAssemblyId);
+      return asm?.isActive === false;
+    }
+    return false;
+  }, [entity, entityType, assembliesList]);
+
+  const confirmAction = async (
+    title: string,
+    message: string,
+    action: () => Promise<void>,
+    isDestructive?: boolean,
+    confirmText?: string
+  ) => {
+    if (window.confirm(`${title}\n\n${message}`)) {
+      await action();
+    }
+  };
+
+  const closeAppointPopup = () => {
+    setShowAppointPopup(false);
+    setAppointingCouncilRole(null);
+  };
+
   // Lazy snapshot for dissolved assemblies
   React.useEffect(() => {
     const snapshot = async () => {
@@ -1983,7 +1150,7 @@ export const EntityPage: React.FC = () => {
         (!(entity as Assembly).composition || !(entity as Assembly).composition?.seatingLayout)
       ) {
         try {
-          await freezeAssembly(id);
+          await firestoreService.freezeAssembly(id);
         } catch (err) {
           console.error("Failed to save assembly snapshot:", err);
         }
@@ -2190,19 +1357,17 @@ export const EntityPage: React.FC = () => {
 
   const handleAddPartyToAlliance = async (partyId: string) => {
     if (isDissolvedRecord) {
-      alert(
-        "This alliance context belongs to a dissolved assembly and cannot be modified.",
-      );
+      alert("This alliance context belongs to a dissolved assembly and cannot be modified.");
       return;
     }
-    const p = partiesList.find((party) => party.id === partyId);
+    const p = partiesList?.find((party) => party.id === partyId);
     confirmAction(
       "Join Alliance",
       `Are you sure you want to add ${p?.name || "this party"} to the alliance?`,
       async () => {
-        await db.parties.update(partyId, {
+        await firestoreService.updateParty(partyId, {
           allianceId: id,
-          updatedAt: Date.now(),
+          updatedAt: getSystemTimestamp(),
         });
         setShowAddPartyModal(false);
         setSearchQuery("");
@@ -2212,19 +1377,17 @@ export const EntityPage: React.FC = () => {
 
   const handleRemovePartyFromAlliance = async (partyId: string) => {
     if (isDissolvedRecord) {
-      alert(
-        "This alliance context belongs to a dissolved assembly and cannot be modified.",
-      );
+      alert("This alliance context belongs to a dissolved assembly and cannot be modified.");
       return;
     }
-    const p = partiesList.find((party) => party.id === partyId);
+    const p = partiesList?.find((party) => party.id === partyId);
     confirmAction(
       "Leave Alliance",
       `Are you sure you want to remove ${p?.name || "this party"} from the alliance?`,
       async () => {
-        await db.parties.update(partyId, {
+        await firestoreService.updateParty(partyId, {
           allianceId: "independent",
-          updatedAt: Date.now(),
+          updatedAt: getSystemTimestamp(),
         });
       },
       true,
@@ -2234,19 +1397,17 @@ export const EntityPage: React.FC = () => {
 
   const handleAddPersonToParty = async (personId: string) => {
     if (isDissolvedRecord) {
-      alert(
-        "This party context belongs to a dissolved assembly and cannot be modified.",
-      );
+      alert("This party context belongs to a dissolved assembly and cannot be modified.");
       return;
     }
-    const p = personsList.find((person) => person.id === personId);
+    const p = personsList?.find((person) => person.id === personId);
     confirmAction(
       "Add to Party",
       `Are you sure you want to add ${p?.name || "this person"} to the party?`,
       async () => {
-        await db.persons.update(personId, {
+        await firestoreService.updatePerson(personId, {
           partyId: id,
-          updatedAt: Date.now(),
+          updatedAt: getSystemTimestamp(),
         });
         setShowAddPersonModal(false);
         setSearchQuery("");
@@ -2256,19 +1417,17 @@ export const EntityPage: React.FC = () => {
 
   const handleRemovePersonFromParty = async (personId: string) => {
     if (isDissolvedRecord) {
-      alert(
-        "This party context belongs to a dissolved assembly and cannot be modified.",
-      );
+      alert("This party context belongs to a dissolved assembly and cannot be modified.");
       return;
     }
-    const p = personsList.find((person) => person.id === personId);
+    const p = personsList?.find((person) => person.id === personId);
     confirmAction(
       "Remove Member",
       `Are you sure you want to remove ${p?.name || "this person"} from the party?`,
       async () => {
-        await db.persons.update(personId, {
+        await firestoreService.updatePerson(personId, {
           partyId: "independent",
-          updatedAt: Date.now(),
+          updatedAt: getSystemTimestamp(),
         });
       },
       true,
@@ -2294,23 +1453,23 @@ export const EntityPage: React.FC = () => {
       async () => {
         switch (entityType) {
           case EntityType.PERSON:
-            await db.persons.delete(id!);
+            await firestoreService.deletePerson(id!);
             break;
           case EntityType.PARTY:
-            await db.parties.delete(id!);
+            await firestoreService.deleteParty(id!);
             break;
           case EntityType.ALLIANCE:
-            await db.alliances.delete(id!);
+            await firestoreService.deleteAlliance(id!);
             break;
           case EntityType.ASSEMBLY:
-            await db.assemblies.delete(id!);
+            await firestoreService.deleteAssembly(id!);
             break;
           case EntityType.DESIGNATION:
-            await db.designations.delete(id!);
+            await firestoreService.deleteDesignation(id!);
             break;
           case EntityType.CONSTITUENCY:
-            await db.constituencies.delete(id!);
-            await reindexConstituencies();
+            await firestoreService.deleteConstituency(id!);
+            await firestoreService.reindexConstituencies();
             break;
         }
         navigate("/");
@@ -2321,48 +1480,39 @@ export const EntityPage: React.FC = () => {
   };
 
   const handlePromote = async () => {
-    if (!showPromotePopup || !id || entityType !== EntityType.ASSEMBLY) return;
+    if (!showPromotePopup || !id || entityType !== EntityType.ASSEMBLY || !personsList) return;
 
     const personToPromote = personsList.find(p => p.id === showPromotePopup.personId);
     if (!personToPromote || personToPromote.isSuspended) {
       alert("This politician is suspended and cannot be appointed or promoted to the cabinet.");
       return;
     }
-    const partyOfPerson = partiesList.find(pt => pt.id === personToPromote.partyId);
+    const partyOfPerson = partiesList?.find(pt => pt.id === personToPromote.partyId);
     if (partyOfPerson?.isSuspended) {
       alert(`Cannot promote member of suspended party "${partyOfPerson.name}".`);
       return;
     }
 
-    // Dissolved assemblies are immutable
     if ((entity as Assembly).isActive === false) {
       alert("This assembly has been dissolved. Records cannot be modified.");
       return;
     }
 
-    // Only elected MLAs of this assembly can be ministers
-    const isMLA = assemblyMembers.some(
-      (m) => m.id === showPromotePopup.personId,
-    );
+    const isMLA = assemblyMembers.some((m) => m.id === showPromotePopup.personId);
     if (!isMLA) {
-      alert(
-        "Only elected members (MLAs) of this assembly can be promoted to the cabinet.",
-      );
+      alert("Only elected members (MLAs) of this assembly can be promoted to the cabinet.");
       return;
     }
 
-    // Only MLAs of the government composition can be promoted to the ministerial cabinet
     const govResult = computeAssemblyGovernmentComposition(
       entity as Assembly,
-      constituenciesList,
-      partiesList,
-      alliancesList,
-      personsList,
+      constituenciesList || [],
+      partiesList || [],
+      alliancesList || [],
+      personsList || [],
     );
     if (!govResult.governmentMlaIds.has(showPromotePopup.personId)) {
-      alert(
-        "Only MLAs of the government composition can be promoted to the ministerial cabinet.",
-      );
+      alert("Only MLAs of the government composition can be promoted to the ministerial cabinet.");
       return;
     }
 
@@ -2371,90 +1521,37 @@ export const EntityPage: React.FC = () => {
       `Are you sure you want to promote ${showPromotePopup.personName} as Minister for ${departmentInput}?`,
       async () => {
         const { personId } = showPromotePopup;
-        const person = await db.persons.get(personId);
-        if (!person) return;
-
         const roleName = `Minister for ${departmentInput}`;
-        const now = Date.now();
-
-        // Create a new Designation record for the Minister role
+        const now = getSystemTimestamp();
         const designationId = `minister-${departmentInput.toLowerCase().replace(/\s+/g, '-')}-${id}-${personId}-${now}`;
-        await db.designations.add({
+        
+        await firestoreService.saveDesignation({
           id: designationId,
           name: roleName,
           assemblyId: id,
           incumbentId: personId,
           constituency: "Legislative Cabinet",
           dateOfSigning: new Date(now).toISOString().split('T')[0],
-          history: [
-            { personId, reason: 'appointment', date: now }
-          ],
+          history: [{ personId, reason: 'appointment', date: now }],
           updatedAt: now
         });
 
-        const assemblyRoles = { ...(person.assemblyRoles || {}) };
-
-        // Prevent duplicate promotion record if they already have this EXACT role name in this assembly
-        const alreadyHasHistory = (person.roleHistory || []).some(
-          (h) =>
-            h.assemblyId === id &&
-            h.role === roleName &&
-            h.action === "promotion",
-        );
-
-        // Update active roles - handle multiple roles if they already have one
-        const existingRoles = assemblyRoles[id]
-          ? assemblyRoles[id].split(", ")
-          : [];
-        if (!existingRoles.includes(roleName)) {
-          existingRoles.push(roleName);
-        }
+        const assemblyRoles = { ...(personToPromote.assemblyRoles || {}) };
+        const existingRoles = assemblyRoles[id] ? assemblyRoles[id].split(", ") : [];
+        if (!existingRoles.includes(roleName)) existingRoles.push(roleName);
         assemblyRoles[id] = existingRoles.join(", ");
 
-        const updateData: any = {
-          assemblyRoles,
-          updatedAt: now,
-        };
-
+        const updateData: any = { assemblyRoles, updatedAt: now };
+        const alreadyHasHistory = (personToPromote.roleHistory || []).some(h => h.assemblyId === id && h.role === roleName && h.action === "promotion");
         if (!alreadyHasHistory) {
-          updateData.roleHistory = [
-            ...(person.roleHistory || []),
-            {
-              role: roleName,
-              assemblyId: id,
-              date: now,
-              action: "promotion" as const,
-            },
-          ];
+          updateData.roleHistory = [...(personToPromote.roleHistory || []), { role: roleName, assemblyId: id, date: now, action: "promotion" as const }];
         }
-
-        await db.persons.update(personId, updateData);
-
+        await firestoreService.updatePerson(personId, updateData);
         setShowPromotePopup(null);
         setDepartmentInput("");
       },
     );
   };
-
-  // Check if current view is immutable due to assembly dissolution
-  const isDissolvedRecord = (() => {
-    if (!entity) return false;
-    if (entityType === EntityType.ASSEMBLY)
-      return (entity as Assembly).isActive === false;
-    if (entityType === EntityType.CONSTITUENCY) {
-      const associatedAsm = assembliesList.find(
-        (a) => a.id === (entity as Constituency).currentAssemblyId,
-      );
-      return associatedAsm?.isActive === false;
-    }
-    if (entityType === EntityType.DESIGNATION) {
-      const associatedAsm = assembliesList.find(
-        (a) => a.id === (entity as Designation).assemblyId,
-      );
-      return associatedAsm?.isActive === false;
-    }
-    return false;
-  })();
 
   const handleDeactivate = async () => {
     if (entityType === EntityType.ASSEMBLY) {
@@ -2462,12 +1559,9 @@ export const EntityPage: React.FC = () => {
         "Dissolve Assembly",
         "Are you absolutely sure you want to dissolve this assembly? This will freeze all current roles and composition states as historical data.",
         async () => {
-          const now = Date.now();
-
-          // Snapshot the current composition and seatingLayout perfectly
-          await freezeAssembly(id!);
-
-          await db.assemblies.update(id!, {
+          const now = getSystemTimestamp();
+          await firestoreService.freezeAssembly(id!);
+          await firestoreService.updateAssembly(id!, {
             isActive: false,
             leaders: {
               chiefMinister: 'vacant',
@@ -2481,135 +1575,74 @@ export const EntityPage: React.FC = () => {
             updatedAt: now,
           });
 
-          // Map to track person updates to avoid duplicates
-          const personUpdates = new Map<
-            string,
-            { roles: string[]; history: any[] }
-          >();
-
-          // Process Designations: All designations tied to this assembly AND ministerial designations
-          const allDesignations = await db.designations.toArray();
-          const relatedDesignations = allDesignations.filter(
-            d => d.assemblyId === id! || isMinisterialRole(d.name)
-          );
+          const personUpdates = new Map<string, { roles: string[]; history: any[] }>();
+          const relatedDesignations = designationsList?.filter(d => d.assemblyId === id! || isMinisterialRole(d.name)) || [];
+          
           for (const d of relatedDesignations) {
             if (d.incumbentId && d.incumbentId !== "vacant") {
               if (!personUpdates.has(d.incumbentId)) {
-                const person = await db.persons.get(d.incumbentId);
+                const person = personsList?.find(p => p.id === d.incumbentId);
                 if (person) {
                   personUpdates.set(d.incumbentId, {
-                    roles:
-                      person.assemblyRoles && person.assemblyRoles[id!]
-                        ? person.assemblyRoles[id!].split(", ")
-                        : [],
+                    roles: person.assemblyRoles && person.assemblyRoles[id!] ? person.assemblyRoles[id!].split(", ") : [],
                     history: person.roleHistory || [],
                   });
                 }
               }
-
-              // Designation history and vacate incumbent
-              await db.designations.update(d.id, {
+              await firestoreService.updateDesignation(d.id, {
                 incumbentId: "vacant",
-                history: [
-                  ...(d.history || []),
-                  { personId: d.incumbentId, reason: "expiry", date: now },
-                ],
+                history: [...(d.history || []), { personId: d.incumbentId, reason: "expiry", date: now }],
                 updatedAt: now,
               });
             }
           }
 
-          // Also collect all persons who held assembly roles or ministerial roles in this assembly
-          const allPersons = await db.persons.toArray();
-          for (const p of allPersons) {
-            if (p.assemblyRoles && p.assemblyRoles[id!]) {
-              if (!personUpdates.has(p.id)) {
-                personUpdates.set(p.id, {
-                  roles: p.assemblyRoles[id!].split(", "),
-                  history: p.roleHistory || [],
-                });
-              }
+          personsList?.forEach(p => {
+            if (p.assemblyRoles && p.assemblyRoles[id!] && !personUpdates.has(p.id)) {
+              personUpdates.set(p.id, { roles: p.assemblyRoles[id!].split(", "), history: p.roleHistory || [] });
             }
-          }
+          });
 
-          // Process Constituencies
-          const relatedConstituencies = await db.constituencies
-            .where("currentAssemblyId")
-            .equals(id!)
-            .toArray();
+          const relatedConstituencies = constituenciesList?.filter(c => c.currentAssemblyId === id!) || [];
           for (const con of relatedConstituencies) {
             if (con.currentIncumbentId !== "vacant") {
               if (!personUpdates.has(con.currentIncumbentId)) {
-                const person = await db.persons.get(con.currentIncumbentId);
+                const person = personsList?.find(p => p.id === con.currentIncumbentId);
                 if (person) {
                   personUpdates.set(con.currentIncumbentId, {
-                    roles:
-                      person.assemblyRoles && person.assemblyRoles[id!]
-                        ? person.assemblyRoles[id!].split(", ")
-                        : [],
+                    roles: person.assemblyRoles && person.assemblyRoles[id!] ? person.assemblyRoles[id!].split(", ") : [],
                     history: person.roleHistory || [],
                   });
                 }
               }
-
-              // Constituency history and vacate incumbent
-              await db.constituencies.update(con.id, {
+              await firestoreService.updateConstituency(con.id, {
                 currentIncumbentId: "vacant",
-                history: [
-                  ...(con.history || []),
-                  {
-                    personId: con.currentIncumbentId,
-                    assemblyId: id!,
-                    date: now,
-                    reason: "expiry",
-                  },
-                ],
+                history: [...(con.history || []), { personId: con.currentIncumbentId, assemblyId: id!, date: now, reason: "expiry" }],
                 updatedAt: now,
               });
             }
           }
 
-          // Apply grouped updates to persons
           for (const [personId, data] of personUpdates.entries()) {
-            const person = await db.persons.get(personId);
+            const person = personsList?.find(p => p.id === personId);
             if (!person) continue;
-
             const newAssemblyRoles = { ...person.assemblyRoles };
             const expiringRoles = data.roles;
             delete newAssemblyRoles[id!];
-
             const newHistory = [...data.history];
             for (const role of expiringRoles) {
-              // Only add if not already added for this date/role/action
-              const alreadyAdded = newHistory.some(
-                (h) =>
-                  h.role === role && h.date === now && h.action === "expiry",
-              );
-              if (!alreadyAdded) {
-                newHistory.push({
-                  role,
-                  assemblyId: id!,
-                  date: now,
-                  action: "expiry" as const,
-                });
+              if (!newHistory.some(h => h.role === role && h.date === now && h.action === "expiry")) {
+                newHistory.push({ role, assemblyId: id!, date: now, action: "expiry" as const });
               }
             }
-
-            // Also clear MLA fields if they were an MLA in THIS assembly
             const isMlaInThisAssembly = relatedConstituencies.some(c => c.currentIncumbentId === personId);
-
-            await db.persons.update(personId, {
+            await firestoreService.updatePerson(personId, {
               assemblyRoles: newAssemblyRoles,
               roleHistory: newHistory,
               updatedAt: now,
-              ...(isMlaInThisAssembly ? {
-                constituencyId: undefined,
-                constituencyName: undefined,
-                mlaStatusText: undefined,
-              } : {})
+              ...(isMlaInThisAssembly ? { constituencyId: undefined, constituencyName: undefined, mlaStatusText: undefined } : {})
             });
           }
-
           setShowDeactivatePopup(false);
         },
         true,
@@ -2619,110 +1652,61 @@ export const EntityPage: React.FC = () => {
   };
 
   const handleSuspendPerson = async () => {
-    if (entityType !== EntityType.PERSON || !entity) return;
+    if (entityType !== EntityType.PERSON || !entity || !personsList) return;
     const person = entity as Person;
     
     confirmAction(
       "Suspend Politician",
       `Are you sure you want to suspend ${person.name}? This will mark them as suspended/expired, vacate all their active seats, designations, and governance roles, and keep them strictly as historical records.`,
       async () => {
-        const now = Date.now();
+        const now = getSystemTimestamp();
         const pId = person.id;
-        console.log("SUSPENSION ID:", pId);
-
-        // Fetch fresh person record to avoid any race conditions
-        const pRecord = await db.persons.get(pId);
-        if (!pRecord) {
-          throw new Error(`Person with ID ${pId} not found in database.`);
-        }
+        const pRecord = personsList.find(p => p.id === pId);
+        if (!pRecord) throw new Error(`Person with ID ${pId} not found in database.`);
 
         let assemblyRoles = { ...(pRecord.assemblyRoles || {}) };
         let roleHistory = [ ...(pRecord.roleHistory || []) ];
 
-        // 1. Find and vacate all active designations where they are currently the incumbent
-        console.log("Vacating designations...");
-        const designationsListLocal = await db.designations.where("incumbentId").equals(pId).toArray();
+        const designationsListLocal = designationsList?.filter(d => d.incumbentId === pId) || [];
         for (const d of designationsListLocal) {
-          const dHistory = d.history || [];
-          await db.designations.update(d.id, {
+          await firestoreService.updateDesignation(d.id, {
             incumbentId: "vacant",
-            history: [
-              ...dHistory,
-              { personId: pId, reason: "expiry", date: now }
-            ],
+            history: [...(d.history || []), { personId: pId, reason: "expiry", date: now }],
             updatedAt: now
           });
-
           if (d.assemblyId) {
-            const existingList = (assemblyRoles[d.assemblyId] || "").split(", ").map(r => r.trim()).filter(Boolean);
-            const newList = existingList.filter(r => r !== d.name);
-            if (newList.length === 0) {
-              delete assemblyRoles[d.assemblyId];
-            } else {
-              assemblyRoles[d.assemblyId] = newList.join(", ");
-            }
-
-            roleHistory.push({
-              role: d.name,
-              assemblyId: d.assemblyId,
-              date: now,
-              action: "expiry" as const
-            });
+            const roles = (assemblyRoles[d.assemblyId] || "").split(", ").map(r => r.trim()).filter(Boolean);
+            const newList = roles.filter(r => r !== d.name);
+            if (newList.length === 0) delete assemblyRoles[d.assemblyId];
+            else assemblyRoles[d.assemblyId] = newList.join(", ");
+            roleHistory.push({ role: d.name, assemblyId: d.assemblyId, date: now, action: "expiry" as const });
           }
         }
 
-        // 2. Find and vacate all active constituency seats where they are the current incumbent
-        console.log("Vacating constituency seats...");
-        const constituenciesListLocal = await db.constituencies.where("currentIncumbentId").equals(pId).toArray();
+        const constituenciesListLocal = constituenciesList?.filter(c => c.currentIncumbentId === pId) || [];
         for (const con of constituenciesListLocal) {
-          const conHistory = con.history || [];
-          await db.constituencies.update(con.id, {
+          await firestoreService.updateConstituency(con.id, {
             currentIncumbentId: "vacant",
-            history: [
-              ...conHistory,
-              {
-                personId: pId,
-                assemblyId: con.currentAssemblyId || "unknown",
-                date: now,
-                reason: "Expired"
-              }
-            ],
+            history: [...(con.history || []), { personId: pId, assemblyId: con.currentAssemblyId || "unknown", date: now, reason: "Expired" }],
             updatedAt: now
           });
-
           if (con.currentAssemblyId) {
-            const assembly = await db.assemblies.get(con.currentAssemblyId);
+            const assembly = assembliesList?.find(a => a.id === con.currentAssemblyId);
             if (assembly && assembly.independentSupports && assembly.independentSupports[pId]) {
               const supports = { ...assembly.independentSupports };
               delete supports[pId];
-              await db.assemblies.update(con.currentAssemblyId, {
-                independentSupports: supports,
-                updatedAt: now
-              });
+              await firestoreService.updateAssembly(con.currentAssemblyId, { independentSupports: supports, updatedAt: now });
             }
-
             const mlaRoleName = `MLA for ${con.name}`;
-            const existingList = (assemblyRoles[con.currentAssemblyId] || "").split(", ").map(r => r.trim()).filter(Boolean);
-            const newList = existingList.filter(r => r !== mlaRoleName);
-            if (newList.length === 0) {
-              delete assemblyRoles[con.currentAssemblyId];
-            } else {
-              assemblyRoles[con.currentAssemblyId] = newList.join(", ");
-            }
-
-            roleHistory.push({
-              role: mlaRoleName,
-              assemblyId: con.currentAssemblyId,
-              date: now,
-              action: "expiry" as const
-            });
+            const roles = (assemblyRoles[con.currentAssemblyId] || "").split(", ").map(r => r.trim()).filter(Boolean);
+            const newList = roles.filter(r => r !== mlaRoleName);
+            if (newList.length === 0) delete assemblyRoles[con.currentAssemblyId];
+            else assemblyRoles[con.currentAssemblyId] = newList.join(", ");
+            roleHistory.push({ role: mlaRoleName, assemblyId: con.currentAssemblyId, date: now, action: "expiry" as const });
           }
         }
 
-        // 3. Find and vacate any active assembly leaders positions where they hold the role
-        console.log("Vacating assembly leader positions...");
-        const activeAssemblies = await db.assemblies.toArray();
-        for (const asm of activeAssemblies) {
+        for (const asm of (assembliesList || [])) {
           if (asm.leaders) {
             const updatedLeaders = { ...asm.leaders };
             let updated = false;
@@ -2730,89 +1714,38 @@ export const EntityPage: React.FC = () => {
               if (value === pId) {
                 (updatedLeaders as any)[key] = "vacant";
                 updated = true;
-
-                const displayName = key
-                  .replace(/([A-Z])/g, ' $1')
-                  .replace(/^./, str => str.toUpperCase());
-                
-                const existingList = (assemblyRoles[asm.id] || "").split(", ").map(r => r.trim()).filter(Boolean);
-                const newList = existingList.filter(r => r !== displayName);
-                if (newList.length === 0) {
-                  delete assemblyRoles[asm.id];
-                } else {
-                  assemblyRoles[asm.id] = newList.join(", ");
-                }
-
-                roleHistory.push({
-                  role: displayName,
-                  assemblyId: asm.id,
-                  date: now,
-                  action: "expiry" as const
-                });
+                const displayName = key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase());
+                const roles = (assemblyRoles[asm.id] || "").split(", ").map(r => r.trim()).filter(Boolean);
+                const newList = roles.filter(r => r !== displayName);
+                if (newList.length === 0) delete assemblyRoles[asm.id];
+                else assemblyRoles[asm.id] = newList.join(", ");
+                roleHistory.push({ role: displayName, assemblyId: asm.id, date: now, action: "expiry" as const });
               }
             }
-            if (updated) {
-              await db.assemblies.update(asm.id, {
-                leaders: updatedLeaders,
-                updatedAt: now
-              });
-            }
+            if (updated) await firestoreService.updateAssembly(asm.id, { leaders: updatedLeaders, updatedAt: now });
           }
         }
 
-        // 3b. Find and vacate any alliance leadership positions
-        console.log("Vacating alliance leadership positions...");
-        const allAlliances = await db.alliances.toArray();
-        for (const al of allAlliances) {
+        for (const al of (alliancesList || [])) {
           let updated = false;
           const updateObj: any = { updatedAt: now };
-          
-          if (al.leaderId === pId) {
-            updateObj.leaderId = "vacant";
-            updated = true;
-          }
-          if (al.chairmanId === pId) {
-            updateObj.chairmanId = "vacant";
-            updated = true;
-          }
-          if (al.founderId === pId) {
-            updateObj.founderId = "vacant";
-            updated = true;
-          }
-          if (al.highCommandIds?.includes(pId)) {
-            updateObj.highCommandIds = al.highCommandIds.filter(id => id !== pId);
-            updated = true;
-          }
-
-          if (updated) {
-            await db.alliances.update(al.id, updateObj);
-          }
+          if (al.leaderId === pId) { updateObj.leaderId = "vacant"; updated = true; }
+          if (al.chairmanId === pId) { updateObj.chairmanId = "vacant"; updated = true; }
+          if (al.founderId === pId) { updateObj.founderId = "vacant"; updated = true; }
+          if (al.highCommandIds?.includes(pId)) { updateObj.highCommandIds = al.highCommandIds.filter(id => id !== pId); updated = true; }
+          if (updated) await firestoreService.updateAlliance(al.id, updateObj);
         }
 
-        // 3c. Find and vacate any party leadership positions (Chairman)
-        console.log("Vacating party chairman positions...");
-        const allParties = await db.parties.toArray();
-        for (const p of allParties) {
+        for (const p of (partiesList || [])) {
           if (p.chairman === pId) {
-            await db.parties.update(p.id, {
-              chairman: "vacant",
-              updatedAt: now
-            });
+            await firestoreService.updateParty(p.id, { chairman: "vacant", updatedAt: now });
           }
         }
 
-        // 4. Finally, write the updated person record to database with isSuspended: true
-        console.log("Writing final suspended status to person...");
-        await db.persons.update(pId, {
-          isSuspended: true,
-          designations: [],
-          assemblyRoles,
-          roleHistory,
-          constituencyName: undefined,
-          mlaStatusText: "Suspended / Expired",
-          updatedAt: now
+        await firestoreService.updatePerson(pId, {
+          isSuspended: true, designations: [], assemblyRoles, roleHistory,
+          constituencyName: undefined, mlaStatusText: "Suspended / Expired", updatedAt: now
         });
-        console.log("Suspension fully complete!");
       },
       true,
       "Suspend"
@@ -2820,42 +1753,20 @@ export const EntityPage: React.FC = () => {
   };
 
   const handleSuspendParty = async () => {
-    if (entityType !== EntityType.PARTY || !entity) return;
+    if (entityType !== EntityType.PARTY || !entity || !partiesList) return;
     const party = entity as Party;
-    
     confirmAction(
       "Suspend Political Party",
       `Are you sure you want to suspend ${party.name}? This will mark the party as suspended, clear its alliance affiliation, remove its legislative leader, and freeze its active statuses, keeping it strictly as a historical record.`,
       async () => {
-        const now = Date.now();
+        const now = getSystemTimestamp();
         const pId = party.id;
-        console.log("PARTY SUSPENSION ID:", pId);
-
-        const pRecord = await db.parties.get(pId);
-        if (!pRecord) {
-          throw new Error(`Party with ID ${pId} not found in database.`);
+        const pRecord = partiesList.find(p => p.id === pId);
+        if (!pRecord) throw new Error(`Party with ID ${pId} not found in database.`);
+        await firestoreService.updateParty(pId, { isSuspended: true, legislativeLeaderId: undefined, allianceId: "independent", chairman: "vacant", updatedAt: now });
+        for (const al of (alliancesList || [])) {
+          if (al.leadingPartyId === pId) await firestoreService.updateAlliance(al.id, { leadingPartyId: undefined, updatedAt: now });
         }
-
-        console.log("Writing final suspended status to party...");
-        await db.parties.update(pId, {
-          isSuspended: true,
-          legislativeLeaderId: undefined,
-          allianceId: "independent",
-          chairman: "vacant",
-          updatedAt: now
-        });
-
-        // Clear this party as the leading party in any alliances
-        const allAlliances = await db.alliances.toArray();
-        for (const al of allAlliances) {
-          if (al.leadingPartyId === pId) {
-            await db.alliances.update(al.id, {
-              leadingPartyId: undefined,
-              updatedAt: now
-            });
-          }
-        }
-        console.log("Party suspension fully complete!");
       },
       true,
       "Suspend"
@@ -2863,79 +1774,32 @@ export const EntityPage: React.FC = () => {
   };
 
   const removeIncumbent = async (reason: "expiry" | "resignation") => {
-    if (entityType === EntityType.DESIGNATION) {
+    if (entityType === EntityType.DESIGNATION && entity) {
       confirmAction(
         "Vacate Seat",
         `Are you sure you want to remove the incumbent due to ${reason}?`,
         async () => {
           const design = entity as Designation;
-          const now = Date.now();
-          const historyEntry = {
-            personId: design.incumbentId,
-            reason,
-            date: now,
-          };
-
-          // If this designation is tied to an assembly or has a custom id, remove the person's role too
+          const now = getSystemTimestamp();
+          const historyEntry = { personId: design.incumbentId, reason, date: now };
           if (design.incumbentId !== "vacant") {
-            const person = await db.persons.get(design.incumbentId);
+            const person = personsList?.find(p => p.id === design.incumbentId);
             const targetKey = design.assemblyId || id!;
-            if (
-              person &&
-              person.assemblyRoles &&
-              person.assemblyRoles[targetKey]
-            ) {
+            if (person && person.assemblyRoles && person.assemblyRoles[targetKey]) {
               const roleName = design.name;
               const assemblyRoles = { ...(person.assemblyRoles || {}) };
-
-              // Only remove the specific role from the comma-separated list
-              const existingRoles =
-                assemblyRoles[targetKey].split(", ");
+              const existingRoles = assemblyRoles[targetKey].split(", ");
               const newRolesList = existingRoles.filter((r) => r !== roleName);
-
-              if (newRolesList.length === 0) {
-                delete assemblyRoles[targetKey];
-              } else {
-                assemblyRoles[targetKey] = newRolesList.join(", ");
+              if (newRolesList.length === 0) delete assemblyRoles[targetKey];
+              else assemblyRoles[targetKey] = newRolesList.join(", ");
+              const updateData: any = { assemblyRoles, updatedAt: now };
+              if (!(person.roleHistory || []).some(h => h.role === roleName && h.assemblyId === targetKey && h.action === reason && Math.abs(h.date - now) < 2000)) {
+                updateData.roleHistory = [...(person.roleHistory || []), { role: roleName, assemblyId: targetKey, date: now, action: reason }];
               }
-
-              // Prevent duplicate history entry
-              const alreadyHasHistory = (person.roleHistory || []).some(
-                (h) =>
-                  h.role === roleName &&
-                  h.assemblyId === targetKey &&
-                  h.action === reason &&
-                  Math.abs(h.date - now) < 2000,
-              );
-
-              const updateData: any = {
-                assemblyRoles,
-                updatedAt: now,
-              };
-
-              if (!alreadyHasHistory) {
-                updateData.roleHistory = [
-                  ...(person.roleHistory || []),
-                  {
-                    role: roleName,
-                    assemblyId: targetKey,
-                    date: now,
-                    action: reason as "resignation" | "expiry",
-                  },
-                ];
-              }
-
-              await db.persons.update(person.id, updateData);
+              await firestoreService.updatePerson(person.id, updateData);
             }
           }
-
-          await db.designations.update(id!, {
-            incumbentId: "vacant",
-            history: [
-              ...(Array.isArray(design.history) ? design.history : []),
-              historyEntry,
-            ],
-          });
+          await firestoreService.updateDesignation(id!, { incumbentId: "vacant", history: [...(Array.isArray(design.history) ? design.history : []), historyEntry] });
           setShowDeletePopup(false);
         },
         true,
@@ -2944,384 +1808,146 @@ export const EntityPage: React.FC = () => {
     }
   };
 
-  const closeAppointPopup = () => {
-    setShowAppointPopup(false);
-    setAppointmentSearchQuery("");
-  };
-
-  const handleDemoteMinister = async (
-    personId: string,
-    roleToRemove: string,
-  ) => {
+  const handleDemoteMinister = async (personId: string, roleToRemove: string) => {
     if (!id || !entity) return;
-
-    // Dissolved assemblies are immutable
-    if (
-      entityType === EntityType.ASSEMBLY &&
-      (entity as Assembly).isActive === false
-    ) {
-      alert(
-        "This assembly has been dissolved. Cabinet changes are prohibited.",
-      );
+    if (entityType === EntityType.ASSEMBLY && (entity as Assembly).isActive === false) {
+      alert("This assembly has been dissolved. Cabinet changes are prohibited.");
       return;
     }
     confirmAction(
       "Confirm Demotion",
       `Are you sure you want to remove the role "${roleToRemove}" from this person?`,
       async () => {
-        const person = await db.persons.get(personId);
+        const person = personsList?.find(p => p.id === personId);
         if (!person) return;
-
-        // 1. Handle assemblyRoles (Ministers)
         const assemblyRoles = { ...(person.assemblyRoles || {}) };
         const existingRolesList = (assemblyRoles[id!] || "").split(", ");
-        const newRolesList = existingRolesList.filter(
-          (r) => r !== roleToRemove,
-        );
-
-        const now = Date.now();
-        const roleHistory = [
-          ...(person.roleHistory || []),
-          {
-            role: roleToRemove,
-            assemblyId: id!,
-            date: now,
-            action: "resignation" as const,
-          },
-        ];
-
-        const updateData: any = {
-          roleHistory,
-          updatedAt: now,
-        };
-
-        if (newRolesList.length === 0) {
-          delete assemblyRoles[id!];
-        } else {
-          assemblyRoles[id!] = newRolesList.join(", ");
-        }
+        const newRolesList = existingRolesList.filter((r) => r !== roleToRemove);
+        const now = getSystemTimestamp();
+        const updateData: any = { roleHistory: [...(person.roleHistory || []), { role: roleToRemove, assemblyId: id!, date: now, action: "resignation" as const }], updatedAt: now };
+        if (newRolesList.length === 0) delete assemblyRoles[id!];
+        else assemblyRoles[id!] = newRolesList.join(", ");
         updateData.assemblyRoles = assemblyRoles;
-
-        await db.persons.update(personId, updateData);
-
-        // 2. Handle Designations (Speaker, Chief Secretary, etc.)
-        const designations = await db.designations
-          .where("assemblyId")
-          .equals(id!)
-          .and((d) => d.name === roleToRemove && d.incumbentId === personId)
-          .toArray();
-
-        for (const d of designations) {
-          await db.designations.update(d.id, {
-            incumbentId: "vacant",
-            updatedAt: now,
-          });
-        }
+        await firestoreService.updatePerson(personId, updateData);
+        const relatedDesigs = designationsList?.filter(d => d.assemblyId === id! && d.name === roleToRemove && d.incumbentId === personId) || [];
+        for (const d of relatedDesigs) await firestoreService.updateDesignation(d.id, { incumbentId: "vacant", updatedAt: now });
       },
       true,
       "Demote",
     );
   };
 
-  const confirmAction = (
-    title: string,
-    message: string,
-    onConfirm: () => void,
-    isDestructive = false,
-    confirmText = "Confirm",
-  ) => {
-    setConfirmationDialog({
-      show: true,
-      title,
-      message,
-      onConfirm,
-      isDestructive,
-      confirmText,
-    });
-  };
-
   const handleSelectAppointedPerson = async (personId: string) => {
-    if (!id || !entity) return;
-
+    if (!id || !entity || !personsList) return;
     const personToAppoint = personsList.find(p => p.id === personId);
     if (!personToAppoint || personToAppoint.isSuspended) {
       alert("This politician is suspended and cannot be appointed to any designation or constituency seat.");
       return;
     }
-    const partyOfPerson = partiesList.find(pt => pt.id === personToAppoint.partyId);
+    const partyOfPerson = partiesList?.find(pt => pt.id === personToAppoint.partyId);
     if (partyOfPerson?.isSuspended) {
       alert(`Cannot appoint member of suspended party "${partyOfPerson.name}".`);
       return;
     }
 
-    // Dissolved assemblies are immutable
     if (entityType === EntityType.DESIGNATION) {
       const design = entity as Designation;
       if (design.assemblyId) {
-        const associatedAsm = assembliesList.find(
-          (a) => a.id === design.assemblyId,
-        );
+        const associatedAsm = assembliesList?.find((a) => a.id === design.assemblyId);
         if (associatedAsm?.isActive === false) {
-          alert(
-            "This designation belongs to a dissolved assembly and cannot be modified.",
-          );
+          alert("This designation belongs to a dissolved assembly and cannot be modified.");
           return;
         }
-
-        // Only elected MLAs of this assembly can hold leadership designations
-        // We need to fetch members of the assembly associated with this designation
-        const asmMembers = await db.persons
-          .filter((p) => {
-            return constituenciesList.some(
-              (c) =>
-                c.currentAssemblyId === design.assemblyId &&
-                c.currentIncumbentId === p.id,
-            );
-          })
-          .toArray();
-
+        const asmMembers = personsList.filter(p => constituenciesList?.some(c => c.currentAssemblyId === design.assemblyId && c.currentIncumbentId === p.id));
         if (!asmMembers.some((m) => m.id === personId)) {
-          alert(
-            "Only elected members (MLAs) of this assembly can be appointed to these roles.",
-          );
+          alert("Only elected members (MLAs) of this assembly can be appointed to these roles.");
           return;
         }
-
-        // Only MLAs of the government composition can be appointed as Speaker or Deputy Speaker, or promoted to ministerial cabinet
         const isSpeaker = isSpeakerOrDeputySpeakerRole(design.name);
         const isMinister = isMinisterialRole(design.name);
-        if (isSpeaker || isMinister) {
-          const govRes = computeAssemblyGovernmentComposition(
-            associatedAsm,
-            constituenciesList,
-            partiesList,
-            alliancesList,
-            personsList,
-          );
+        if ((isSpeaker || isMinister) && associatedAsm) {
+          const govRes = computeAssemblyGovernmentComposition(associatedAsm, constituenciesList || [], partiesList || [], alliancesList || [], personsList || []);
           if (!govRes.governmentMlaIds.has(personId)) {
-            if (isSpeaker) {
-              alert(
-                "Only MLAs of the government composition can be appointed as Speaker or Deputy Speaker.",
-              );
-            } else {
-              alert(
-                "Only MLAs of the government composition can be promoted to the ministerial cabinet.",
-              );
-            }
+            alert(isSpeaker ? "Only MLAs of the government composition can be appointed as Speaker or Deputy Speaker." : "Only MLAs of the government composition can be promoted to the ministerial cabinet.");
             return;
           }
         }
       }
     } else if (entityType === EntityType.CONSTITUENCY) {
-      const con = entity as Constituency;
-      const associatedAsm = assembliesList.find(
-        (a) => a.id === con.currentAssemblyId,
-      );
+      const associatedAsm = assembliesList?.find((a) => a.id === (entity as Constituency).currentAssemblyId);
       if (associatedAsm?.isActive === false) {
-        alert(
-          "This constituency record belongs to a dissolved assembly and cannot be modified.",
-        );
+        alert("This constituency record belongs to a dissolved assembly and cannot be modified.");
         return;
       }
     }
 
-    const p = personsList.find((person) => person.id === personId);
-    const personName = p?.name || "this person";
-
+    const personName = personToAppoint.name;
     if (entityType === EntityType.DESIGNATION) {
-      confirmAction(
-        "Confirm Appointment",
-        `Are you sure you want to appoint ${personName} to this designation?`,
-        async () => {
-          const design = entity as Designation;
-          const now = Date.now();
-
-          // Update person's role and history
-          const person = await db.persons.get(personId);
-          if (person && id) {
-            const roleName = design.name;
-            const assemblyRoles = { ...(person.assemblyRoles || {}) };
-
-            const existingRoles = assemblyRoles[id]
-              ? assemblyRoles[id].split(", ")
-              : [];
-            if (!existingRoles.includes(roleName)) {
-              existingRoles.push(roleName);
-            }
-            assemblyRoles[id] = existingRoles.join(", ");
-
-            // Prevent duplicate history entry
-            const alreadyHasHistory = (person.roleHistory || []).some(
-              (h) =>
-                h.role === roleName &&
-                h.assemblyId === id &&
-                h.action === "promotion",
-            );
-
-            const updateData: any = {
-              assemblyRoles,
-              updatedAt: now,
-            };
-
-            if (!alreadyHasHistory) {
-              updateData.roleHistory = [
-                ...(person.roleHistory || []),
-                {
-                  role: roleName,
-                  assemblyId: id,
-                  date: now,
-                  action: "promotion" as const,
-                },
-              ];
-            }
-
-            await db.persons.update(personId, updateData);
-          }
-
-          await db.designations.update(id!, {
-            incumbentId: personId,
-            history: [
-              ...(Array.isArray(design.history) ? design.history : []),
-              {
-                personId,
-                reason: "appointment",
-                date: now,
-              },
-            ],
-            updatedAt: now,
-          });
-          closeAppointPopup();
-        },
-      );
-    } else if (entityType === EntityType.CONSTITUENCY) {
-      // Rule: Person can only hold one MLA seat at a time in active assemblies
-      const alreadyHasSeat = constituenciesList.find((c) => {
-        if (c.id === id) return false; // Ignore current constituency
-        if (
-          c.currentIncumbentId === personId &&
-          c.currentIncumbentId !== "vacant"
-        ) {
-          const assembly = assembliesList.find(
-            (a) => a.id === c.currentAssemblyId,
-          );
-          return assembly?.isActive;
+      confirmAction("Confirm Appointment", `Are you sure you want to appoint ${personName} to this designation?`, async () => {
+        const design = entity as Designation;
+        const now = getSystemTimestamp();
+        const roleName = design.name;
+        const assemblyRoles = { ...(personToAppoint.assemblyRoles || {}) };
+        const existingRoles = assemblyRoles[id!] ? assemblyRoles[id!].split(", ") : [];
+        if (!existingRoles.includes(roleName)) existingRoles.push(roleName);
+        assemblyRoles[id!] = existingRoles.join(", ");
+        const updateData: any = { assemblyRoles, updatedAt: now };
+        if (!(personToAppoint.roleHistory || []).some(h => h.role === roleName && h.assemblyId === id && h.action === "promotion")) {
+          updateData.roleHistory = [...(personToAppoint.roleHistory || []), { role: roleName, assemblyId: id, date: now, action: "promotion" as const }];
         }
-        return false;
+        await firestoreService.updatePerson(personId, updateData);
+        await firestoreService.updateDesignation(id!, { incumbentId: personId, history: [...(Array.isArray(design.history) ? design.history : []), { personId, reason: "appointment", date: now }], updatedAt: now });
+        closeAppointPopup();
       });
-
+    } else if (entityType === EntityType.CONSTITUENCY) {
+      const alreadyHasSeat = constituenciesList?.find(c => c.id !== id && c.currentIncumbentId === personId && c.currentIncumbentId !== "vacant" && assembliesList?.find(a => a.id === c.currentAssemblyId)?.isActive);
       if (alreadyHasSeat) {
-        const otherAssembly = assembliesList.find(
-          (a) => a.id === alreadyHasSeat.currentAssemblyId,
-        );
-        alert(
-          `${personName} already holds a seat in ${alreadyHasSeat.name}${otherAssembly ? ` (${otherAssembly.name})` : ""}. They must resign from that seat first.`,
-        );
+        alert(`${personName} already holds a seat in ${alreadyHasSeat.name}. They must resign from that seat first.`);
         return;
       }
-
-      confirmAction(
-        "Confirm Appointment",
-        `Are you sure you want to appoint ${personName} to this constituency?`,
-        async () => {
-          const con = entity as Constituency;
-          const currentAsm = con.currentAssemblyId;
-          const now = Date.now();
-
-          // Update person's role and history
-          const person = await db.persons.get(personId);
-          if (person && currentAsm) {
-            const roleName = `MLA for ${con.name}`;
-            const assemblyRoles = { ...(person.assemblyRoles || {}) };
-
-            const existingRoles = assemblyRoles[currentAsm]
-              ? assemblyRoles[currentAsm].split(", ")
-              : [];
-            if (!existingRoles.includes(roleName)) {
-              existingRoles.push(roleName);
-            }
-            assemblyRoles[currentAsm] = existingRoles.join(", ");
-
-            // Prevent duplicate history entry
-            const alreadyHasHistory = (person.roleHistory || []).some(
-              (h) =>
-                h.role === roleName &&
-                h.assemblyId === currentAsm &&
-                h.action === "promotion",
-            );
-
-            const updateData: any = {
-              assemblyRoles,
-              updatedAt: now,
-            };
-
-            if (!alreadyHasHistory) {
-              updateData.roleHistory = [
-                ...(person.roleHistory || []),
-                {
-                  role: roleName,
-                  assemblyId: currentAsm,
-                  date: now,
-                  action: "promotion" as const,
-                },
-              ];
-            }
-
-            await db.persons.update(personId, updateData);
+      confirmAction("Confirm Appointment", `Are you sure you want to appoint ${personName} to this constituency?`, async () => {
+        const con = entity as Constituency;
+        const currentAsm = con.currentAssemblyId;
+        const now = getSystemTimestamp();
+        const roleName = `MLA for ${con.name}`;
+        const assemblyRoles = { ...(personToAppoint.assemblyRoles || {}) };
+        if (currentAsm) {
+          const existingRoles = assemblyRoles[currentAsm] ? assemblyRoles[currentAsm].split(", ") : [];
+          if (!existingRoles.includes(roleName)) existingRoles.push(roleName);
+          assemblyRoles[currentAsm] = existingRoles.join(", ");
+          const updateData: any = { assemblyRoles, updatedAt: now };
+          if (!(personToAppoint.roleHistory || []).some(h => h.role === roleName && h.assemblyId === currentAsm && h.action === "promotion")) {
+            updateData.roleHistory = [...(personToAppoint.roleHistory || []), { role: roleName, assemblyId: currentAsm, date: now, action: "promotion" as const }];
           }
-
-          await db.constituencies.update(id!, {
-            currentIncumbentId: personId,
-            history: [
-              ...(Array.isArray(con.history) ? con.history : []),
-              {
-                personId,
-                assemblyId: currentAsm || "unknown",
-                date: now,
-                reason: "appointment",
-              },
-            ],
-            updatedAt: now,
-          });
-          closeAppointPopup();
-        },
-      );
+          await firestoreService.updatePerson(personId, updateData);
+        }
+        await firestoreService.updateConstituency(id!, { currentIncumbentId: personId, history: [...(Array.isArray(con.history) ? con.history : []), { personId, assemblyId: currentAsm || "unknown", date: now, reason: "appointment" }], updatedAt: now });
+        closeAppointPopup();
+      });
     }
   };
 
   const removeConstituencyIncumbent = async (reason: string) => {
-    if (entityType === EntityType.CONSTITUENCY) {
-      // Dissolved assemblies are immutable
+    if (entityType === EntityType.CONSTITUENCY && entity) {
       const con = entity as Constituency;
-      const associatedAsm = assembliesList.find(
-        (a) => a.id === con.currentAssemblyId,
-      );
+      const associatedAsm = assembliesList?.find((a) => a.id === con.currentAssemblyId);
       if (associatedAsm?.isActive === false) {
-        alert(
-          "This record belongs to a dissolved assembly and cannot be modified.",
-        );
+        alert("This record belongs to a dissolved assembly and cannot be modified.");
         return;
       }
-
-      const now = Date.now();
+      const now = getSystemTimestamp();
       if (con.currentIncumbentId !== "vacant" && con.currentAssemblyId) {
         const incumbentIdBeforeVacating = con.currentIncumbentId;
-        // Discard independent support mapping and leadership roles when MLA is removed from seat
-        const assembly = await db.assemblies.get(con.currentAssemblyId);
+        const assembly = assembliesList?.find(a => a.id === con.currentAssemblyId);
         if (assembly) {
           const asmUpdates: any = {};
           let shouldUpdateAsm = false;
-
-          if (
-            assembly.independentSupports &&
-            assembly.independentSupports[incumbentIdBeforeVacating]
-          ) {
+          if (assembly.independentSupports?.[incumbentIdBeforeVacating]) {
             const supports = { ...assembly.independentSupports };
             delete supports[incumbentIdBeforeVacating];
             asmUpdates.independentSupports = supports;
             shouldUpdateAsm = true;
           }
-
-          // Rule 2: Only active MLAs can hold leadership roles (except chiefSecretary)
           if (assembly.leaders) {
             const leaders = { ...assembly.leaders };
             let hadLeaderRole = false;
@@ -3336,101 +1962,42 @@ export const EntityPage: React.FC = () => {
               shouldUpdateAsm = true;
             }
           }
-
-          if (shouldUpdateAsm) {
-            await db.assemblies.update(con.currentAssemblyId, asmUpdates);
-          }
+          if (shouldUpdateAsm) await firestoreService.updateAssembly(con.currentAssemblyId, asmUpdates);
         }
 
-        // Rule 3: If MLA post is gone, their minister post will also be considered as previous incumbent
-        const ministerialDesignations = await db.designations
-          .where("incumbentId")
-          .equals(incumbentIdBeforeVacating)
-          .and(d => d.assemblyId === con.currentAssemblyId && d.name.toLowerCase().includes("minister"))
-          .toArray();
-
-        const person = await db.persons.get(incumbentIdBeforeVacating);
+        const ministerialDesignations = designationsList?.filter(d => d.incumbentId === incumbentIdBeforeVacating && d.assemblyId === con.currentAssemblyId && d.name.toLowerCase().includes("minister")) || [];
+        const person = personsList?.find(p => p.id === incumbentIdBeforeVacating);
         let pAssemblyRoles = { ...(person?.assemblyRoles || {}) };
         let pRoleHistory = [...(person?.roleHistory || [])];
 
-        // Clean up assemblyRoles for this assembly
         if (person && con.currentAssemblyId) {
           const rolesStr = pAssemblyRoles[con.currentAssemblyId] || "";
           const individualRoles = rolesStr.split(", ").filter(r => {
             const rLower = r.toLowerCase();
-            // Remove MLA role and any Ministerial roles
             if (rLower.includes("mla") && rLower.includes(con.name.toLowerCase())) return false;
             if (rLower.includes("minister")) return false;
             return true;
           });
-          
-          if (individualRoles.length === 0) {
-            delete pAssemblyRoles[con.currentAssemblyId];
-          } else {
-            pAssemblyRoles[con.currentAssemblyId] = individualRoles.join(", ");
-          }
-
-          // Add to role history
-          pRoleHistory.push({
-            role: `${con.name} MLA`,
-            assemblyId: con.currentAssemblyId,
-            date: now,
-            action: reason.toLowerCase().includes('resigned') ? 'resignation' : 'expiry'
-          });
+          if (individualRoles.length === 0) delete pAssemblyRoles[con.currentAssemblyId];
+          else pAssemblyRoles[con.currentAssemblyId] = individualRoles.join(", ");
+          pRoleHistory.push({ role: `${con.name} MLA`, assemblyId: con.currentAssemblyId, date: now, action: reason.toLowerCase().includes('resigned') ? 'resignation' : 'expiry' });
         }
 
         for (const d of ministerialDesignations) {
-          await db.designations.update(d.id, {
-            incumbentId: "vacant",
-            history: [
-              ...(d.history || []),
-              { personId: incumbentIdBeforeVacating, reason: reason.toLowerCase().includes('resigned') ? 'resignation' : 'expiry', date: now }
-            ],
-            updatedAt: now
-          });
-
-          // Also remove from person's active roles
+          await firestoreService.updateDesignation(d.id, { incumbentId: "vacant", history: [...(d.history || []), { personId: incumbentIdBeforeVacating, reason: reason.toLowerCase().includes('resigned') ? 'resignation' : 'expiry', date: now }], updatedAt: now });
           if (person && pAssemblyRoles[con.currentAssemblyId]) {
             const roles = pAssemblyRoles[con.currentAssemblyId].split(", ").filter(r => r !== d.name);
-            if (roles.length === 0) {
-              delete pAssemblyRoles[con.currentAssemblyId];
-            } else {
-              pAssemblyRoles[con.currentAssemblyId] = roles.join(", ");
-            }
+            if (roles.length === 0) delete pAssemblyRoles[con.currentAssemblyId];
+            else pAssemblyRoles[con.currentAssemblyId] = roles.join(", ");
           }
-
-          pRoleHistory.push({
-            role: d.name,
-            assemblyId: con.currentAssemblyId!,
-            date: now,
-            action: reason.toLowerCase().includes('resigned') ? 'resignation' : 'expiry'
-          });
+          pRoleHistory.push({ role: d.name, assemblyId: con.currentAssemblyId!, date: now, action: reason.toLowerCase().includes('resigned') ? 'resignation' : 'expiry' });
         }
 
         if (person) {
-          await db.persons.update(incumbentIdBeforeVacating, {
-            assemblyRoles: pAssemblyRoles,
-            roleHistory: pRoleHistory,
-            constituencyName: undefined,
-            mlaStatusText: reason,
-            updatedAt: now
-          });
+          await firestoreService.updatePerson(incumbentIdBeforeVacating, { assemblyRoles: pAssemblyRoles, roleHistory: pRoleHistory, constituencyName: undefined, mlaStatusText: reason, updatedAt: now });
         }
-
-        const historyEntry = {
-          personId: incumbentIdBeforeVacating,
-          assemblyId: con.currentAssemblyId,
-          date: now,
-          reason: reason // Specific reason like "Resigned", "Expired", "Removed by hon'ble Supreme Court", etc.
-        };
-
-        await db.constituencies.update(id!, {
-          currentIncumbentId: "vacant",
-          history: [...(con.history || []), historyEntry],
-          updatedAt: now
-        });
+        await firestoreService.updateConstituency(id!, { currentIncumbentId: "vacant", history: [...(con.history || []), { personId: incumbentIdBeforeVacating, assemblyId: con.currentAssemblyId, date: now, reason }], updatedAt: now });
       }
-
       setShowVacateMlaReasonModal(false);
       setVacateReasonType(null);
     }
@@ -3944,9 +2511,8 @@ export const EntityPage: React.FC = () => {
                 onNavigateAssembly={(assemblyId) => navigate(`/assembly/${assemblyId}`)}
                 onUpdateLegislativeLeader={async (leaderId) => {
                   if (entityType === EntityType.PARTY && id) {
-                    await db.parties.update(id, {
+                    await firestoreService.updateParty(id, {
                       legislativeLeaderId: leaderId === null ? undefined : leaderId,
-                      updatedAt: Date.now()
                     });
                   }
                 }}
@@ -4021,38 +2587,43 @@ export const EntityPage: React.FC = () => {
             entityType !== EntityType.CONSTITUENCY && (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
               <div className="lg:col-span-2 space-y-8">
-                {entityType === EntityType.ASSEMBLY &&
-                  (precededByAssembly || followedByAssembly) && (
+                {entityType === EntityType.ASSEMBLY && (
                     <section className="glass-card p-8">
                       <h3 className="text-sm font-bold uppercase tracking-widest text-white mb-6">
                         Assembly Succession
                       </h3>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        {precededByAssembly && (
-                          <div
-                            onClick={() =>
-                              navigate(`/assembly/${precededByAssembly.id}`)
-                            }
-                            className="p-4 bg-white/5 border border-white/5 hover:border-[#FFD700]/30 rounded-2xl cursor-pointer group transition-all"
-                          >
-                            <p className="text-[10px] text-gray-500 uppercase font-black tracking-widest mb-2">
-                              Preceded By
-                            </p>
-                            <div className="flex items-center gap-3">
-                              <div className="w-10 h-10 rounded-xl bg-black flex items-center justify-center text-gray-500 group-hover:text-[#FFD700]">
-                                <HistoryIcon size={20} />
-                              </div>
-                              <div>
-                                <p className="font-bold text-sm group-hover:text-white transition-colors">
-                                  {precededByAssembly.name}
+                        <div
+                          onClick={() =>
+                            precededByAssembly && navigate(`/assembly/${precededByAssembly.id}`)
+                          }
+                          className={`p-4 bg-white/5 border border-white/5 ${precededByAssembly ? "hover:border-[#FFD700]/30 cursor-pointer" : "opacity-80"} rounded-2xl group transition-all`}
+                        >
+                          <p className="text-[10px] text-gray-500 uppercase font-black tracking-widest mb-2">
+                            Preceded By
+                          </p>
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-xl bg-black flex items-center justify-center text-gray-500 group-hover:text-[#FFD700]">
+                              <HistoryIcon size={20} />
+                            </div>
+                            <div>
+                              {precededByAssembly ? (
+                                <>
+                                  <p className="font-bold text-sm group-hover:text-white transition-colors">
+                                    {precededByAssembly.name}
+                                  </p>
+                                  <p className="text-[10px] text-gray-600 uppercase tracking-widest">
+                                    {precededByAssembly.termLimits}
+                                  </p>
+                                </>
+                              ) : (
+                                <p className="font-bold text-sm text-gray-500 italic transition-colors">
+                                  office established
                                 </p>
-                                <p className="text-[10px] text-gray-600 uppercase tracking-widest">
-                                  {precededByAssembly.termLimits}
-                                </p>
-                              </div>
+                              )}
                             </div>
                           </div>
-                        )}
+                        </div>
                         {followedByAssembly && (
                           <div
                             onClick={() =>
@@ -6190,13 +4761,13 @@ export const EntityPage: React.FC = () => {
                   {/* Standalone/Neutral Option */}
                   <button
                     onClick={async () => {
-                      const assembly = await db.assemblies.get(id!);
+                      const assembly = assembliesList?.find(a => a.id === id);
                       if (assembly) {
                         const supports = {
                           ...(assembly.independentSupports || {}),
                         };
                         delete supports[showSupportAlliancePopup.personId];
-                        await db.assemblies.update(id!, {
+                        await firestoreService.updateAssembly(id!, {
                           independentSupports: supports,
                         });
                       }
@@ -6233,14 +4804,14 @@ export const EntityPage: React.FC = () => {
                       <button
                         key={alliance.id}
                         onClick={async () => {
-                          const assembly = await db.assemblies.get(id!);
+                          const assembly = assembliesList?.find(a => a.id === id);
                           if (assembly) {
                             const supports = {
                               ...(assembly.independentSupports || {}),
                             };
                             supports[showSupportAlliancePopup.personId] =
                               alliance.id;
-                            await db.assemblies.update(id!, {
+                            await firestoreService.updateAssembly(id!, {
                               independentSupports: supports,
                             });
                           }

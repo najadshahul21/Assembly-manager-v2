@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { Search, Plus, Home, Users, Flag, Landmark, Shield, Menu, X, Award, MapPin, LogOut, Stamp, Network, Eye, EyeOff } from 'lucide-react';
+import { Search, Plus, Home, Users, Flag, Landmark, Shield, Menu, X, Award, MapPin, LogOut, Stamp, Network, Eye, EyeOff, Calendar, Pencil } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useNavigate, useLocation } from 'react-router';
 import { useDbLookup } from '../context/DbLookupContext';
 import { useAuth } from '../context/AuthContext';
+import { useSystemDate } from '../context/SystemDateContext';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -13,10 +14,12 @@ interface LayoutProps {
 
 export const Layout: React.FC<LayoutProps> = ({ children, onSearch, onPlusClick }) => {
   const [isSidebarOpen, setSidebarOpen] = useState(false);
+  const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const { loaded } = useDbLookup();
   const { user, logout, isViewerMode, toggleViewerMode } = useAuth();
+  const { systemDate, setSystemDate, resetSystemDate, isDateOverridden } = useSystemDate();
 
   const navItems = [
     { title: 'Dashboard', icon: Home, path: '/' },
@@ -169,6 +172,23 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSearch, onPlusClick 
           </div>
           <div className="flex items-center gap-3 sm:gap-4 ml-4">
             <button
+              onClick={() => setIsDatePickerOpen(true)}
+              title="Change Database Date (Set System Time)"
+              className={`p-2 rounded-xl border transition-all flex items-center gap-2 relative ${
+                isDateOverridden 
+                  ? "bg-amber-500/10 border-amber-500/20 text-amber-500" 
+                  : "bg-white/5 border-white/10 text-gray-400 hover:bg-white/10"
+              }`}
+            >
+              <div className="relative">
+                <Calendar size={18} />
+                <Pencil size={8} className="absolute -top-1 -right-1 bg-[#0a0a0a] rounded-full p-[1px]" />
+              </div>
+              <span className="text-[10px] font-black uppercase tracking-widest hidden xl:inline">
+                {isDateOverridden ? systemDate.toLocaleDateString() : "System Date"}
+              </span>
+            </button>
+            <button
               onClick={toggleViewerMode}
               title={isViewerMode ? "Disable Viewer Mode (Show Admin Controls)" : "Enable Viewer Mode (Hide Admin Controls)"}
               className={`p-2 rounded-xl border transition-all flex items-center gap-2 group ${
@@ -224,6 +244,83 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSearch, onPlusClick 
           </motion.button>
         )}
       </main>
+
+      {/* System Date Picker Modal */}
+      <AnimatePresence>
+        {isDatePickerOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsDatePickerOpen(false)}
+              className="absolute inset-0 bg-black/80 backdrop-blur-md"
+            />
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              className="w-full max-w-sm glass-card relative overflow-hidden bg-[#0a0a0a] border border-[#FFD700]/20 rounded-3xl"
+            >
+              <div className="p-8">
+                <div className="flex items-center justify-between mb-6">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-amber-500/10 rounded-xl">
+                      <Calendar className="text-amber-500" size={24} />
+                    </div>
+                    <h3 className="font-black uppercase tracking-widest text-[#FFD700]">System Date</h3>
+                  </div>
+                  <button onClick={() => setIsDatePickerOpen(false)} className="p-2 hover:bg-white/10 rounded-full text-gray-400">
+                    <X size={20} />
+                  </button>
+                </div>
+                
+                <p className="text-xs text-gray-400 mb-6 leading-relaxed">
+                  Override the application's internal clock to record historical data or simulate future events.
+                </p>
+
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-gray-500 ml-1">Select Date</label>
+                    <input
+                      type="date"
+                      value={systemDate.toISOString().split('T')[0]}
+                      onChange={(e) => {
+                        const newDate = new Date(e.target.value);
+                        // Preserve current time if overriding
+                        const now = new Date();
+                        newDate.setHours(now.getHours(), now.getMinutes(), now.getSeconds());
+                        setSystemDate(newDate);
+                      }}
+                      className="w-full bg-[#1a1a1a] border border-[#FFD700]/10 rounded-2xl p-4 focus:outline-none focus:border-[#FFD700]/40 text-white font-bold"
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-2 pt-4">
+                    {isDateOverridden && (
+                      <button
+                        onClick={() => {
+                          resetSystemDate();
+                          setIsDatePickerOpen(false);
+                        }}
+                        className="w-full py-4 rounded-2xl bg-white/5 border border-white/10 text-xs font-black uppercase tracking-widest hover:bg-white/10 transition-all"
+                      >
+                        Reset to Real Time
+                      </button>
+                    )}
+                    <button
+                      onClick={() => setIsDatePickerOpen(false)}
+                      className="w-full py-4 rounded-2xl bg-[#D32F2F] text-white text-xs font-black uppercase tracking-widest shadow-lg shadow-[#D32F2F]/20 hover:scale-[1.02] active:scale-[0.98] transition-all"
+                    >
+                      Done
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

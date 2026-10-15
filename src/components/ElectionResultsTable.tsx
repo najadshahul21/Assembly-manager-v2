@@ -169,7 +169,7 @@ function renderOutcomeText(
         <span>
           <span className="text-[#60a5fa] font-semibold">{winnerParty}</span>{' '}
           <strong className="text-white font-black">gain</strong> from{' '}
-          <span className="text-[#60a5fa] font-semibold">{prevParty || 'new constituency'}</span>
+          <span className="text-[#60a5fa] font-semibold">{prevParty || 'office established'}</span>
         </span>
       );
     } else {

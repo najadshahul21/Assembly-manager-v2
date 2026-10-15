@@ -1,34 +1,33 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { 
+  onAuthStateChanged, 
+  signInWithPopup, 
+  signOut, 
+  User as FirebaseUser 
+} from 'firebase/auth';
+import { auth, googleProvider } from '../firebase';
 
 export interface UserProfile {
+  uid: string;
   name: string;
-  username: string;
+  email: string;
   imageUrl?: string;
-  password?: string;
-  createdAt?: string;
 }
-
-const DEFAULT_ADMIN: UserProfile = {
-  name: 'System Administrator',
-  username: 'admin',
-  password: 'password',
-  imageUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Admin',
-  createdAt: new Date().toISOString()
-};
 
 interface AuthContextType {
   user: UserProfile | null;
-  profiles: UserProfile[];
+  loading: boolean;
   isViewerMode: boolean;
   toggleViewerMode: () => void;
-  login: (username: string, password: string) => { success: boolean; error?: string };
-  register: (data: { name: string; username: string; password: string; imageUrl?: string }) => { success: boolean; error?: string };
-  logout: () => void;
+  signInWithGoogle: () => Promise<void>;
+  logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [user, setUser] = useState<UserProfile | null>(null);
+  const [loading, setLoading] = useState(true);
   const [isViewerMode, setIsViewerMode] = useState(() => {
     return localStorage.getItem('assembly_viewer_mode') === 'true';
   });
@@ -40,115 +39,45 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return next;
     });
   };
-  const [profiles, setProfiles] = useState<UserProfile[]>(() => {
-    try {
-      const savedProfiles = localStorage.getItem('assembly_manager_profiles');
-      if (savedProfiles) {
-        const parsed: UserProfile[] = JSON.parse(savedProfiles);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed;
-        }
-      }
-    } catch (e) {
-      console.error('Error loading stored profiles', e);
-    }
-    return [DEFAULT_ADMIN];
-  });
 
-  const [user, setUser] = useState<UserProfile | null>(() => {
-    try {
-      const savedUsername = localStorage.getItem('niyamasabha_user_id');
-      if (savedUsername) {
-        const savedProfiles = localStorage.getItem('assembly_manager_profiles');
-        const list: UserProfile[] = savedProfiles ? JSON.parse(savedProfiles) : [DEFAULT_ADMIN];
-        const match = list.find(p => p.username.toLowerCase() === savedUsername.toLowerCase());
-        if (match) return match;
-        if (savedUsername.toLowerCase() === 'admin') return DEFAULT_ADMIN;
-      }
-    } catch (e) {
-      console.error('Error restoring session', e);
-    }
-    return null;
-  });
-
-  // Keep profiles in localStorage
   useEffect(() => {
-    localStorage.setItem('assembly_manager_profiles', JSON.stringify(profiles));
-  }, [profiles]);
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser: FirebaseUser | null) => {
+      if (firebaseUser) {
+        setUser({
+          uid: firebaseUser.uid,
+          name: firebaseUser.displayName || 'User',
+          email: firebaseUser.email || '',
+          imageUrl: firebaseUser.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(firebaseUser.uid)}`,
+        });
+      } else {
+        setUser(null);
+      }
+      setLoading(false);
+    });
 
-  const login = (usernameInput: string, passwordInput: string) => {
-    const username = usernameInput.trim();
-    const password = passwordInput.trim();
+    return () => unsubscribe();
+  }, []);
 
-    if (!username) {
-      return { success: false, error: 'Username is required' };
+  const signInWithGoogle = async () => {
+    try {
+      await signInWithPopup(auth, googleProvider);
+    } catch (error) {
+      console.error('Sign-in error:', error);
+      throw error;
     }
-    if (!password) {
-      return { success: false, error: 'Password is required' };
-    }
-
-    const matchedProfile = profiles.find(
-      (p) => p.username.toLowerCase() === username.toLowerCase()
-    );
-
-    if (!matchedProfile) {
-      return { success: false, error: 'User profile not found. Please register first.' };
-    }
-
-    if (matchedProfile.password !== password) {
-      return { success: false, error: 'Incorrect password' };
-    }
-
-    localStorage.setItem('niyamasabha_user_id', matchedProfile.username);
-    setUser(matchedProfile);
-    return { success: true };
   };
 
-  const register = (data: { name: string; username: string; password: string; imageUrl?: string }) => {
-    const trimmedName = data.name.trim();
-    const trimmedUsername = data.username.trim().toLowerCase();
-    const trimmedPassword = data.password.trim();
-
-    if (!trimmedName) {
-      return { success: false, error: 'Full name is required' };
+  const logout = async () => {
+    try {
+      await signOut(auth);
+    } catch (error) {
+      console.error('Sign-out error:', error);
     }
-    if (!trimmedUsername) {
-      return { success: false, error: 'Username is required' };
-    }
-    if (!trimmedPassword) {
-      return { success: false, error: 'Password is required' };
-    }
-
-    const existing = profiles.find((p) => p.username.toLowerCase() === trimmedUsername);
-    if (existing) {
-      return { success: false, error: 'Username is already taken. Please choose another.' };
-    }
-
-    const newProfile: UserProfile = {
-      name: trimmedName,
-      username: trimmedUsername,
-      password: trimmedPassword,
-      imageUrl: data.imageUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(trimmedUsername)}`,
-      createdAt: new Date().toISOString()
-    };
-
-    const updatedProfiles = [...profiles, newProfile];
-    setProfiles(updatedProfiles);
-    localStorage.setItem('assembly_manager_profiles', JSON.stringify(updatedProfiles));
-    localStorage.setItem('niyamasabha_user_id', newProfile.username);
-    setUser(newProfile);
-
-    return { success: true };
-  };
-
-  const logout = () => {
-    localStorage.removeItem('niyamasabha_user_id');
-    setUser(null);
   };
 
   return (
-    <AuthContext.Provider value={{ user, profiles, isViewerMode, toggleViewerMode, login, register, logout }}>
-      {children}
+    <AuthContext.Provider value={{ user, loading, isViewerMode, toggleViewerMode, signInWithGoogle, logout }}>
+      {!loading && children}
     </AuthContext.Provider>
   );
 };
@@ -160,3 +89,4 @@ export const useAuth = () => {
   }
   return context;
 };
+

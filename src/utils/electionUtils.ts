@@ -1,4 +1,5 @@
 import { Constituency, Person, Party, ElectionResult, CandidateResult } from '../types';
+import { getSystemTimestamp } from './dateUtils';
 
 export function generateDefaultElectionResult(
   con: Constituency,
@@ -63,7 +64,7 @@ export function generateDefaultElectionResult(
         previousPartyAbbreviation: activeIncumbentParty?.abbreviation || 'CPI(M)',
         outcomeText: `BJP gain from ${activeIncumbentParty?.abbreviation || 'CPI(M)'}`,
         swingText: 'Swing',
-        electionDate: Date.now()
+        electionDate: getSystemTimestamp()
       };
     }
   }
@@ -130,6 +131,6 @@ export function generateDefaultElectionResult(
     previousPartyAbbreviation: winnerPartyAbbr,
     outcomeText: `${winnerPartyAbbr} hold`,
     swingText: 'Swing',
-    electionDate: Date.now()
+    electionDate: getSystemTimestamp()
   };
 }

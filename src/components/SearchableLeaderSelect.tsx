@@ -4,6 +4,42 @@ import {
   Search, X, Check, User, Shield, 
   Crown, Scale, ShieldAlert, Building2, UserX 
 } from 'lucide-react';
+import { useDbLookup } from '../context/DbLookupContext';
+import { Designation, Assembly } from '../types';
+
+/**
+ * Shared helper to find a person's primary active designation (e.g. Minister, Speaker, or MLA)
+ */
+const getActiveDesignation = (p: Person, designations: Designation[], assemblies: Assembly[]) => {
+  // Priority 1: Official active designations (Minister, Speaker, etc.)
+  const activeAssemblyIds = new Set(assemblies.filter(a => a.isActive !== false).map(a => a.id));
+  
+  const personActiveDesigs = designations.filter(d => 
+    d.incumbentId === p.id && 
+    d.assemblyId && 
+    activeAssemblyIds.has(d.assemblyId)
+  );
+
+  if (personActiveDesigs.length > 0) {
+    // Return first one, preferably not just 'MLA'
+    const nonMla = personActiveDesigs.find(d => !d.name.toLowerCase().includes('mla'));
+    return nonMla ? nonMla.name : personActiveDesigs[0].name;
+  }
+
+  // Priority 2: Leadership roles in active assemblies
+  for (const a of assemblies) {
+    if (a.isActive !== false && a.leaders) {
+      for (const [role, pId] of Object.entries(a.leaders)) {
+        if (pId === p.id) {
+          return role.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase());
+        }
+      }
+    }
+  }
+
+  // Priority 3: MLA status (handled separately in the UI if needed)
+  return null;
+};
 
 export interface SearchableLeaderSelectProps {
   roleKey: string;
@@ -46,6 +82,7 @@ export const SearchableLeaderSelect: React.FC<SearchableLeaderSelectProps> = ({
   currentLeadersMap = {},
   disabled = false,
 }) => {
+  const { designations: designationsList, assemblies: assembliesList } = useDbLookup();
   const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedPartyFilter, setSelectedPartyFilter] = useState<string>('all');
@@ -541,6 +578,16 @@ export const SearchableLeaderSelect: React.FC<SearchableLeaderSelectProps> = ({
                                   Currently {otherRole}
                                 </span>
                               )}
+
+                              {(() => {
+                                const activeDesig = getActiveDesignation(person, designationsList || [], assembliesList || []);
+                                if (!activeDesig) return null;
+                                return (
+                                  <span className="text-emerald-400 text-[9px] font-bold shrink-0 bg-emerald-500/10 px-1 py-0.2 rounded border border-emerald-500/20">
+                                    {activeDesig}
+                                  </span>
+                                );
+                              })()}
                             </div>
                           </div>
                       </div>

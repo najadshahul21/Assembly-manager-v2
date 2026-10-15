@@ -1,7 +1,6 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '../db';
+import { useDbLookup } from '../context/DbLookupContext';
 import { Person, Assembly, Constituency, Designation } from '../types';
 import { formatAppDate } from '../utils/dateUtils';
 
@@ -190,13 +189,10 @@ export const LegislativeRolesHistoryWidget: React.FC<LegislativeRolesHistoryWidg
 }) => {
   const navigate = useNavigate();
 
-  const roleCards = useLiveQuery(async (): Promise<LegislativeRoleCardData[]> => {
-    if (!person || !person.id) return [];
+  const { assemblies: allAssemblies, constituencies: allConstituencies, persons: allPersons, designations: allDesignations } = useDbLookup();
 
-    const allAssemblies = await db.assemblies.toArray();
-    const allConstituencies = await db.constituencies.toArray();
-    const allPersons = await db.persons.toArray();
-    const allDesignations = await db.designations.toArray();
+  const roleCards = useMemo((): LegislativeRoleCardData[] => {
+    if (!person || !person.id || !allAssemblies || !allConstituencies || !allPersons || !allDesignations) return [];
 
     // Map for fast person lookup
     const personsMap = new Map<string, Person>();
@@ -956,7 +952,7 @@ export const LegislativeRolesHistoryWidget: React.FC<LegislativeRolesHistoryWidg
     });
 
     return cards;
-  }, [person]);
+  }, [person, allAssemblies, allConstituencies, allPersons, allDesignations]);
 
   if (!roleCards || roleCards.length === 0) {
     return (
@@ -1083,9 +1079,9 @@ export const LegislativeRolesHistoryWidget: React.FC<LegislativeRolesHistoryWidg
               )}
 
               {/* Preceded by */}
-              {card.precededBy && (
-                <div className="flex items-center justify-between py-2.5 px-6 text-sm">
-                  <span className="text-white font-bold w-36 shrink-0">Preceded by</span>
+              <div className="flex items-center justify-between py-2.5 px-6 text-sm">
+                <span className="text-white font-bold w-36 shrink-0">Preceded by</span>
+                {card.precededBy ? (
                   <span
                     onClick={(e) => {
                       if (card.precededBy?.id) {
@@ -1101,8 +1097,12 @@ export const LegislativeRolesHistoryWidget: React.FC<LegislativeRolesHistoryWidg
                   >
                     {card.precededBy.name}
                   </span>
-                </div>
-              )}
+                ) : (
+                  <span className="text-right flex-1 font-medium text-zinc-500 italic">
+                    office established
+                  </span>
+                )}
+              </div>
 
               {/* Succeeded by (past roles) */}
               {card.succeededBy && (

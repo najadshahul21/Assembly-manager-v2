@@ -1,5 +1,5 @@
 import { Assembly, Constituency, Party, Alliance, Person, LegislativeOrder } from '../types';
-import { db } from '../db';
+import { firestoreService } from '../firestoreService';
 
 export interface GovernmentCompositionResult {
   government: any | null;
@@ -251,15 +251,17 @@ export function computeAssemblyGovernmentComposition(
 export async function getAssemblyGovernmentCompositionAsync(
   assemblyId: string
 ): Promise<GovernmentCompositionResult> {
-  const assembly = await db.assemblies.get(assemblyId);
+  const assembly = await firestoreService.getAssembly(assemblyId);
   if (!assembly) {
     return { government: null, governmentMlaIds: new Set(), allMlaIds: new Set() };
   }
 
-  const constituencies = await db.constituencies.toArray();
-  const parties = await db.parties.toArray();
-  const alliances = await db.alliances.toArray();
-  const persons = await db.persons.toArray();
+  const [constituencies, parties, alliances, persons] = await Promise.all([
+    firestoreService.getConstituencies(),
+    firestoreService.getParties(),
+    firestoreService.getAlliances(),
+    firestoreService.getPersons()
+  ]);
 
   return computeAssemblyGovernmentComposition(assembly, constituencies, parties, alliances, persons);
 }

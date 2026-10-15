@@ -14,6 +14,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { User, Flag, Shield, Landmark, X, MapPin, Award, Stamp } from 'lucide-react';
 import { DbLookupProvider } from './context/DbLookupContext';
 import { ReleaseOrderModal } from './components/ReleaseOrderModal';
+import { SystemDateProvider } from './context/SystemDateContext';
 
 function AppContent() {
   const { user } = useAuth();
@@ -119,10 +120,12 @@ function AppContent() {
 
 export default function App() {
   return (
-    <DbLookupProvider>
+    <SystemDateProvider>
       <AuthProvider>
-        <AppContent />
+        <DbLookupProvider>
+          <AppContent />
+        </DbLookupProvider>
       </AuthProvider>
-    </DbLookupProvider>
+    </SystemDateProvider>
   );
 }

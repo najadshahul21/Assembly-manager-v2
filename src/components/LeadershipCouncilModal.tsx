@@ -1,12 +1,13 @@
 import React, { useState, useMemo } from 'react';
 import { Assembly, Person, Party, Alliance, Constituency } from '../types';
-import { db } from '../db';
+import { firestoreService } from '../firestoreService';
 import { 
   X, Crown, Scale, Shield, Building2, AlertCircle, 
   CheckCircle2, Sparkles, Landmark, Users, Search, RefreshCw 
 } from 'lucide-react';
 import { computeAssemblyGovernmentComposition } from '../utils/governmentUtils';
 import { SearchableLeaderSelect } from './SearchableLeaderSelect';
+import { getSystemTimestamp } from '../utils/dateUtils';
 
 export interface LeadershipCouncilModalProps {
   assembly: Assembly;
@@ -285,7 +286,7 @@ export const LeadershipCouncilModal: React.FC<LeadershipCouncilModalProps> = ({
       };
 
       const newLeadershipDates = { ...(assembly.leadershipDates || {}) };
-      const now = Date.now();
+      const now = getSystemTimestamp();
       
       Object.entries(cleanLeaders).forEach(([key, val]) => {
         if (val && val !== (assembly.leaders as any)[key]) {
@@ -295,11 +296,14 @@ export const LeadershipCouncilModal: React.FC<LeadershipCouncilModalProps> = ({
         }
       });
 
-      await db.assemblies.update(assembly.id, {
+      const updatedAssembly: Assembly = {
+        ...assembly,
         leaders: cleanLeaders,
         leadershipDates: newLeadershipDates,
         updatedAt: now,
-      });
+      };
+
+      await firestoreService.saveAssembly(updatedAssembly);
 
       setSuccessMessage('Leadership Council appointments saved successfully.');
       if (onSaved) {

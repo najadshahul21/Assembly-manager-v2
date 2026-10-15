@@ -1,6 +1,7 @@
 import React from 'react';
 import { Flag, Shield, ExternalLink, Users, Award, Landmark, X, Check } from 'lucide-react';
 import { Party, Alliance, Person, Assembly, Constituency } from '../types';
+import { getSystemDate } from '../utils/dateUtils';
 
 interface PartyInfoboxTableProps {
   party: Party;
@@ -105,7 +106,7 @@ function formatFoundedDate(foundedDate?: string): string {
   const match = foundedDate.match(/\b(19\d\d|20\d\d)\b/);
   if (match) {
     const year = parseInt(match[1], 10);
-    const currentYear = new Date().getFullYear();
+    const currentYear = getSystemDate().getFullYear();
     const yearsAgo = currentYear - year;
     if (yearsAgo >= 0) {
       return `${foundedDate} (${yearsAgo} years ago)`;

@@ -95,7 +95,7 @@ export const ConstituencyInfoboxTable: React.FC<ConstituencyInfoboxTableProps> =
                 ({targetAssembly.name})
               </button>
             ) : (
-              <span className="text-zinc-500 italic">(Respective assembly not specified)</span>
+              <span className="text-zinc-500 italic">office established</span>
             )}
           </div>
         </div>

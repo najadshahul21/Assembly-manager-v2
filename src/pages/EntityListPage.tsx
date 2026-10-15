@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db, reindexConstituencies } from '../db';
+import React, { useState, useMemo } from 'react';
+import { useParams, useNavigate } from 'react-router';
+import { useDbLookup } from '../context/DbLookupContext';
+import { firestoreService } from '../firestoreService';
 import { EntityType } from '../types';
 import { EntityCard } from '../components/EntityCards';
 import { useAuth } from '../context/AuthContext';
@@ -32,50 +33,51 @@ const getAssemblyChronologicalScore = (assembly: any) => {
 export const EntityListPage: React.FC<ListPageProps> = ({ type, searchQuery = '' }) => {
   const { isViewerMode } = useAuth();
   const [entityToDelete, setEntityToDelete] = useState<any | null>(null);
+  const { 
+    persons, 
+    parties, 
+    alliances, 
+    assemblies, 
+    constituencies, 
+    designations 
+  } = useDbLookup();
 
-  const entities = useLiveQuery(async () => {
+  const entities = React.useMemo(() => {
     let results: any[] = [];
     switch (type) {
       case EntityType.PERSON: {
-        const list = await db.persons.toArray();
-        results = list.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
+        results = [...persons].sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
         break;
       }
       case EntityType.PARTY: {
-        const list = await db.parties.toArray();
-        results = list.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
+        results = [...parties].sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
         break;
       }
       case EntityType.ALLIANCE: {
-        const list = await db.alliances.toArray();
-        results = list.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
+        results = [...alliances].sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
         break;
       }
       case EntityType.ASSEMBLY: {
-        const assemblies = await db.assemblies.toArray();
-        results = assemblies.sort((a, b) => {
+        results = [...assemblies].sort((a, b) => {
           const scoreA = getAssemblyChronologicalScore(a);
           const scoreB = getAssemblyChronologicalScore(b);
           if (scoreB !== scoreA) {
             return scoreB - scoreA;
           }
-          // Fallback to active state first, then updatedAt
           if (a.isActive && !b.isActive) return -1;
           if (!a.isActive && b.isActive) return 1;
-          return b.updatedAt - a.updatedAt;
+          return (b.updatedAt || 0) - (a.updatedAt || 0);
         });
         break;
       }
       case EntityType.DESIGNATION: {
-        const list = await db.designations.toArray();
-        results = list
+        results = designations
           .filter(e => !e.constituencyId && e.id !== 'governor')
           .sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
         break;
       }
       case EntityType.CONSTITUENCY: {
-        const constituencies = await db.constituencies.toArray();
-        results = constituencies.sort((a, b) => {
+        results = [...constituencies].sort((a, b) => {
           const slA = parseInt(a.slNo) || 9999;
           const slB = parseInt(b.slNo) || 9999;
           if (slA !== slB) return slA - slB;
@@ -95,21 +97,24 @@ export const EntityListPage: React.FC<ListPageProps> = ({ type, searchQuery = ''
       e.subName?.toLowerCase().includes(query) ||
       e.constituency?.toLowerCase().includes(query)
     );
-  }, [type, searchQuery]);
+  }, [type, searchQuery, persons, parties, alliances, assemblies, constituencies, designations]);
 
   const handleDelete = async () => {
     if (!entityToDelete) return;
     
-    switch (type) {
-      case EntityType.PERSON: await db.persons.delete(entityToDelete.id); break;
-      case EntityType.PARTY: await db.parties.delete(entityToDelete.id); break;
-      case EntityType.ALLIANCE: await db.alliances.delete(entityToDelete.id); break;
-      case EntityType.ASSEMBLY: await db.assemblies.delete(entityToDelete.id); break;
-      case EntityType.DESIGNATION: await db.designations.delete(entityToDelete.id); break;
-      case EntityType.CONSTITUENCY: 
-        await db.constituencies.delete(entityToDelete.id); 
-        await reindexConstituencies();
-        break;
+    try {
+      switch (type) {
+        case EntityType.PERSON: await firestoreService.deletePerson(entityToDelete.id); break;
+        case EntityType.PARTY: await firestoreService.deleteParty(entityToDelete.id); break;
+        case EntityType.ALLIANCE: await firestoreService.deleteAlliance(entityToDelete.id); break;
+        case EntityType.ASSEMBLY: await firestoreService.deleteAssembly(entityToDelete.id); break;
+        case EntityType.DESIGNATION: await firestoreService.deleteDesignation(entityToDelete.id); break;
+        case EntityType.CONSTITUENCY: 
+          await firestoreService.deleteConstituency(entityToDelete.id); 
+          break;
+      }
+    } catch (err) {
+      console.error("Delete error:", err);
     }
     setEntityToDelete(null);
   };
