@@ -15,6 +15,7 @@ import { User, Flag, Shield, Landmark, X, MapPin, Award, Stamp } from 'lucide-re
 import { DbLookupProvider } from './context/DbLookupContext';
 import { ReleaseOrderModal } from './components/ReleaseOrderModal';
 import { SystemDateProvider } from './context/SystemDateContext';
+import { SettingsPage } from './pages/SettingsPage';
 
 function AppContent() {
   const { user } = useAuth();
@@ -49,6 +50,7 @@ function AppContent() {
           <Route path="/designations" element={<EntityListPage type={EntityType.DESIGNATION} searchQuery={searchQuery} />} />
           <Route path="/constituencies" element={<EntityListPage type={EntityType.CONSTITUENCY} searchQuery={searchQuery} />} />
           <Route path="/cabinet" element={<CabinetPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
           <Route path="/:type/:id" element={<EntityPage />} />
         </Routes>
       </Layout>

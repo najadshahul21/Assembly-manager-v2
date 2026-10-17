@@ -1080,5 +1080,27 @@ export const firestoreService = {
         console.error('Failed to ensure constitutional designations in firestore:', err);
       }
     }
+  },
+  clearAllData: async () => {
+    const user = auth.currentUser;
+    if (!user) throw new Error('No authenticated user');
+    const uid = user.uid;
+    const collections = [
+      'parties',
+      'alliances',
+      'assemblies',
+      'designations',
+      'persons',
+      'constituencies',
+      'orders'
+    ];
+
+    for (const colName of collections) {
+      const q = collection(db, 'users', uid, colName);
+      const snapshot = await getDocs(q);
+      for (const doc of snapshot.docs) {
+        await deleteDoc(doc.ref);
+      }
+    }
   }
 };

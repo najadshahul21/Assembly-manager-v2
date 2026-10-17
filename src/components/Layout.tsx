@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, Plus, Home, Users, Flag, Landmark, Shield, Menu, X, Award, MapPin, LogOut, Stamp, Network, Eye, EyeOff, Calendar, Pencil } from 'lucide-react';
+import { Search, Plus, Home, Users, Flag, Landmark, Shield, Menu, X, Award, MapPin, LogOut, Stamp, Network, Eye, EyeOff, Calendar, Pencil, Settings, CheckCircle2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useNavigate, useLocation } from 'react-router';
 import { useDbLookup } from '../context/DbLookupContext';
@@ -30,6 +30,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSearch, onPlusClick 
     { title: 'Alliances', icon: Shield, path: '/alliances' },
     { title: 'Parties', icon: Flag, path: '/parties' },
     { title: 'Constituencies', icon: MapPin, path: '/constituencies' },
+    { title: 'Settings', icon: Settings, path: '/settings' },
   ];
 
   const [showSlowLoad, setShowSlowLoad] = useState(false);
@@ -276,44 +277,54 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSearch, onPlusClick 
                 </div>
                 
                 <p className="text-xs text-gray-400 mb-6 leading-relaxed">
-                  Override the application's internal clock to record historical data or simulate future events.
+                  Override the application's internal clock. All future actions (creations, orders, suspensions) will be recorded on the chosen date.
                 </p>
 
                 <div className="space-y-4">
                   <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-gray-500 ml-1">Select Date</label>
+                    <label className="text-[10px] font-black uppercase tracking-widest text-gray-500 ml-1">Choose Target Date</label>
                     <input
                       type="date"
-                      value={systemDate.toISOString().split('T')[0]}
+                      defaultValue={systemDate.toISOString().split('T')[0]}
                       onChange={(e) => {
-                        const newDate = new Date(e.target.value);
-                        // Preserve current time if overriding
-                        const now = new Date();
-                        newDate.setHours(now.getHours(), now.getMinutes(), now.getSeconds());
-                        setSystemDate(newDate);
+                        (window as any)._pendingDate = e.target.value;
                       }}
                       className="w-full bg-[#1a1a1a] border border-[#FFD700]/10 rounded-2xl p-4 focus:outline-none focus:border-[#FFD700]/40 text-white font-bold"
                     />
                   </div>
 
                   <div className="flex flex-col gap-2 pt-4">
+                    <button
+                      onClick={() => {
+                        const val = (window as any)._pendingDate || systemDate.toISOString().split('T')[0];
+                        const newDate = new Date(val);
+                        const now = new Date();
+                        newDate.setHours(now.getHours(), now.getMinutes(), now.getSeconds());
+                        
+                        if (window.confirm(`Confirm date override to ${newDate.toLocaleDateString()}?\n\nThis will affect all historical records and timestamps for actions performed from now on.`)) {
+                          setSystemDate(newDate);
+                          setIsDatePickerOpen(false);
+                        }
+                      }}
+                      className="w-full py-4 rounded-2xl bg-[#D32F2F] text-white text-xs font-black uppercase tracking-widest shadow-lg shadow-[#D32F2F]/20 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+                    >
+                      <CheckCircle2 size={16} />
+                      Confirm & Apply Date
+                    </button>
+                    
                     {isDateOverridden && (
                       <button
                         onClick={() => {
-                          resetSystemDate();
-                          setIsDatePickerOpen(false);
+                          if (window.confirm("Reset system time to current real-time?")) {
+                            resetSystemDate();
+                            setIsDatePickerOpen(false);
+                          }
                         }}
                         className="w-full py-4 rounded-2xl bg-white/5 border border-white/10 text-xs font-black uppercase tracking-widest hover:bg-white/10 transition-all"
                       >
                         Reset to Real Time
                       </button>
                     )}
-                    <button
-                      onClick={() => setIsDatePickerOpen(false)}
-                      className="w-full py-4 rounded-2xl bg-[#D32F2F] text-white text-xs font-black uppercase tracking-widest shadow-lg shadow-[#D32F2F]/20 hover:scale-[1.02] active:scale-[0.98] transition-all"
-                    >
-                      Done
-                    </button>
                   </div>
                 </div>
               </div>
