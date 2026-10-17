@@ -185,13 +185,15 @@ export const EntityPage: React.FC = () => {
   const [vacateReasonType, setVacateReasonType] = useState<"resignation" | "expiry" | null>(null);
   const [confirmationDialog, setConfirmationDialog] = useState<{
     show: boolean;
+    loading: boolean;
     title: string;
     message: string;
-    onConfirm: () => void;
+    onConfirm: () => void | Promise<void>;
     confirmText?: string;
     isDestructive?: boolean;
   }>({
     show: false,
+    loading: false,
     title: "",
     message: "",
     onConfirm: () => {},
@@ -1122,16 +1124,22 @@ export const EntityPage: React.FC = () => {
     return false;
   }, [entity, entityType, assembliesList]);
 
-  const confirmAction = async (
+  const confirmAction = (
     title: string,
     message: string,
     action: () => Promise<void>,
     isDestructive?: boolean,
     confirmText?: string
   ) => {
-    if (window.confirm(`${title}\n\n${message}`)) {
-      await action();
-    }
+    setConfirmationDialog({
+      show: true,
+      loading: false,
+      title,
+      message,
+      onConfirm: action,
+      isDestructive,
+      confirmText,
+    });
   };
 
   const closeAppointPopup = () => {
@@ -1651,9 +1659,13 @@ export const EntityPage: React.FC = () => {
     }
   };
 
-  const handleSuspendPerson = async () => {
-    if (entityType !== EntityType.PERSON || !entity || !personsList) return;
+  const handleSuspendPerson = () => {
+    if (entityType !== EntityType.PERSON || !entity || !personsList) {
+      console.warn("Suspend Person aborted: Missing requirements", { entityType, entity, personsList: !!personsList });
+      return;
+    }
     const person = entity as Person;
+    console.log("Triggering Suspend Person for:", person.name);
     
     confirmAction(
       "Suspend Politician",
@@ -1742,19 +1754,30 @@ export const EntityPage: React.FC = () => {
           }
         }
 
+        console.log("Finalizing person record suspension for:", pId);
         await firestoreService.updatePerson(pId, {
-          isSuspended: true, designations: [], assemblyRoles, roleHistory,
-          constituencyName: undefined, mlaStatusText: "Suspended / Expired", updatedAt: now
+          isSuspended: true, 
+          designations: [], 
+          assemblyRoles, 
+          roleHistory,
+          constituencyName: null as any, 
+          mlaStatusText: "Suspended / Expired", 
+          updatedAt: now
         });
+        console.log("Person suspension complete.");
       },
       true,
       "Suspend"
     );
   };
 
-  const handleSuspendParty = async () => {
-    if (entityType !== EntityType.PARTY || !entity || !partiesList) return;
+  const handleSuspendParty = () => {
+    if (entityType !== EntityType.PARTY || !entity || !partiesList) {
+      console.warn("Suspend Party aborted: Missing requirements", { entityType, entity, partiesList: !!partiesList });
+      return;
+    }
     const party = entity as Party;
+    console.log("Triggering Suspend Party for:", party.name);
     confirmAction(
       "Suspend Political Party",
       `Are you sure you want to suspend ${party.name}? This will mark the party as suspended, clear its alliance affiliation, remove its legislative leader, and freeze its active statuses, keeping it strictly as a historical record.`,
@@ -1763,7 +1786,14 @@ export const EntityPage: React.FC = () => {
         const pId = party.id;
         const pRecord = partiesList.find(p => p.id === pId);
         if (!pRecord) throw new Error(`Party with ID ${pId} not found in database.`);
-        await firestoreService.updateParty(pId, { isSuspended: true, legislativeLeaderId: undefined, allianceId: "independent", chairman: "vacant", updatedAt: now });
+        console.log("Updating party record for suspension:", pId);
+        await firestoreService.updateParty(pId, { 
+          isSuspended: true, 
+          legislativeLeaderId: null as any, 
+          allianceId: "independent", 
+          chairman: "vacant", 
+          updatedAt: now 
+        });
         for (const al of (alliancesList || [])) {
           if (al.leadingPartyId === pId) await firestoreService.updateAlliance(al.id, { leadingPartyId: undefined, updatedAt: now });
         }
@@ -5327,23 +5357,46 @@ export const EntityPage: React.FC = () => {
                     Cancel
                   </button>
                   <button
+                    disabled={confirmationDialog.loading}
                     onClick={async () => {
+                      setConfirmationDialog(prev => ({ ...prev, loading: true }));
                       try {
+                        console.log("Executing confirmed action:", confirmationDialog.title);
                         await confirmationDialog.onConfirm();
+                        console.log("Action completed successfully");
+                        setConfirmationDialog((prev) => ({
+                          ...prev,
+                          show: false,
+                          loading: false
+                        }));
                       } catch (err) {
                         console.error("Confirmation action failed:", err);
+                        // Using a simple state for error feedback might be better than alert
                         alert(
                           `Action failed: ${err instanceof Error ? err.message : String(err)}`,
                         );
+                        setConfirmationDialog((prev) => ({
+                          ...prev,
+                          loading: false
+                        }));
                       }
-                      setConfirmationDialog((prev) => ({
-                        ...prev,
-                        show: false,
-                      }));
                     }}
-                    className={`flex-1 py-3 rounded-xl text-black font-black text-xs uppercase tracking-widest transition-all shadow-lg ${confirmationDialog.isDestructive ? "bg-red-500 shadow-red-500/20 hover:bg-red-600" : "bg-[#FFD700] shadow-[#FFD700]/20 hover:scale-105"}`}
+                    className={`flex-1 py-3 rounded-xl text-black font-black text-xs uppercase tracking-widest transition-all shadow-lg flex items-center justify-center gap-2 ${
+                      confirmationDialog.loading 
+                        ? "bg-gray-500 cursor-not-allowed opacity-50" 
+                        : confirmationDialog.isDestructive 
+                          ? "bg-red-500 shadow-red-500/20 hover:bg-red-600" 
+                          : "bg-[#FFD700] shadow-[#FFD700]/20 hover:scale-105"
+                    }`}
                   >
-                    {confirmationDialog.confirmText || "Confirm"}
+                    {confirmationDialog.loading ? (
+                      <>
+                        <span className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin" />
+                        <span>Processing...</span>
+                      </>
+                    ) : (
+                      confirmationDialog.confirmText || "Confirm"
+                    )}
                   </button>
                 </div>
               </div>

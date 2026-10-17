@@ -1,7 +1,10 @@
 export const getSystemTimestamp = (): number => {
   const overriddenDate = localStorage.getItem('app_system_date');
   if (overriddenDate) {
-    return new Date(overriddenDate).getTime();
+    const d = new Date(overriddenDate);
+    if (!isNaN(d.getTime())) {
+      return d.getTime();
+    }
   }
   return Date.now();
 };
