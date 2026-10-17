@@ -191,12 +191,14 @@ export const EntityPage: React.FC = () => {
     onConfirm: () => void | Promise<void>;
     confirmText?: string;
     isDestructive?: boolean;
+    error?: string | null;
   }>({
     show: false,
     loading: false,
     title: "",
     message: "",
     onConfirm: () => {},
+    error: null
   });
   const [showPromotePopup, setShowPromotePopup] = useState<{
     personId: string;
@@ -1139,6 +1141,7 @@ export const EntityPage: React.FC = () => {
       onConfirm: action,
       isDestructive,
       confirmText,
+      error: null
     });
   };
 
@@ -5341,9 +5344,15 @@ export const EntityPage: React.FC = () => {
                 <h3 className="text-xl font-bold mb-2 uppercase tracking-tight">
                   {confirmationDialog.title}
                 </h3>
-                <p className="text-gray-400 text-sm mb-8 leading-relaxed">
+                <p className="text-gray-400 text-sm mb-4 leading-relaxed">
                   {confirmationDialog.message}
                 </p>
+                {confirmationDialog.error && (
+                  <div className="mb-6 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-xs text-left overflow-auto max-h-32">
+                    <p className="font-bold mb-1">Action Failed:</p>
+                    <p className="whitespace-pre-wrap">{confirmationDialog.error}</p>
+                  </div>
+                )}
                 <div className="flex gap-3">
                   <button
                     onClick={() =>
@@ -5367,17 +5376,15 @@ export const EntityPage: React.FC = () => {
                         setConfirmationDialog((prev) => ({
                           ...prev,
                           show: false,
-                          loading: false
+                          loading: false,
+                          error: null
                         }));
                       } catch (err) {
                         console.error("Confirmation action failed:", err);
-                        // Using a simple state for error feedback might be better than alert
-                        alert(
-                          `Action failed: ${err instanceof Error ? err.message : String(err)}`,
-                        );
                         setConfirmationDialog((prev) => ({
                           ...prev,
-                          loading: false
+                          loading: false,
+                          error: err instanceof Error ? err.message : String(err)
                         }));
                       }
                     }}
