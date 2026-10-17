@@ -9,22 +9,33 @@ interface SystemDateContextType {
 
 const SystemDateContext = createContext<SystemDateContextType | undefined>(undefined);
 
-export const SystemDateProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [systemDate, setSystemDateInternal] = useState<Date>(new Date());
-  const [isDateOverridden, setIsDateOverridden] = useState(false);
+// Global fallback for non-React code (e.g. dateUtils.ts)
+let globalSystemDate: Date | null = null;
 
-  // Initialize from localStorage if exists
-  useEffect(() => {
-    const savedDate = localStorage.getItem('app_system_date');
-    if (savedDate) {
-      setSystemDateInternal(new Date(savedDate));
-      setIsDateOverridden(true);
+export const getGlobalSystemDate = (): Date | null => {
+  if (globalSystemDate) return globalSystemDate;
+  const saved = localStorage.getItem('app_system_date');
+  if (saved) {
+    const d = new Date(saved);
+    if (!isNaN(d.getTime())) {
+      globalSystemDate = d;
+      return d;
     }
-  }, []);
+  }
+  return null;
+};
+
+export const SystemDateProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [systemDate, setSystemDateInternal] = useState<Date>(() => {
+    const d = getGlobalSystemDate();
+    return d || new Date();
+  });
+  const [isDateOverridden, setIsDateOverridden] = useState(() => !!getGlobalSystemDate());
 
   const setSystemDate = (date: Date) => {
     setSystemDateInternal(date);
     setIsDateOverridden(true);
+    globalSystemDate = date;
     localStorage.setItem('app_system_date', date.toISOString());
   };
 
@@ -32,6 +43,7 @@ export const SystemDateProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     const now = new Date();
     setSystemDateInternal(now);
     setIsDateOverridden(false);
+    globalSystemDate = null;
     localStorage.removeItem('app_system_date');
   };
 

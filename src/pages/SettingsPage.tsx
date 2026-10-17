@@ -2,10 +2,12 @@ import React, { useState } from 'react';
 import { Download, Trash2, ShieldAlert, CheckCircle2, Loader2, Settings as SettingsIcon, AlertCircle, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useDbLookup } from '../context/DbLookupContext';
+import { useAuth } from '../context/AuthContext';
 import { firestoreService } from '../firestoreService';
 import JSZip from 'jszip';
 
 export const SettingsPage: React.FC = () => {
+  const { isViewerMode } = useAuth();
   const { persons, parties, alliances, assemblies, constituencies, orders } = useDbLookup();
   const [isDownloading, setIsDownloading] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
@@ -20,6 +22,8 @@ export const SettingsPage: React.FC = () => {
   };
 
   const handleOpenClearModal = () => {
+    if (isViewerMode) return;
+    console.log("Opening clear data modal...");
     setCaptchaValue(generateCaptcha());
     setUserInput('');
     setClearError(null);
@@ -36,17 +40,18 @@ export const SettingsPage: React.FC = () => {
     setIsClearing(true);
     setClearError(null);
     try {
-      console.log("Initiating full database purge...");
+      console.log("CRITICAL: Initiating full database purge as requested by user...");
       await firestoreService.clearAllData();
-      console.log("Database purge successful.");
+      console.log("SUCCESS: Database purge completed successfully.");
       
-      // Briefly show success before redirecting
+      // Briefly show success before redirecting to dashboard
       setTimeout(() => {
-        window.location.href = '/?reset=success';
-      }, 1000);
+        window.location.href = '/?reset=success&t=' + Date.now();
+      }, 1500);
     } catch (err: any) {
-      console.error("Purge failed:", err);
-      setClearError(err.message || 'Failed to clear database. Please check your connection and permissions.');
+      console.error("FATAL: Purge failed:", err);
+      const errorMessage = err?.message || String(err);
+      setClearError(`Failed to clear database: ${errorMessage}. Please ensure you are online and have owner permissions.`);
       setIsClearing(false);
     }
   };
@@ -182,7 +187,7 @@ export const SettingsPage: React.FC = () => {
 
       {/* Danger Zone Section */}
       <section className="glass-card p-8 border-red-500/10 relative overflow-hidden group">
-        <div className="absolute inset-0 bg-gradient-to-br from-red-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+        <div className="absolute inset-0 bg-gradient-to-br from-red-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
         <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none">
           <Trash2 size={120} />
         </div>
@@ -197,10 +202,15 @@ export const SettingsPage: React.FC = () => {
 
         <button
           onClick={handleOpenClearModal}
-          className="px-8 py-4 rounded-2xl bg-red-600/10 hover:bg-red-600 text-red-500 hover:text-white border border-red-500/20 font-black uppercase tracking-widest text-xs transition-all flex items-center gap-3 shadow-lg shadow-red-500/10 cursor-pointer"
+          disabled={isViewerMode}
+          className={`px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-xs transition-all flex items-center gap-3 shadow-lg ${
+            isViewerMode
+              ? 'bg-white/5 text-zinc-600 border border-white/5 cursor-not-allowed'
+              : 'bg-red-600/10 hover:bg-red-600 text-red-500 hover:text-white border border-red-500/20 shadow-red-500/10 cursor-pointer'
+          }`}
         >
           <Trash2 size={18} />
-          Wipe Registry Database
+          {isViewerMode ? 'Registry Wipe Restricted' : 'Wipe Registry Database'}
         </button>
       </section>
 
@@ -276,11 +286,11 @@ export const SettingsPage: React.FC = () => {
                     <div className="flex flex-col gap-3 pt-4">
                       <button
                         onClick={handleClearData}
-                        disabled={isClearing || userInput.length !== 6}
+                        disabled={isClearing || userInput.trim().length !== 6}
                         className={`w-full py-5 rounded-2xl font-black uppercase tracking-widest text-xs transition-all flex items-center justify-center gap-3 ${
-                          isClearing || userInput.length !== 6
-                            ? 'bg-white/5 text-gray-600 border border-white/5 cursor-not-allowed'
-                            : 'bg-red-600 text-white shadow-xl shadow-red-600/30 hover:scale-[1.02] active:scale-[0.98]'
+                          isClearing || userInput.trim().length !== 6
+                            ? 'bg-white/5 text-zinc-600 border border-white/5 cursor-not-allowed'
+                            : 'bg-red-600 text-white shadow-xl shadow-red-600/30 hover:scale-[1.02] active:scale-[0.98] cursor-pointer'
                         }`}
                       >
                         {isClearing ? (

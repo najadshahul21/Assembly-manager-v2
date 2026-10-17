@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, Plus, Home, Users, Flag, Landmark, Shield, Menu, X, Award, MapPin, LogOut, Stamp, Network, Eye, EyeOff, Calendar, Pencil, Settings, CheckCircle2 } from 'lucide-react';
+import { Search, Plus, Home, Users, Flag, Landmark, Shield, Menu, X, Award, MapPin, LogOut, Stamp, Eye, EyeOff, Calendar, Pencil, Settings, CheckCircle2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useNavigate, useLocation } from 'react-router';
 import { useDbLookup } from '../context/DbLookupContext';
@@ -15,6 +15,10 @@ interface LayoutProps {
 export const Layout: React.FC<LayoutProps> = ({ children, onSearch, onPlusClick }) => {
   const [isSidebarOpen, setSidebarOpen] = useState(false);
   const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
+  const [showDateConfirm, setShowDateConfirmation] = useState(false);
+  const [pendingNewDate, setPendingNewDate] = useState<Date | null>(null);
+  const [isResettingDate, setIsResettingDate] = useState(false);
+
   const navigate = useNavigate();
   const location = useLocation();
   const { loaded } = useDbLookup();
@@ -173,7 +177,10 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSearch, onPlusClick 
           </div>
           <div className="flex items-center gap-3 sm:gap-4 ml-4">
             <button
-              onClick={() => setIsDatePickerOpen(true)}
+              onClick={() => {
+                setShowDateConfirmation(false);
+                setIsDatePickerOpen(true);
+              }}
               title="Change Database Date (Set System Time)"
               className={`p-2 rounded-xl border transition-all flex items-center gap-2 relative ${
                 isDateOverridden 
@@ -254,7 +261,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSearch, onPlusClick 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              onClick={() => setIsDatePickerOpen(false)}
+              onClick={() => !showDateConfirm && setIsDatePickerOpen(false)}
               className="absolute inset-0 bg-black/80 backdrop-blur-md"
             />
             <motion.div
@@ -281,51 +288,94 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSearch, onPlusClick 
                 </p>
 
                 <div className="space-y-4">
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-gray-500 ml-1">Choose Target Date</label>
-                    <input
-                      type="date"
-                      defaultValue={systemDate.toISOString().split('T')[0]}
-                      onChange={(e) => {
-                        (window as any)._pendingDate = e.target.value;
-                      }}
-                      className="w-full bg-[#1a1a1a] border border-[#FFD700]/10 rounded-2xl p-4 focus:outline-none focus:border-[#FFD700]/40 text-white font-bold"
-                    />
-                  </div>
+                  {!showDateConfirm ? (
+                    <>
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-gray-500 ml-1">Choose Target Date</label>
+                        <input
+                          type="date"
+                          defaultValue={systemDate.toISOString().split('T')[0]}
+                          onChange={(e) => {
+                            (window as any)._pendingDateString = e.target.value;
+                          }}
+                          className="w-full bg-[#1a1a1a] border border-[#FFD700]/10 rounded-2xl p-4 focus:outline-none focus:border-[#FFD700]/40 text-white font-bold"
+                        />
+                      </div>
 
-                  <div className="flex flex-col gap-2 pt-4">
-                    <button
-                      onClick={() => {
-                        const val = (window as any)._pendingDate || systemDate.toISOString().split('T')[0];
-                        const newDate = new Date(val);
-                        const now = new Date();
-                        newDate.setHours(now.getHours(), now.getMinutes(), now.getSeconds());
+                      <div className="flex flex-col gap-2 pt-4">
+                        <button
+                          onClick={() => {
+                            const val = (window as any)._pendingDateString || systemDate.toISOString().split('T')[0];
+                            const newDate = new Date(val);
+                            const now = new Date();
+                            // Keep current time for better sorting within the day
+                            newDate.setHours(now.getHours(), now.getMinutes(), now.getSeconds());
+                            setPendingNewDate(newDate);
+                            setShowDateConfirmation(true);
+                          }}
+                          className="w-full py-4 rounded-2xl bg-[#D32F2F] text-white text-xs font-black uppercase tracking-widest shadow-lg shadow-[#D32F2F]/20 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+                        >
+                          <CheckCircle2 size={16} />
+                          Apply Date...
+                        </button>
                         
-                        if (window.confirm(`Confirm date override to ${newDate.toLocaleDateString()}?\n\nThis will affect all historical records and timestamps for actions performed from now on.`)) {
-                          setSystemDate(newDate);
-                          setIsDatePickerOpen(false);
-                        }
-                      }}
-                      className="w-full py-4 rounded-2xl bg-[#D32F2F] text-white text-xs font-black uppercase tracking-widest shadow-lg shadow-[#D32F2F]/20 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+                        {isDateOverridden && (
+                          <button
+                            onClick={() => {
+                              setIsResettingDate(true);
+                              setShowDateConfirmation(true);
+                            }}
+                            className="w-full py-4 rounded-2xl bg-white/5 border border-white/10 text-xs font-black uppercase tracking-widest hover:bg-white/10 transition-all"
+                          >
+                            Reset to Real Time
+                          </button>
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    <motion.div 
+                      initial={{ opacity: 0, x: 20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      className="space-y-6 text-center"
                     >
-                      <CheckCircle2 size={16} />
-                      Confirm & Apply Date
-                    </button>
-                    
-                    {isDateOverridden && (
-                      <button
-                        onClick={() => {
-                          if (window.confirm("Reset system time to current real-time?")) {
-                            resetSystemDate();
+                      <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-2xl">
+                        <p className="text-xs text-amber-200 leading-relaxed font-medium">
+                          {isResettingDate 
+                            ? "Are you sure you want to return to real-time synchronization? All new records will use the current live time."
+                            : `Confirm override to ${pendingNewDate?.toLocaleDateString()}? This affects all historical logs recorded from this point forward.`}
+                        </p>
+                      </div>
+                      <div className="flex flex-col gap-2">
+                        <button
+                          onClick={() => {
+                            if (isResettingDate) {
+                              resetSystemDate();
+                            } else if (pendingNewDate) {
+                              setSystemDate(pendingNewDate);
+                            }
                             setIsDatePickerOpen(false);
-                          }
-                        }}
-                        className="w-full py-4 rounded-2xl bg-white/5 border border-white/10 text-xs font-black uppercase tracking-widest hover:bg-white/10 transition-all"
-                      >
-                        Reset to Real Time
-                      </button>
-                    )}
-                  </div>
+                            setShowDateConfirmation(false);
+                            setPendingNewDate(null);
+                            setIsResettingDate(false);
+                            // Refresh page to ensure all contexts/memos are updated
+                            window.location.reload();
+                          }}
+                          className="w-full py-4 rounded-2xl bg-[#FFD700] text-black text-xs font-black uppercase tracking-widest shadow-lg shadow-[#FFD700]/20 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer"
+                        >
+                          Confirm Change
+                        </button>
+                        <button
+                          onClick={() => {
+                            setShowDateConfirmation(false);
+                            setIsResettingDate(false);
+                          }}
+                          className="w-full py-4 rounded-2xl bg-white/5 text-gray-400 text-[10px] font-black uppercase tracking-widest hover:text-white transition-colors cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </motion.div>
+                  )}
                 </div>
               </div>
             </motion.div>

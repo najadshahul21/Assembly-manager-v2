@@ -311,7 +311,12 @@ export const LegislativeRolesHistoryWidget: React.FC<LegislativeRolesHistoryWidg
 
     if (isCurrentSpeaker) {
       const gov = resolveGovernor(activeAssembly);
-      const assumedDate = isShamseer ? '12 September 2022' : '25 May 2021';
+      const speakerHistory = (person.roleHistory || []).filter(h => h.role.toLowerCase().includes('speaker') && h.action === 'promotion');
+      let assumedDate = isShamseer ? '12 September 2022' : '25 May 2021';
+      if (speakerHistory.length > 0) {
+        assumedDate = formatOfficeDisplayDate(Math.max(...speakerHistory.map(h => h.date)));
+      }
+      
       const mbrajesh = allPersons.find(
         (p) => p.id === 'm-b-rajesh' || (p.name.toLowerCase().includes('rajesh') && p.name.toLowerCase().includes('m'))
       );
@@ -386,6 +391,11 @@ export const LegislativeRolesHistoryWidget: React.FC<LegislativeRolesHistoryWidg
     if (isCurrentDeputySpeaker) {
       const gov = resolveGovernor(activeAssembly);
       const currentSpeaker = resolveSpeakerForDeputy(activeAssembly, true);
+      const dspkHistory = (person.roleHistory || []).filter(h => h.role.toLowerCase().includes('deputy speaker') && h.action === 'promotion');
+      let assumedDate = '1 June 2021';
+      if (dspkHistory.length > 0) {
+        assumedDate = formatOfficeDisplayDate(Math.max(...dspkHistory.map(h => h.date)));
+      }
 
       cards.push({
         id: `deputy_speaker_active_${person.id}`,
@@ -439,6 +449,11 @@ export const LegislativeRolesHistoryWidget: React.FC<LegislativeRolesHistoryWidg
     if (isCurrentDeputyCM) {
       const gov = resolveGovernor(activeAssembly);
       const cm = resolveChiefMinister(activeAssembly);
+      const dcmHistory = (person.roleHistory || []).filter(h => h.role.toLowerCase().includes('deputy chief minister') && h.action === 'promotion');
+      let assumedDate = '20 May 2021';
+      if (dcmHistory.length > 0) {
+        assumedDate = formatOfficeDisplayDate(Math.max(...dcmHistory.map(h => h.date)));
+      }
 
       cards.push({
         id: `deputy_cm_active_${person.id}`,
@@ -552,8 +567,11 @@ export const LegislativeRolesHistoryWidget: React.FC<LegislativeRolesHistoryWidg
 
       if (!isFormer) {
         // Active Minister
+        const ministerHistory = (person.roleHistory || []).filter(h => h.role.toLowerCase().includes('minister') && h.action === 'promotion');
         let assumedDate = '20 May 2021';
-        if (lowerPersonName.includes('ganesh kumar') || lowerPersonName.includes('kadannappalli')) {
+        if (ministerHistory.length > 0) {
+          assumedDate = formatOfficeDisplayDate(Math.max(...ministerHistory.map(h => h.date)));
+        } else if (lowerPersonName.includes('ganesh kumar') || lowerPersonName.includes('kadannappalli')) {
           assumedDate = '29 December 2023';
         } else if (lowerPersonName.includes('kelu')) {
           assumedDate = '23 June 2024';
@@ -620,6 +638,11 @@ export const LegislativeRolesHistoryWidget: React.FC<LegislativeRolesHistoryWidg
 
       // Leader of Opposition
       if (leaders.leaderOfOpposition === person.id || (isSatheesan && !leaders.leaderOfOpposition)) {
+        const lopHistory = (person.roleHistory || []).filter(h => h.role.toLowerCase().includes('opposition') && h.action === 'promotion');
+        let assumedDate = '22 May 2021';
+        if (lopHistory.length > 0) {
+          assumedDate = formatOfficeDisplayDate(Math.max(...lopHistory.map(h => h.date)));
+        }
         cards.push({
           id: `desig_lo_active`,
           roleType: 'designation',
@@ -634,6 +657,11 @@ export const LegislativeRolesHistoryWidget: React.FC<LegislativeRolesHistoryWidg
 
       // Chief Minister
       if (leaders.chiefMinister === person.id || (isPinarayi && !leaders.chiefMinister)) {
+        const cmHistory = (person.roleHistory || []).filter(h => h.role.toLowerCase().includes('chief minister') && h.action === 'promotion');
+        let assumedDate = '25 May 2016';
+        if (cmHistory.length > 0) {
+          assumedDate = formatOfficeDisplayDate(Math.max(...cmHistory.map(h => h.date)));
+        }
         cards.push({
           id: `desig_cm_active`,
           roleType: 'designation',
@@ -795,26 +823,39 @@ export const LegislativeRolesHistoryWidget: React.FC<LegislativeRolesHistoryWidg
       personId: string,
       currentAssembly?: Assembly | null
     ): string => {
-      const lowerCon = con.name?.toLowerCase() || '';
+      // 1. Check history for the most recent streak of this person in this constituency
+      if (Array.isArray(con.history) && con.history.length > 0) {
+        const sortedHistory = [...con.history].sort((a, b) => (b.date || 0) - (a.date || 0));
+        // Find the start of the current continuous incumbency
+        let streakStartDate: number | null = null;
+        for (const entry of sortedHistory) {
+          if (entry.personId === personId) {
+            streakStartDate = entry.date;
+          } else if (entry.personId !== 'vacant') {
+            // Found someone else, so the streak started at the entry AFTER this one in chronological order
+            // (but we are going reverse, so we stop here)
+            break;
+          }
+        }
+        if (streakStartDate) {
+          return formatOfficeDisplayDate(streakStartDate);
+        }
+      }
 
+      // 2. Check person's own role history for this specific constituency role
+      const mlaRoleName = `MLA for ${con.name}`;
+      const personHistory = (person.roleHistory || []).filter(h => h.role === mlaRoleName && h.action === 'appointment');
+      if (personHistory.length > 0) {
+        return formatOfficeDisplayDate(Math.max(...personHistory.map(h => h.date)));
+      }
+
+      // 3. Fallback to hardcoded historical dates for famous figures
+      const lowerCon = con.name?.toLowerCase() || '';
       if (lowerCon.includes('paravur') || isSatheesan) return '13 May 2001';
       if (lowerCon.includes('dharmadam') || isPinarayi) return '25 May 2016';
       if (lowerCon.includes('puthuppally') && isOommenChandy) return '17 September 1970';
 
-      if (Array.isArray(con.history) && con.history.length > 0) {
-        const sortedHistory = [...con.history].sort((a, b) => (a.date || 0) - (b.date || 0));
-        let lastOtherIdx = -1;
-        for (let i = 0; i < sortedHistory.length; i++) {
-          if (sortedHistory[i].personId !== personId && sortedHistory[i].personId !== 'vacant') {
-            lastOtherIdx = i;
-          }
-        }
-        const streakEntries = sortedHistory.slice(lastOtherIdx + 1).filter((h) => h.personId === personId);
-        if (streakEntries.length > 0 && streakEntries[0].date) {
-          return formatOfficeDisplayDate(streakEntries[0].date);
-        }
-      }
-
+      // 4. Other fallbacks
       if (con.lastElectionResult?.electionDate) {
         return formatOfficeDisplayDate(con.lastElectionResult.electionDate);
       }

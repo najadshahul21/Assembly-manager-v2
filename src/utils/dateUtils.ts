@@ -1,10 +1,13 @@
+import { getGlobalSystemDate } from '../context/SystemDateContext';
+
 export const getSystemTimestamp = (): number => {
-  const overriddenDate = localStorage.getItem('app_system_date');
-  if (overriddenDate) {
-    const d = new Date(overriddenDate);
-    if (!isNaN(d.getTime())) {
-      return d.getTime();
+  try {
+    const overriddenDate = getGlobalSystemDate();
+    if (overriddenDate) {
+      return overriddenDate.getTime();
     }
+  } catch (e) {
+    console.error('Error reading system date:', e);
   }
   return Date.now();
 };

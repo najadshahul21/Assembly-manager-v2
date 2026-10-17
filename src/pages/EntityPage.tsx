@@ -70,6 +70,7 @@ import { LegislativeSessionsTable } from "../components/LegislativeSessionsTable
 import { buildLegislativeSessionsList, extractOrdinal } from "../data/legislativeHistoryData";
 import { LegislativeRolesHistoryWidget } from "../components/LegislativeRolesHistoryWidget";
 import { formatAppDate, formatAppDateTime, getSystemTimestamp } from "../utils/dateUtils";
+import { useSystemDate } from "../context/SystemDateContext";
 
 const getAssemblyChronologicalScore = (assembly?: Assembly | null) => {
   if (!assembly) return 0;
@@ -150,6 +151,7 @@ import { useAuth } from "../context/AuthContext";
 
 export const EntityPage: React.FC = () => {
   const { isViewerMode } = useAuth();
+  const { systemDate } = useSystemDate();
   const { type, id } = useParams<{ type: string; id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
@@ -1096,7 +1098,7 @@ export const EntityPage: React.FC = () => {
     });
 
     return sorted;
-  }, [id, entityType, constituenciesList, personsList, partiesList, alliancesList, assembliesList, assemblyPerformance]);
+  }, [id, entityType, constituenciesList, personsList, partiesList, alliancesList, assembliesList, assemblyPerformance, systemDate]);
 
   const alliancesInAssembly = React.useMemo(() => {
     if (entityType !== EntityType.ASSEMBLY || !assemblySeats) return [];
