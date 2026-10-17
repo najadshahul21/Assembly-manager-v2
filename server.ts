@@ -8,13 +8,19 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 
+// Request logging middleware
+app.use((req, _res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+  next();
+});
+
 const distPath = path.join(__dirname, 'dist');
 const indexPath = path.join(distPath, 'index.html');
 const rootIndexPath = path.join(__dirname, 'index.html');
 
 // Health check endpoints for Cloud Run and internal probes
 app.get(['/healthz', '/health', '/api/health'], (_req, res) => {
-  res.status(200).send('OK');
+  res.status(200).json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
 // Serve static assets from Vite build output if present
