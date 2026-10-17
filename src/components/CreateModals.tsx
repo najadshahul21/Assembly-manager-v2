@@ -607,7 +607,7 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
       if (type === EntityType.PERSON) {
         const payload: any = {
           id,
-          name: data.name,
+          name: data.name || '',
           gender: data.gender || '',
           imageUrl: data.imageUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${data.name}`,
           partyId: data.partyId || 'independent',
@@ -620,10 +620,10 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
       } else if (type === EntityType.PARTY) {
         const payload: any = {
           id,
-          name: data.name,
+          name: data.name || '',
           logoUrl: data.logoUrl || `https://api.dicebear.com/7.x/initials/svg?seed=${data.name}`,
-          abbreviation: data.abbreviation,
-          chairman: data.chairman,
+          abbreviation: data.abbreviation || '',
+          chairman: data.chairman || '',
           allianceId: data.allianceId || 'independent',
           colors: Array.isArray(data.colors) ? data.colors.map((c: any) => c.value) : [],
           isSuspended: editData?.isSuspended || false,
@@ -654,13 +654,13 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
 
         const payload: any = {
           id,
-          name: data.name,
+          name: data.name || '',
           logoUrl: data.logoUrl || `https://api.dicebear.com/7.x/shapes/svg?seed=${data.name}`,
-          abbreviation: data.abbreviation,
-          leaderId: data.leaderId,
-          chairmanId: data.chairmanId,
-          founderId: data.founderId,
-          leadingPartyId: data.leadingPartyId,
+          abbreviation: data.abbreviation || '',
+          leaderId: data.leaderId || '',
+          chairmanId: data.chairmanId || '',
+          founderId: data.founderId || '',
+          leadingPartyId: data.leadingPartyId || '',
           colors: [data.color || '#D32F2F'],
           highCommandIds: editData?.highCommandIds || [],
           updatedAt: now
@@ -784,24 +784,24 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
         const payload: any = {
           id,
           slNo: nextSlNo,
-          name: data.name,
-          subName: data.subName,
+          name: data.name || '',
+          subName: data.subName || '',
           logoUrl: data.logoUrl || `https://api.dicebear.com/7.x/identicon/svg?seed=${data.name}`,
-          termLimits: data.termLimits,
-          description: data.description,
-          partyControlId: data.partyControlId,
+          termLimits: data.termLimits || '',
+          description: data.description || '',
+          partyControlId: data.partyControlId || '',
           leaders: {
-            speaker: data.speaker,
-            deputySpeaker: data.deputySpeaker,
-            chiefMinister: data.chiefMinister,
-            deputyChiefMinister: data.deputyChiefMinister,
-            leaderOfOpposition: data.leaderOfOpposition,
-            deputyLeaderOfOpposition: data.deputyLeaderOfOpposition,
-            chiefSecretary: data.chiefSecretary
+            speaker: data.speaker || 'vacant',
+            deputySpeaker: data.deputySpeaker || 'vacant',
+            chiefMinister: data.chiefMinister || 'vacant',
+            deputyChiefMinister: data.deputyChiefMinister || 'vacant',
+            leaderOfOpposition: data.leaderOfOpposition || 'vacant',
+            deputyLeaderOfOpposition: data.deputyLeaderOfOpposition || 'vacant',
+            chiefSecretary: data.chiefSecretary || 'vacant'
           },
           updatedAt: now,
           isActive: isActive,
-          precededById: data.precededById
+          precededById: data.precededById || ''
         };
         await firestoreService.saveAssembly(payload);
 
@@ -943,11 +943,11 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
 
           const payload: any = {
             id,
-            name: data.name,
+            name: data.name || '',
             incumbentId: data.incumbentId || 'vacant',
-            assemblyId: data.assemblyId,
-            dateOfSigning: data.dateOfSigning,
-            constituency: data.constituency,
+            assemblyId: data.assemblyId || '',
+            dateOfSigning: data.dateOfSigning || '',
+            constituency: data.constituency || '',
             history: history.length > 0 ? history : (data.incumbentId && data.incumbentId !== 'vacant' ? [{ personId: data.incumbentId, reason: 'appointment', date: now }] : []),
             updatedAt: now
           };
@@ -991,19 +991,19 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
         const payload: any = {
           id,
           slNo: isEdit ? (data.slNo || editData?.slNo) : (constituenciesCount + 1).toString().padStart(3, '0'),
-          name: data.name,
+          name: data.name || '',
           currentIncumbentId: isEdit ? (editData?.currentIncumbentId || 'vacant') : 'vacant',
           currentAssemblyId: isEdit ? (editData?.currentAssemblyId || activeAssembly?.id) : activeAssembly?.id,
           createdInAssemblyId: isEdit
             ? (editData?.createdInAssemblyId || getConstituencyCreationAssembly(editData, assemblies)?.id || editData?.currentAssemblyId || activeAssembly?.id)
             : (activeAssembly?.id || undefined),
-          imageUrl: data.imageUrl !== undefined ? data.imageUrl : editData?.imageUrl,
-          imageCaption: data.imageCaption !== undefined ? data.imageCaption : editData?.imageCaption,
+          imageUrl: data.imageUrl !== undefined ? data.imageUrl : (editData?.imageUrl || ''),
+          imageCaption: data.imageCaption !== undefined ? data.imageCaption : (editData?.imageCaption || ''),
           country: data.country || editData?.country || 'India',
           state: data.state || editData?.state || (activeAssembly as any)?.state || '',
           history: isEdit ? (editData?.history || []) : [],
           lastElectionResult: isEdit ? editData?.lastElectionResult : undefined,
-          localBodies: localBodiesParsed,
+          localBodies: localBodiesParsed || [],
           updatedAt: now
         };
         await firestoreService.saveConstituency(payload);

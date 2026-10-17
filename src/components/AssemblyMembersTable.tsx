@@ -18,6 +18,8 @@ import {
   prefixRole,
   formatPersonName,
 } from "../utils/governmentUtils";
+import { formatAppDate } from "../utils/dateUtils";
+import { useSystemDate } from "../context/SystemDateContext";
 
 export interface AssemblySeatItem {
   constituency: Constituency;
@@ -100,6 +102,7 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
   onSupportAlliance,
 }) => {
   const navigate = useNavigate();
+  const { isDateOverridden } = useSystemDate();
   const [searchTerm, setSearchTerm] = useState("");
   const [activeFilter, setActiveFilter] = useState<"all" | "occupied" | "vacant" | "remarks">("all");
   const [sortColumn, setSortColumn] = useState<SortColumn>("no");
@@ -802,20 +805,9 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
                                   </span>
                                 )}
                                 
-                                {inc.isByelected && (
+                                {((isPrimary && isDateOverridden) || inc.isByelected) && !inc.removalDate && inc.electionDate && (
                                   <span className="text-[10px] text-emerald-500 font-bold leading-tight italic break-words whitespace-normal">
-                                    (Assumed office{inc.electionDate ? ` on ${(() => {
-                                      const d = new Date(inc.electionDate);
-                                      const day = d.getDate();
-                                      const month = d.toLocaleString('en-GB', { month: 'long' });
-                                      const year = d.getFullYear();
-                                      const getOrdinal = (n: number) => {
-                                        const s = ['th', 'st', 'nd', 'rd'];
-                                        const v = n % 100;
-                                        return n + (s[(v - 20) % 10] || s[v] || s[0]);
-                                      };
-                                      return `${getOrdinal(day)} ${month} ${year}`;
-                                    })()}` : ' as Bye Elected'})
+                                    (Assumed office on {formatAppDate(inc.electionDate)})
                                   </span>
                                 )}
                               </div>

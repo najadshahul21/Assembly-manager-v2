@@ -3,8 +3,8 @@ import {
   doc, 
   getDocs, 
   getDoc, 
-  setDoc, 
-  updateDoc, 
+  setDoc as firebaseSetDoc, 
+  updateDoc as firebaseUpdateDoc, 
   deleteDoc, 
   query, 
   where, 
@@ -64,6 +64,23 @@ interface FirestoreErrorInfo {
     }[];
   }
 }
+
+function sanitizeData(data: any): any {
+  if (data === null || typeof data !== 'object') return data;
+  if (Array.isArray(data)) return data.map(item => sanitizeData(item));
+  
+  const result: any = {};
+  Object.keys(data).forEach(key => {
+    const value = data[key];
+    if (value !== undefined) {
+      result[key] = sanitizeData(value);
+    }
+  });
+  return result;
+}
+
+const setDoc = (docRef: any, data: any) => firebaseSetDoc(docRef, sanitizeData(data));
+const updateDoc = (docRef: any, data: any) => firebaseUpdateDoc(docRef, sanitizeData(data));
 
 function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null): never {
   const errInfo: FirestoreErrorInfo = {

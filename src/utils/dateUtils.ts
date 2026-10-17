@@ -1,11 +1,8 @@
-import { getGlobalSystemDate } from '../context/SystemDateContext';
+import { getGlobalSystemTimestamp } from './systemDateState';
 
 export const getSystemTimestamp = (): number => {
   try {
-    const overriddenDate = getGlobalSystemDate();
-    if (overriddenDate) {
-      return overriddenDate.getTime();
-    }
+    return getGlobalSystemTimestamp();
   } catch (e) {
     console.error('Error reading system date:', e);
   }

@@ -33,6 +33,8 @@ export const SettingsPage: React.FC = () => {
   const handleClearData = async () => {
     const trimmedInput = userInput.trim();
     if (trimmedInput !== captchaValue) {
+      setCaptchaValue(generateCaptcha());
+      setUserInput('');
       setClearError('Invalid verification code. Please try again.');
       return;
     }
@@ -40,19 +42,23 @@ export const SettingsPage: React.FC = () => {
     setIsClearing(true);
     setClearError(null);
     try {
-      console.log("CRITICAL: Initiating full database purge as requested by user...");
+      console.log("CRITICAL: Initiating full database purge...");
       await firestoreService.clearAllData();
-      console.log("SUCCESS: Database purge completed successfully.");
+      console.log("SUCCESS: Database purge completed.");
       
-      // Briefly show success before redirecting to dashboard
+      // Briefly show success before redirecting
+      setClearError('SUCCESS: Database purged. Redirecting...');
+      
       setTimeout(() => {
         window.location.href = '/?reset=success&t=' + Date.now();
       }, 1500);
     } catch (err: any) {
       console.error("FATAL: Purge failed:", err);
       const errorMessage = err?.message || String(err);
-      setClearError(`Failed to clear database: ${errorMessage}. Please ensure you are online and have owner permissions.`);
+      setClearError(`Failed to clear database: ${errorMessage}. Please check your permissions.`);
       setIsClearing(false);
+      setCaptchaValue(generateCaptcha());
+      setUserInput('');
     }
   };
 

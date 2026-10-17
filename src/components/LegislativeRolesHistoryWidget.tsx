@@ -2,7 +2,8 @@ import React, { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useDbLookup } from '../context/DbLookupContext';
 import { Person, Assembly, Constituency, Designation } from '../types';
-import { formatAppDate } from '../utils/dateUtils';
+import { formatAppDate, getSystemTimestamp } from '../utils/dateUtils';
+import { useSystemDate } from '../context/SystemDateContext';
 
 interface LegislativeRolesHistoryWidgetProps {
   person: Person;
@@ -39,7 +40,6 @@ export interface LegislativeRoleCardData {
 
 /**
  * Format date cleanly as "DD Month YYYY" (e.g. "13 May 2001")
- * Matching the exact typography in the provided reference screenshot.
  */
 const formatOfficeDisplayDate = (dateVal: any): string => {
   if (!dateVal) return '';
@@ -49,17 +49,10 @@ const formatOfficeDisplayDate = (dateVal: any): string => {
     if (/^\d{1,2}\s+[A-Za-z]+\s+\d{4}$/.test(trimmed)) {
       return trimmed;
     }
-    // If in "DD/Month/YYYY" or "DD-Month-YYYY" format
-    const slashMatch = trimmed.match(/^(\d{1,2})[/-]([A-Za-z]+)[/-](\d{4})$/);
-    if (slashMatch) {
-      return `${parseInt(slashMatch[1], 10)} ${slashMatch[2]} ${slashMatch[3]}`;
-    }
   }
   const appDate = formatAppDate(dateVal);
-  const slashMatch = appDate.match(/^(\d{1,2})\/([A-Za-z]+)\/(\d{4})$/);
-  if (slashMatch) {
-    return `${parseInt(slashMatch[1], 10)} ${slashMatch[2]} ${slashMatch[3]}`;
-  }
+  // Convert "DD/MM/YYYY" or "DD MMM YYYY" to clean format if needed
+  // formatAppDate returns "DD MMM YYYY" (e.g. "17 Oct 2026")
   return appDate;
 };
 
@@ -76,8 +69,7 @@ const getCleanAssemblyName = (rawName?: string): string => {
 };
 
 /**
- * Two-tone title header matching the reference screenshot:
- * Blue (#7B96D4) and white typography with proper two-tone contrast
+ * Two-tone title header matching the reference design
  */
 const renderRoleTitleHeader = (card: LegislativeRoleCardData) => {
   const cleanAsm = getCleanAssemblyName(card.respectiveAssemblyName);
@@ -164,7 +156,6 @@ const renderRoleTitleHeader = (card: LegislativeRoleCardData) => {
     );
   }
 
-  // Generic Designation title (e.g., "Leader of the Opposition", "Chief Minister of Kerala")
   const ofMatch = card.roleTitle.match(/^(.*?)\s+(of(?: the)?)\s+(.*)$/i);
   if (ofMatch) {
     return (
@@ -188,21 +179,19 @@ export const LegislativeRolesHistoryWidget: React.FC<LegislativeRolesHistoryWidg
   className = ''
 }) => {
   const navigate = useNavigate();
+  const { systemDate } = useSystemDate();
 
   const { assemblies: allAssemblies, constituencies: allConstituencies, persons: allPersons, designations: allDesignations } = useDbLookup();
 
   const roleCards = useMemo((): LegislativeRoleCardData[] => {
     if (!person || !person.id || !allAssemblies || !allConstituencies || !allPersons || !allDesignations) return [];
 
-    // Map for fast person lookup
     const personsMap = new Map<string, Person>();
     allPersons.forEach((p) => personsMap.set(p.id, p));
 
-    // Map for fast assembly lookup
     const assembliesMap = new Map<string, Assembly>();
     allAssemblies.forEach((a) => assembliesMap.set(a.id, a));
 
-    // Active assembly
     const activeAssembly = allAssemblies.find((a) => a.isActive !== false) || allAssemblies[0];
     const activeAsmName = activeAssembly?.name || 'Legislative Assembly';
 
@@ -219,22 +208,9 @@ export const LegislativeRolesHistoryWidget: React.FC<LegislativeRolesHistoryWidg
     const activeStateName = extractStateFromAssembly(activeAssembly);
     const activeStateSuffix = activeStateName ? ` of ${activeStateName}` : '';
 
-    const lowerPersonName = person.name?.toLowerCase() || '';
     const personRoleRaw = person.role || '';
     const personRoleLower = personRoleRaw.toLowerCase();
 
-    // Prominent figure flags
-    const isSatheesan = lowerPersonName.includes('satheesan');
-    const isPinarayi = lowerPersonName.includes('pinarayi');
-    const isChennithala = lowerPersonName.includes('chennithala');
-    const isShamseer = lowerPersonName.includes('shamseer');
-    const isRajesh = lowerPersonName.includes('rajesh') && lowerPersonName.includes('m');
-    const isGopakumar = lowerPersonName.includes('gopakumar') || lowerPersonName.includes('chittayam');
-    const isSasi = lowerPersonName.includes('sasi') && !lowerPersonName.includes('satheesan');
-    const isSreeramakrishnan = lowerPersonName.includes('sreeramakrishnan');
-    const isOommenChandy = lowerPersonName.includes('oommen') && lowerPersonName.includes('chandy');
-
-    // Helper: Dynamic Governor lookup for an assembly/period
     const resolveGovernor = (asm?: Assembly): { name: string; id?: string } | null => {
       const govDesig = allDesignations.find(
         (d) => d.id === 'governor' || d.name?.toLowerCase().includes('governor')
@@ -250,76 +226,41 @@ export const LegislativeRolesHistoryWidget: React.FC<LegislativeRolesHistoryWidg
           if (p) return { name: p.name, id: p.id };
         }
       }
-      const arif = allPersons.find(
-        (p) => p.id === 'arif-mohammad-khan' || p.name.toLowerCase().includes('arif')
-      );
-      if (arif) return { name: arif.name, id: arif.id };
       return null;
     };
 
-    // Helper: Dynamic Chief Minister lookup for an assembly/period
     const resolveChiefMinister = (asm?: Assembly): { name: string; id?: string } | null => {
       const targetAsm = asm || activeAssembly;
       if (targetAsm?.leaders?.chiefMinister && targetAsm.leaders.chiefMinister !== 'vacant') {
         const cm = personsMap.get(targetAsm.leaders.chiefMinister);
         if (cm) return { name: cm.name, id: cm.id };
       }
-      const cmDesig = allDesignations.find(
-        (d) => d.name?.toLowerCase().includes('chief minister') || d.id?.toLowerCase().includes('chief-minister')
-      );
-      if (cmDesig?.incumbentId && cmDesig.incumbentId !== 'vacant') {
-        const cmP = personsMap.get(cmDesig.incumbentId);
-        if (cmP) return { name: cmP.name, id: cmP.id };
-      }
-      const pinarayi = allPersons.find(
-        (p) => p.id === 'pinarayi-vijayan' || p.name.toLowerCase().includes('pinarayi')
-      );
-      if (pinarayi) return { name: pinarayi.name, id: pinarayi.id };
       return null;
     };
 
-    // Helper: Dynamic Speaker lookup for Deputy Speaker
-    const resolveSpeakerForDeputy = (asm?: Assembly, isCurrent?: boolean): { name: string; id?: string } | null => {
+    const resolveSpeakerForDeputy = (asm?: Assembly): { name: string; id?: string } | null => {
       const targetAsm = asm || activeAssembly;
       if (targetAsm?.leaders?.speaker && targetAsm.leaders.speaker !== 'vacant') {
         const spk = personsMap.get(targetAsm.leaders.speaker);
         if (spk) return { name: spk.name, id: spk.id };
       }
-      const spkDesig = allDesignations.find(
-        (d) => d.name?.toLowerCase().includes('speaker') && !d.name?.toLowerCase().includes('deputy')
-      );
-      if (spkDesig?.incumbentId && spkDesig.incumbentId !== 'vacant') {
-        const spk = personsMap.get(spkDesig.incumbentId);
-        if (spk) return { name: spk.name, id: spk.id };
-      }
-      const shamseer = allPersons.find(
-        (p) => p.id === 'a-n-shamseer' || p.name.toLowerCase().includes('shamseer')
-      );
-      if (shamseer) return { name: shamseer.name, id: shamseer.id };
       return null;
     };
 
     const cards: LegislativeRoleCardData[] = [];
 
-    // =========================================================================
-    // 1. SPEAKER ROLE
-    // =========================================================================
-    const isCurrentSpeaker =
-      activeAssembly?.leaders?.speaker === person.id ||
-      (isShamseer && (!activeAssembly?.leaders?.speaker || activeAssembly.leaders.speaker === person.id)) ||
-      personRoleLower === 'speaker';
-
+    // --- SPEAKER ---
+    const isCurrentSpeaker = activeAssembly?.leaders?.speaker === person.id || personRoleLower === 'speaker';
     if (isCurrentSpeaker) {
       const gov = resolveGovernor(activeAssembly);
       const speakerHistory = (person.roleHistory || []).filter(h => h.role.toLowerCase().includes('speaker') && h.action === 'promotion');
-      let assumedDate = isShamseer ? '12 September 2022' : '25 May 2021';
+      
+      let assumedDate = 'Assumed';
       if (speakerHistory.length > 0) {
         assumedDate = formatOfficeDisplayDate(Math.max(...speakerHistory.map(h => h.date)));
+      } else if (activeAssembly?.updatedAt) {
+        assumedDate = formatOfficeDisplayDate(activeAssembly.updatedAt);
       }
-      
-      const mbrajesh = allPersons.find(
-        (p) => p.id === 'm-b-rajesh' || (p.name.toLowerCase().includes('rajesh') && p.name.toLowerCase().includes('m'))
-      );
 
       cards.push({
         id: `speaker_active_${person.id}`,
@@ -330,71 +271,23 @@ export const LegislativeRolesHistoryWidget: React.FC<LegislativeRolesHistoryWidg
         isActive: true,
         assumedDate,
         governor: gov,
-        precededBy: mbrajesh ? { name: mbrajesh.name, id: mbrajesh.id } : { name: 'M. B. Rajesh', id: 'm-b-rajesh' },
         constituency: person.constituencyName ? { name: person.constituencyName } : null,
         orderPriority: 1
       });
     }
 
-    // Historical Past Speaker terms
-    if (isRajesh && !isCurrentSpeaker) {
-      const gov = resolveGovernor(activeAssembly);
-      const shamseer = allPersons.find((p) => p.id === 'a-n-shamseer' || p.name.toLowerCase().includes('shamseer'));
-      cards.push({
-        id: `speaker_past_rajesh`,
-        roleType: 'speaker',
-        roleTitle: `Speaker of the ${activeAsmName}`,
-        respectiveAssemblyName: activeAsmName,
-        assemblyLink: activeAssembly ? `/assembly/${activeAssembly.id}` : undefined,
-        isActive: false,
-        assumedDate: '25 May 2021',
-        vacatedDate: '2 September 2022',
-        officeDatesFormatted: '(25 May 2021 – 2 September 2022)',
-        governor: gov,
-        precededBy: { name: 'P. Sreeramakrishnan' },
-        succeededBy: shamseer ? { name: shamseer.name, id: shamseer.id } : { name: 'A. N. Shamseer', id: 'a-n-shamseer' },
-        constituency: person.constituencyName ? { name: person.constituencyName } : null,
-        orderPriority: 10
-      });
-    }
-
-    if (isSreeramakrishnan) {
-      const asm14 = allAssemblies.find((a) => a.name.toLowerCase().includes('14')) || activeAssembly;
-      const asm14Name = asm14?.name || (activeStateName ? `14th ${activeStateName} Legislative Assembly` : '14th Legislative Assembly');
-      const gov = resolveGovernor(asm14);
-      cards.push({
-        id: `speaker_past_sreeramakrishnan`,
-        roleType: 'speaker',
-        roleTitle: `Speaker of the ${asm14Name}`,
-        respectiveAssemblyName: asm14Name,
-        assemblyLink: asm14 ? `/assembly/${asm14.id}` : undefined,
-        isActive: false,
-        assumedDate: '3 June 2016',
-        vacatedDate: '24 May 2021',
-        officeDatesFormatted: '(3 June 2016 – 24 May 2021)',
-        governor: gov,
-        precededBy: { name: 'N. Sakthan' },
-        succeededBy: { name: 'M. B. Rajesh', id: 'm-b-rajesh' },
-        constituency: person.constituencyName ? { name: person.constituencyName } : null,
-        orderPriority: 10
-      });
-    }
-
-    // =========================================================================
-    // 2. DEPUTY SPEAKER ROLE
-    // =========================================================================
-    const isCurrentDeputySpeaker =
-      activeAssembly?.leaders?.deputySpeaker === person.id ||
-      (isGopakumar && (!activeAssembly?.leaders?.deputySpeaker || activeAssembly.leaders.deputySpeaker === person.id)) ||
-      personRoleLower === 'deputy speaker';
-
+    // --- DEPUTY SPEAKER ---
+    const isCurrentDeputySpeaker = activeAssembly?.leaders?.deputySpeaker === person.id || personRoleLower === 'deputy speaker';
     if (isCurrentDeputySpeaker) {
       const gov = resolveGovernor(activeAssembly);
-      const currentSpeaker = resolveSpeakerForDeputy(activeAssembly, true);
+      const currentSpeaker = resolveSpeakerForDeputy(activeAssembly);
       const dspkHistory = (person.roleHistory || []).filter(h => h.role.toLowerCase().includes('deputy speaker') && h.action === 'promotion');
-      let assumedDate = '1 June 2021';
+      
+      let assumedDate = 'Assumed';
       if (dspkHistory.length > 0) {
         assumedDate = formatOfficeDisplayDate(Math.max(...dspkHistory.map(h => h.date)));
+      } else if (activeAssembly?.updatedAt) {
+        assumedDate = formatOfficeDisplayDate(activeAssembly.updatedAt);
       }
 
       cards.push({
@@ -404,55 +297,26 @@ export const LegislativeRolesHistoryWidget: React.FC<LegislativeRolesHistoryWidg
         respectiveAssemblyName: activeAsmName,
         assemblyLink: activeAssembly ? `/assembly/${activeAssembly.id}` : undefined,
         isActive: true,
-        assumedDate: '1 June 2021',
+        assumedDate,
         governor: gov,
         speaker: currentSpeaker,
-        precededBy: { name: 'V. Sasi' },
         constituency: person.constituencyName ? { name: person.constituencyName } : null,
         orderPriority: 2
       });
     }
 
-    if (isSasi && !isCurrentDeputySpeaker) {
-      const asm14 = allAssemblies.find((a) => a.name.toLowerCase().includes('14')) || activeAssembly;
-      const asm14Name = asm14?.name || (activeStateName ? `14th ${activeStateName} Legislative Assembly` : '14th Legislative Assembly');
-      const gov = resolveGovernor(asm14);
-      const speaker14 = resolveSpeakerForDeputy(asm14, false);
-      const gopakumar = allPersons.find((p) => p.name.toLowerCase().includes('gopakumar'));
-
-      cards.push({
-        id: `deputy_speaker_past_sasi`,
-        roleType: 'deputy_speaker',
-        roleTitle: `Deputy Speaker of the ${asm14Name}`,
-        respectiveAssemblyName: asm14Name,
-        assemblyLink: asm14 ? `/assembly/${asm14.id}` : undefined,
-        isActive: false,
-        assumedDate: '29 June 2016',
-        vacatedDate: '3 May 2021',
-        officeDatesFormatted: '(29 June 2016 – 3 May 2021)',
-        governor: gov,
-        speaker: speaker14,
-        precededBy: { name: 'Palode Ravi' },
-        succeededBy: gopakumar ? { name: gopakumar.name, id: gopakumar.id } : { name: 'Chittayam Gopakumar' },
-        constituency: person.constituencyName ? { name: person.constituencyName } : null,
-        orderPriority: 11
-      });
-    }
-
-    // =========================================================================
-    // 3. DEPUTY CHIEF MINISTER ROLE
-    // =========================================================================
-    const isCurrentDeputyCM =
-      activeAssembly?.leaders?.deputyChiefMinister === person.id ||
-      personRoleLower.includes('deputy chief minister');
-
+    // --- DEPUTY CHIEF MINISTER ---
+    const isCurrentDeputyCM = activeAssembly?.leaders?.deputyChiefMinister === person.id || personRoleLower.includes('deputy chief minister');
     if (isCurrentDeputyCM) {
       const gov = resolveGovernor(activeAssembly);
       const cm = resolveChiefMinister(activeAssembly);
       const dcmHistory = (person.roleHistory || []).filter(h => h.role.toLowerCase().includes('deputy chief minister') && h.action === 'promotion');
-      let assumedDate = '20 May 2021';
+      
+      let assumedDate = 'Assumed';
       if (dcmHistory.length > 0) {
         assumedDate = formatOfficeDisplayDate(Math.max(...dcmHistory.map(h => h.date)));
+      } else if (activeAssembly?.updatedAt) {
+        assumedDate = formatOfficeDisplayDate(activeAssembly.updatedAt);
       }
 
       cards.push({
@@ -462,7 +326,7 @@ export const LegislativeRolesHistoryWidget: React.FC<LegislativeRolesHistoryWidg
         respectiveAssemblyName: activeAsmName,
         assemblyLink: activeAssembly ? `/assembly/${activeAssembly.id}` : undefined,
         isActive: true,
-        assumedDate: '20 May 2021',
+        assumedDate,
         governor: gov,
         chiefMinister: cm,
         constituency: person.constituencyName ? { name: person.constituencyName } : null,
@@ -470,87 +334,26 @@ export const LegislativeRolesHistoryWidget: React.FC<LegislativeRolesHistoryWidg
       });
     }
 
-    // Historical Past Deputy Chief Minister roles
-    allAssemblies.forEach((asm) => {
-      if (asm.leaders?.deputyChiefMinister === person.id && (!activeAssembly || asm.id !== activeAssembly.id)) {
-        const gov = resolveGovernor(asm);
-        const cm = resolveChiefMinister(asm);
-        const assumed = asm.termLimits ? asm.termLimits.split(/[-–]/)[0]?.trim() : 'Assumed';
-        const vacated = asm.termLimits ? asm.termLimits.split(/[-–]/)[1]?.trim() : 'Vacated';
-
-        cards.push({
-          id: `deputy_cm_past_${asm.id}_${person.id}`,
-          roleType: 'deputy_chief_minister',
-          roleTitle: `Deputy Chief Minister of the ${asm.name}`,
-          respectiveAssemblyName: asm.name,
-          assemblyLink: `/assembly/${asm.id}`,
-          isActive: false,
-          assumedDate: assumed,
-          vacatedDate: vacated,
-          officeDatesFormatted: `(${assumed} – ${vacated})`,
-          governor: gov,
-          chiefMinister: cm,
-          constituency: person.constituencyName ? { name: person.constituencyName } : null,
-          orderPriority: 12
-        });
-      }
-    });
-
-    // =========================================================================
-    // 4. CHIEF SECRETARY ROLE
-    // =========================================================================
-    const isCurrentChiefSecretary =
-      activeAssembly?.leaders?.chiefSecretary === person.id ||
-      personRoleLower.includes('chief secretary');
-
+    // --- CHIEF SECRETARY ---
+    const isCurrentChiefSecretary = activeAssembly?.leaders?.chiefSecretary === person.id || personRoleLower.includes('chief secretary');
     if (isCurrentChiefSecretary) {
       const gov = resolveGovernor(activeAssembly);
       const cm = resolveChiefMinister(activeAssembly);
-
       cards.push({
         id: `chief_secretary_active_${person.id}`,
         roleType: 'chief_secretary',
         roleTitle: `Chief Secretary${activeStateSuffix}`,
         respectiveAssemblyName: activeAsmName,
         isActive: true,
-        assumedDate: '1 July 2023',
+        assumedDate: person.updatedAt ? formatOfficeDisplayDate(person.updatedAt) : 'Assumed',
         governor: gov,
         chiefMinister: cm,
         orderPriority: 2.8
       });
     }
 
-    // Historical Past Chief Secretary roles
-    allAssemblies.forEach((asm) => {
-      if (asm.leaders?.chiefSecretary === person.id && (!activeAssembly || asm.id !== activeAssembly.id)) {
-        const gov = resolveGovernor(asm);
-        const cm = resolveChiefMinister(asm);
-        const assumed = asm.termLimits ? asm.termLimits.split(/[-–]/)[0]?.trim() : 'Assumed';
-        const vacated = asm.termLimits ? asm.termLimits.split(/[-–]/)[1]?.trim() : 'Vacated';
-        const asmState = extractStateFromAssembly(asm);
-        const stateSuffix = asmState ? ` of ${asmState}` : activeStateSuffix;
-
-        cards.push({
-          id: `chief_secretary_past_${asm.id}_${person.id}`,
-          roleType: 'chief_secretary',
-          roleTitle: `Chief Secretary${stateSuffix}`,
-          respectiveAssemblyName: asm.name,
-          isActive: false,
-          assumedDate: assumed,
-          vacatedDate: vacated,
-          officeDatesFormatted: `(${assumed} – ${vacated})`,
-          governor: gov,
-          chiefMinister: cm,
-          orderPriority: 13
-        });
-      }
-    });
-
-    // =========================================================================
-    // 5. MINISTERS (PORTFOLIO HEADS)
-    // =========================================================================
-    const isMinisterRole =
-      personRoleLower.includes('minister') &&
+    // --- MINISTERS ---
+    const isMinisterRole = personRoleLower.includes('minister') &&
       !personRoleLower.includes('chief minister') &&
       !personRoleLower.includes('prime minister') &&
       !personRoleLower.includes('deputy chief minister');
@@ -562,21 +365,16 @@ export const LegislativeRolesHistoryWidget: React.FC<LegislativeRolesHistoryWidg
         portfolioTitle = portfolioTitle.replace(/& actor/i, '').trim();
       }
 
-      const gov = resolveGovernor(isFormer ? allAssemblies.find((a) => a.name.includes('14')) : activeAssembly);
-      const cm = resolveChiefMinister(isFormer ? allAssemblies.find((a) => a.name.includes('14')) : activeAssembly);
+      const gov = resolveGovernor(activeAssembly);
+      const cm = resolveChiefMinister(activeAssembly);
 
       if (!isFormer) {
-        // Active Minister
         const ministerHistory = (person.roleHistory || []).filter(h => h.role.toLowerCase().includes('minister') && h.action === 'promotion');
-        let assumedDate = '20 May 2021';
+        let assumedDate = 'Assumed';
         if (ministerHistory.length > 0) {
           assumedDate = formatOfficeDisplayDate(Math.max(...ministerHistory.map(h => h.date)));
-        } else if (lowerPersonName.includes('ganesh kumar') || lowerPersonName.includes('kadannappalli')) {
-          assumedDate = '29 December 2023';
-        } else if (lowerPersonName.includes('kelu')) {
-          assumedDate = '23 June 2024';
-        } else if (isRajesh) {
-          assumedDate = '6 September 2022';
+        } else if (person.updatedAt) {
+          assumedDate = formatOfficeDisplayDate(person.updatedAt);
         }
 
         cards.push({
@@ -592,34 +390,15 @@ export const LegislativeRolesHistoryWidget: React.FC<LegislativeRolesHistoryWidg
           orderPriority: 3
         });
       } else {
-        // Former Minister
-        let assumed = '25 May 2016';
-        let vacated = '20 May 2021';
-
-        if (lowerPersonName.includes('antony raju')) {
-          assumed = '20 May 2021';
-          vacated = '24 December 2023';
-        } else if (
-          lowerPersonName.includes('babu') ||
-          lowerPersonName.includes('thiruvanchoor') ||
-          lowerPersonName.includes('muneer')
-        ) {
-          assumed = '18 May 2011';
-          vacated = '20 May 2016';
-        } else if (lowerPersonName.includes('jaleel')) {
-          assumed = '25 May 2016';
-          vacated = '13 April 2021';
-        }
-
         cards.push({
           id: `minister_past_${person.id}`,
           roleType: 'minister',
           roleTitle: portfolioTitle,
           respectiveAssemblyName: activeAsmName,
           isActive: false,
-          assumedDate: assumed,
-          vacatedDate: vacated,
-          officeDatesFormatted: `(${assumed} – ${vacated})`,
+          assumedDate: 'Past Term',
+          vacatedDate: 'Past Term',
+          officeDatesFormatted: '(Past Term)',
           governor: gov,
           chiefMinister: cm,
           constituency: person.constituencyName ? { name: person.constituencyName } : null,
@@ -628,18 +407,13 @@ export const LegislativeRolesHistoryWidget: React.FC<LegislativeRolesHistoryWidg
       }
     }
 
-    // =========================================================================
-    // 6. OTHER DESIGNATIONS & LEADERSHIP ROLES (Continuous Incumbency)
-    // =========================================================================
-
-    // A. Active Leadership Council: Leader of Opposition & Chief Minister
+    // --- LEADERSHIP ROLES ---
     if (activeAssembly && activeAssembly.leaders) {
       const leaders = activeAssembly.leaders;
 
-      // Leader of Opposition
-      if (leaders.leaderOfOpposition === person.id || (isSatheesan && !leaders.leaderOfOpposition)) {
+      if (leaders.leaderOfOpposition === person.id) {
         const lopHistory = (person.roleHistory || []).filter(h => h.role.toLowerCase().includes('opposition') && h.action === 'promotion');
-        let assumedDate = '22 May 2021';
+        let assumedDate = 'Assumed';
         if (lopHistory.length > 0) {
           assumedDate = formatOfficeDisplayDate(Math.max(...lopHistory.map(h => h.date)));
         }
@@ -648,17 +422,15 @@ export const LegislativeRolesHistoryWidget: React.FC<LegislativeRolesHistoryWidg
           roleType: 'designation',
           roleTitle: 'Leader of the Opposition',
           isActive: true,
-          assumedDate: '22 May 2021',
-          precededBy: { name: 'Ramesh Chennithala', id: 'ramesh-chennithala' },
+          assumedDate,
           constituency: person.constituencyName ? { name: person.constituencyName } : null,
           orderPriority: 4
         });
       }
 
-      // Chief Minister
-      if (leaders.chiefMinister === person.id || (isPinarayi && !leaders.chiefMinister)) {
+      if (leaders.chiefMinister === person.id) {
         const cmHistory = (person.roleHistory || []).filter(h => h.role.toLowerCase().includes('chief minister') && h.action === 'promotion');
-        let assumedDate = '25 May 2016';
+        let assumedDate = 'Assumed';
         if (cmHistory.length > 0) {
           assumedDate = formatOfficeDisplayDate(Math.max(...cmHistory.map(h => h.date)));
         }
@@ -667,16 +439,15 @@ export const LegislativeRolesHistoryWidget: React.FC<LegislativeRolesHistoryWidg
           roleType: 'designation',
           roleTitle: `Chief Minister${activeStateSuffix}`,
           isActive: true,
-          assumedDate: '25 May 2016',
+          assumedDate,
           governor: resolveGovernor(activeAssembly),
-          precededBy: { name: 'Oommen Chandy', id: 'oommen-chandy' },
           constituency: person.constituencyName ? { name: person.constituencyName } : null,
           orderPriority: 4
         });
       }
     }
 
-    // B. Check Database Designations (e.g. Cabinet Ministers, Executive Posts)
+    // --- OTHER DESIGNATIONS ---
     const personDbDesignations = allDesignations.filter(
       (d) =>
         d.incumbentId === person.id ||
@@ -685,7 +456,6 @@ export const LegislativeRolesHistoryWidget: React.FC<LegislativeRolesHistoryWidg
 
     personDbDesignations.forEach((d) => {
       const lowerDName = d.name.toLowerCase();
-      // Skip if already handled by specialized cards
       if (
         lowerDName.includes('speaker') ||
         lowerDName.includes('chief secretary') ||
@@ -697,47 +467,8 @@ export const LegislativeRolesHistoryWidget: React.FC<LegislativeRolesHistoryWidg
         return;
       }
 
-      const hasSomeoneElseOccupied = (() => {
-        if (d.incumbentId && d.incumbentId !== person.id && d.incumbentId !== 'vacant') {
-          return true;
-        }
-        if (Array.isArray(d.history) && d.history.length > 0) {
-          const myEntries = d.history.filter((h) => h.personId === person.id);
-          if (myEntries.length > 0) {
-            const myLastDate = Math.max(...myEntries.map((h) => h.date || 0));
-            const laterOtherEntries = d.history.filter(
-              (h) => (h.date || 0) > myLastDate && h.personId !== person.id && h.personId !== 'vacant'
-            );
-            if (laterOtherEntries.length > 0) {
-              return true;
-            }
-          }
-        }
-        return false;
-      })();
-
-      const isCurrent = !hasSomeoneElseOccupied;
+      const isCurrent = d.incumbentId === person.id;
       const isMinister = lowerDName.includes('minister');
-
-      // Find predecessor & successor in history
-      let predecessor: { name: string; id?: string } | null = null;
-      let successor: { name: string; id?: string } | null = null;
-
-      if (Array.isArray(d.history) && d.history.length > 0) {
-        const sortedHistory = [...d.history].sort((a, b) => (a.date || 0) - (b.date || 0));
-        const myFirstIdx = sortedHistory.findIndex((h) => h.personId === person.id);
-        if (myFirstIdx > 0) {
-          const prevEntry = sortedHistory[myFirstIdx - 1];
-          const prevP = personsMap.get(prevEntry.personId);
-          predecessor = prevP ? { name: prevP.name, id: prevP.id } : { name: prevEntry.personId };
-        }
-        const myLastIdx = sortedHistory.map((h) => h.personId).lastIndexOf(person.id);
-        if (myLastIdx >= 0 && myLastIdx < sortedHistory.length - 1) {
-          const nextEntry = sortedHistory[myLastIdx + 1];
-          const nextP = personsMap.get(nextEntry.personId);
-          successor = nextP ? { name: nextP.name, id: nextP.id } : { name: nextEntry.personId };
-        }
-      }
 
       if (isCurrent) {
         let assumed = formatOfficeDisplayDate(d.dateOfSigning);
@@ -747,9 +478,7 @@ export const LegislativeRolesHistoryWidget: React.FC<LegislativeRolesHistoryWidg
             assumed = formatOfficeDisplayDate(Math.min(...myEntries.map((h) => h.date || 0)));
           }
         }
-        if (!assumed) {
-          assumed = '20 May 2021';
-        }
+        if (!assumed) assumed = formatOfficeDisplayDate(d.updatedAt);
 
         cards.push({
           id: `desig_active_${d.id}`,
@@ -759,17 +488,17 @@ export const LegislativeRolesHistoryWidget: React.FC<LegislativeRolesHistoryWidg
           assumedDate: assumed,
           governor: isMinister ? resolveGovernor() : undefined,
           chiefMinister: isMinister ? resolveChiefMinister() : undefined,
-          precededBy: predecessor,
           constituency: d.constituency ? { name: d.constituency } : null,
           orderPriority: isMinister ? 3 : 5
         });
       } else {
-        let assumed = '';
-        let vacated = '';
+        let assumed = 'Past Term';
+        let vacated = 'Past Term';
         if (Array.isArray(d.history) && d.history.length > 0) {
           const myEntries = d.history.filter((h) => h.personId === person.id);
           if (myEntries.length > 0) {
-            assumed = formatOfficeDisplayDate(Math.min(...myEntries.map((h) => h.date || 0)));
+            const myFirstDate = Math.min(...myEntries.map((h) => h.date || 0));
+            assumed = formatOfficeDisplayDate(myFirstDate);
             const myLastDate = Math.max(...myEntries.map((h) => h.date || 0));
             const nextEntry = d.history.find((h) => (h.date || 0) > myLastDate);
             if (nextEntry) {
@@ -777,8 +506,6 @@ export const LegislativeRolesHistoryWidget: React.FC<LegislativeRolesHistoryWidg
             }
           }
         }
-        if (!assumed) assumed = formatOfficeDisplayDate(d.dateOfSigning || d.updatedAt);
-        if (!vacated) vacated = formatOfficeDisplayDate(d.updatedAt);
 
         cards.push({
           id: `desig_past_${d.id}`,
@@ -790,133 +517,49 @@ export const LegislativeRolesHistoryWidget: React.FC<LegislativeRolesHistoryWidg
           officeDatesFormatted: `(${assumed} – ${vacated})`,
           governor: isMinister ? resolveGovernor() : undefined,
           chiefMinister: isMinister ? resolveChiefMinister() : undefined,
-          precededBy: predecessor,
-          succeededBy: successor,
           constituency: d.constituency ? { name: d.constituency } : null,
           orderPriority: isMinister ? 15 : 20
         });
       }
     });
 
-    // C. Prominent Past Leader of Opposition
-    if (isChennithala && !cards.some((c) => c.roleTitle.toLowerCase().includes('opposition'))) {
-      cards.push({
-        id: `desig_lo_past_chennithala`,
-        roleType: 'designation',
-        roleTitle: 'Leader of the Opposition',
-        isActive: false,
-        assumedDate: '25 May 2016',
-        vacatedDate: '21 May 2021',
-        officeDatesFormatted: '(25 May 2016 – 21 May 2021)',
-        precededBy: { name: 'V. S. Achuthanandan' },
-        succeededBy: { name: 'V. D. Satheesan', id: 'v-d-satheesan' },
-        orderPriority: 21
-      });
-    }
-
-    // =========================================================================
-    // 7. CONSTITUENCY MLA ROLES (Continuous Incumbency Across Assemblies)
-    // =========================================================================
-
+    // --- MLA ROLES ---
     const getInitialContinuousAssumedDate = (
       con: Constituency,
-      personId: string,
-      currentAssembly?: Assembly | null
+      personId: string
     ): string => {
-      // 1. Check history for the most recent streak of this person in this constituency
       if (Array.isArray(con.history) && con.history.length > 0) {
         const sortedHistory = [...con.history].sort((a, b) => (b.date || 0) - (a.date || 0));
-        // Find the start of the current continuous incumbency
         let streakStartDate: number | null = null;
         for (const entry of sortedHistory) {
           if (entry.personId === personId) {
             streakStartDate = entry.date;
           } else if (entry.personId !== 'vacant') {
-            // Found someone else, so the streak started at the entry AFTER this one in chronological order
-            // (but we are going reverse, so we stop here)
             break;
           }
         }
-        if (streakStartDate) {
-          return formatOfficeDisplayDate(streakStartDate);
-        }
+        if (streakStartDate) return formatOfficeDisplayDate(streakStartDate);
       }
 
-      // 2. Check person's own role history for this specific constituency role
       const mlaRoleName = `MLA for ${con.name}`;
       const personHistory = (person.roleHistory || []).filter(h => h.role === mlaRoleName && h.action === 'appointment');
       if (personHistory.length > 0) {
         return formatOfficeDisplayDate(Math.max(...personHistory.map(h => h.date)));
       }
 
-      // 3. Fallback to hardcoded historical dates for famous figures
-      const lowerCon = con.name?.toLowerCase() || '';
-      if (lowerCon.includes('paravur') || isSatheesan) return '13 May 2001';
-      if (lowerCon.includes('dharmadam') || isPinarayi) return '25 May 2016';
-      if (lowerCon.includes('puthuppally') && isOommenChandy) return '17 September 1970';
-
-      // 4. Other fallbacks
-      if (con.lastElectionResult?.electionDate) {
-        return formatOfficeDisplayDate(con.lastElectionResult.electionDate);
-      }
-      if (con.electedYear) {
-        return formatOfficeDisplayDate(con.electedYear);
-      }
-      if (currentAssembly?.termLimits) {
-        const startTerm = currentAssembly.termLimits.split(/[-–]/)[0]?.trim();
-        return formatOfficeDisplayDate(startTerm) || '20 May 2021';
-      }
-      return '20 May 2021';
+      if (con.lastElectionResult?.electionDate) return formatOfficeDisplayDate(con.lastElectionResult.electionDate);
+      if (con.updatedAt) return formatOfficeDisplayDate(con.updatedAt);
+      
+      return formatOfficeDisplayDate(getSystemTimestamp());
     };
 
-    const findConstituencyPredecessor = (
-      con: Constituency,
-      personId: string
-    ): { name: string; id?: string } | null => {
-      const lowerCon = con.name?.toLowerCase() || '';
-      if (lowerCon.includes('paravur') || isSatheesan) {
-        const praju = personsMap.get('p-raju');
-        return praju ? { name: praju.name, id: praju.id } : { name: 'P. Raju' };
-      }
-      if (lowerCon.includes('dharmadam') || isPinarayi) {
-        const kkn = personsMap.get('k-k-narayanan');
-        return kkn ? { name: kkn.name, id: kkn.id } : { name: 'K. K. Narayanan' };
-      }
-      if (lowerCon.includes('puthuppally') && isOommenChandy) {
-        return { name: 'E. M. George' };
-      }
-
-      if (Array.isArray(con.history) && con.history.length > 0) {
-        const sortedHistory = [...con.history].sort((a, b) => (a.date || 0) - (b.date || 0));
-        let streakStartIdx = sortedHistory.findIndex((h) => h.personId === personId);
-        if (streakStartIdx > 0) {
-          for (let i = streakStartIdx - 1; i >= 0; i--) {
-            if (sortedHistory[i].personId !== personId && sortedHistory[i].personId !== 'vacant') {
-              const prevPerson = personsMap.get(sortedHistory[i].personId);
-              if (prevPerson) return { name: prevPerson.name, id: prevPerson.id };
-              return { name: sortedHistory[i].personId };
-            }
-          }
-        }
-      }
-      return null;
-    };
-
-    // 1. ACTIVE CONTINUOUS MLA ROLE
-    const incumbentCon =
-      allConstituencies.find((c) => c.currentIncumbentId === person.id) ||
-      (person.constituencyName
-        ? allConstituencies.find((c) => c.name.toLowerCase() === person.constituencyName?.toLowerCase())
-        : null);
+    const incumbentCon = allConstituencies.find((c) => c.currentIncumbentId === person.id) ||
+      (person.constituencyName ? allConstituencies.find((c) => c.name.toLowerCase() === person.constituencyName?.toLowerCase()) : null);
 
     if (incumbentCon) {
-      const asm = incumbentCon.currentAssemblyId
-        ? assembliesMap.get(incumbentCon.currentAssemblyId) || activeAssembly
-        : activeAssembly;
-
+      const asm = incumbentCon.currentAssemblyId ? assembliesMap.get(incumbentCon.currentAssemblyId) || activeAssembly : activeAssembly;
       const asmName = asm?.name || 'Legislative Assembly';
-      const predecessor = findConstituencyPredecessor(incumbentCon, person.id);
-      const assumedDateStr = getInitialContinuousAssumedDate(incumbentCon, person.id, asm);
+      const assumedDateStr = getInitialContinuousAssumedDate(incumbentCon, person.id);
 
       cards.push({
         id: `mla_active_${incumbentCon.id}`,
@@ -925,44 +568,29 @@ export const LegislativeRolesHistoryWidget: React.FC<LegislativeRolesHistoryWidg
         respectiveAssemblyName: asmName,
         isActive: true,
         assumedDate: assumedDateStr,
-        precededBy: predecessor,
         constituency: { name: incumbentCon.name, id: incumbentCon.id },
         assemblyLink: asm ? `/assembly/${asm.id}` : undefined,
         orderPriority: 6
       });
     }
 
-    // 2. PAST CONSTITUENCY MLA ROLES
     allConstituencies.forEach((c) => {
-      if (incumbentCon && c.id === incumbentCon.id) {
-        return;
-      }
+      if (incumbentCon && c.id === incumbentCon.id) return;
 
       if (Array.isArray(c.history)) {
         const personEntries = c.history.filter((h) => h.personId === person.id);
         if (personEntries.length > 0) {
           const sortedHistory = [...c.history].sort((a, b) => (a.date || 0) - (b.date || 0));
-          const predecessor = findConstituencyPredecessor(c, person.id);
-
-          const currentIncumbent =
-            c.currentIncumbentId && c.currentIncumbentId !== 'vacant' && c.currentIncumbentId !== person.id
-              ? personsMap.get(c.currentIncumbentId)
-              : null;
-
           let assumedDate = formatOfficeDisplayDate(personEntries[0].date);
-          let vacatedDate = '';
+          let vacatedDate = 'Past Term';
 
           const lastPersonIdx = sortedHistory.map((h) => h.personId).lastIndexOf(person.id);
           if (lastPersonIdx >= 0 && lastPersonIdx < sortedHistory.length - 1) {
             vacatedDate = formatOfficeDisplayDate(sortedHistory[lastPersonIdx + 1].date);
-          } else {
+          } else if (c.updatedAt) {
             vacatedDate = formatOfficeDisplayDate(c.updatedAt);
           }
 
-          if (!assumedDate) assumedDate = 'Past Term';
-          if (!vacatedDate) vacatedDate = 'Past Term';
-
-          const officeDatesFormatted = `(${assumedDate} – ${vacatedDate})`;
           const conAsm = c.currentAssemblyId ? assembliesMap.get(c.currentAssemblyId) || activeAssembly : activeAssembly;
           const asmName = conAsm?.name || 'Legislative Assembly';
 
@@ -974,9 +602,7 @@ export const LegislativeRolesHistoryWidget: React.FC<LegislativeRolesHistoryWidg
             isActive: false,
             assumedDate,
             vacatedDate,
-            officeDatesFormatted,
-            precededBy: predecessor,
-            succeededBy: currentIncumbent ? { name: currentIncumbent.name, id: currentIncumbent.id } : null,
+            officeDatesFormatted: `(${assumedDate} – ${vacatedDate})`,
             constituency: { name: c.name, id: c.id },
             orderPriority: 30
           });
@@ -984,16 +610,13 @@ export const LegislativeRolesHistoryWidget: React.FC<LegislativeRolesHistoryWidg
       }
     });
 
-    // Sort: Active roles first, then ordered by priority
     cards.sort((a, b) => {
-      if (a.isActive !== b.isActive) {
-        return a.isActive ? -1 : 1;
-      }
+      if (a.isActive !== b.isActive) return a.isActive ? -1 : 1;
       return a.orderPriority - b.orderPriority;
     });
 
     return cards;
-  }, [person, allAssemblies, allConstituencies, allPersons, allDesignations]);
+  }, [person, allAssemblies, allConstituencies, allPersons, allDesignations, systemDate]);
 
   if (!roleCards || roleCards.length === 0) {
     return (
@@ -1012,7 +635,6 @@ export const LegislativeRolesHistoryWidget: React.FC<LegislativeRolesHistoryWidg
           key={card.id}
           className="border border-[#22314E] rounded-xl overflow-hidden shadow-2xl bg-[#0A101D] transition-all hover:border-[#384C74] max-w-xl mx-auto"
         >
-          {/* 1. Header Bar: Two-tone Title matching the reference screenshot */}
           <div
             onClick={() => card.assemblyLink && navigate(card.assemblyLink)}
             className={`py-3.5 px-4 text-center bg-[#171F33] border-b border-[#23314E] ${
@@ -1022,7 +644,6 @@ export const LegislativeRolesHistoryWidget: React.FC<LegislativeRolesHistoryWidg
             {renderRoleTitleHeader(card)}
           </div>
 
-          {/* 2. Subheader Bar: "Incumbent" for Active Role (No badging for past roles) */}
           {card.isActive && (
             <div className="w-full bg-[#101828] py-1.5 text-center border-b border-[#23314E]">
               <span className="text-[#7B96D4] font-bold text-sm tracking-wide">
@@ -1031,7 +652,6 @@ export const LegislativeRolesHistoryWidget: React.FC<LegislativeRolesHistoryWidg
             </div>
           )}
 
-          {/* 3. Center Block: Office Status & Dates */}
           <div className="py-4 px-4 text-center bg-[#0D1525]">
             {card.isActive ? (
               <>
@@ -1042,150 +662,53 @@ export const LegislativeRolesHistoryWidget: React.FC<LegislativeRolesHistoryWidg
               </>
             ) : (
               <>
-                <p className="font-bold text-sm text-white tracking-wide">In office</p>
+                <p className="font-bold text-sm text-white tracking-wide">Office Term</p>
                 <p className="text-sm text-gray-200 mt-1 font-medium tabular-nums">
-                  {card.officeDatesFormatted || `(${card.assumedDate} – ${card.vacatedDate})`}
+                  {card.officeDatesFormatted}
                 </p>
               </>
             )}
           </div>
 
-          {/* 4. Metadata Key-Value Rows */}
-          {(card.governor || card.chiefMinister || card.speaker || card.precededBy || card.succeededBy || card.constituency) && (
-            <div className="border-t border-[#23314E] bg-[#0A1120] divide-y divide-[#18233C]">
-              {/* Governor row */}
-              {card.governor && (
-                <div className="flex items-center justify-between py-2.5 px-6 text-sm">
-                  <span className="text-white font-bold w-36 shrink-0">Governor</span>
-                  <span
-                    onClick={(e) => {
-                      if (card.governor?.id) {
-                        e.stopPropagation();
-                        navigate(`/person/${card.governor.id}`);
-                      }
-                    }}
-                    className={`text-right flex-1 font-medium ${
-                      card.governor.id
-                        ? 'text-white hover:underline cursor-pointer'
-                        : 'text-white'
-                    }`}
-                  >
-                    {card.governor.name}
-                  </span>
-                </div>
-              )}
-
-              {/* Chief Minister row */}
-              {card.chiefMinister && (
-                <div className="flex items-center justify-between py-2.5 px-6 text-sm">
-                  <span className="text-white font-bold w-36 shrink-0">Chief Minister</span>
-                  <span
-                    onClick={(e) => {
-                      if (card.chiefMinister?.id) {
-                        e.stopPropagation();
-                        navigate(`/person/${card.chiefMinister.id}`);
-                      }
-                    }}
-                    className={`text-right flex-1 font-medium ${
-                      card.chiefMinister.id
-                        ? 'text-white hover:underline cursor-pointer'
-                        : 'text-white'
-                    }`}
-                  >
-                    {card.chiefMinister.name}
-                  </span>
-                </div>
-              )}
-
-              {/* Speaker row (for Deputy Speaker) */}
-              {card.speaker && (
-                <div className="flex items-center justify-between py-2.5 px-6 text-sm">
-                  <span className="text-white font-bold w-36 shrink-0">Speaker</span>
-                  <span
-                    onClick={(e) => {
-                      if (card.speaker?.id) {
-                        e.stopPropagation();
-                        navigate(`/person/${card.speaker.id}`);
-                      }
-                    }}
-                    className={`text-right flex-1 font-medium ${
-                      card.speaker.id
-                        ? 'text-white hover:underline cursor-pointer'
-                        : 'text-white'
-                    }`}
-                  >
-                    {card.speaker.name}
-                  </span>
-                </div>
-              )}
-
-              {/* Preceded by */}
-              <div className="flex items-center justify-between py-2.5 px-6 text-sm">
-                <span className="text-white font-bold w-36 shrink-0">Preceded by</span>
-                {card.precededBy ? (
-                  <span
-                    onClick={(e) => {
-                      if (card.precededBy?.id) {
-                        e.stopPropagation();
-                        navigate(`/person/${card.precededBy.id}`);
-                      }
-                    }}
-                    className={`text-right flex-1 font-medium ${
-                      card.precededBy.id
-                        ? 'text-white hover:underline cursor-pointer'
-                        : 'text-white'
-                    }`}
-                  >
-                    {card.precededBy.name}
-                  </span>
-                ) : (
-                  <span className="text-right flex-1 font-medium text-zinc-500 italic">
-                    office established
-                  </span>
-                )}
+          {!card.roleTitle.toLowerCase().includes('governor') && (
+            <div className="grid grid-cols-2 bg-[#0A101D] border-t border-[#22314E]">
+              <div className="p-4 border-r border-[#22314E] flex flex-col items-center justify-center text-center">
+                <p className="text-[10px] uppercase tracking-widest text-[#7B96D4] font-bold mb-1">
+                  {card.roleType === 'speaker' || card.roleType === 'deputy_speaker' ? 'Governor' : 'Appointed by'}
+                </p>
+                <p className="text-xs font-bold text-white leading-tight">
+                  {card.governor?.name || "Hon'ble Governor"}
+                </p>
               </div>
+              <div className="p-4 flex flex-col items-center justify-center text-center">
+                <p className="text-[10px] uppercase tracking-widest text-[#7B96D4] font-bold mb-1">
+                  {card.roleType === 'speaker' || card.roleType === 'deputy_speaker' ? 'Speaker' : 'Chief Minister'}
+                </p>
+                <p className="text-xs font-bold text-white leading-tight">
+                  {card.speaker?.name || card.chiefMinister?.name || "Hon'ble Chief Minister"}
+                </p>
+              </div>
+            </div>
+          )}
 
-              {/* Succeeded by (past roles) */}
-              {card.succeededBy && (
-                <div className="flex items-center justify-between py-2.5 px-6 text-sm">
-                  <span className="text-white font-bold w-36 shrink-0">Succeeded by</span>
-                  <span
-                    onClick={(e) => {
-                      if (card.succeededBy?.id) {
-                        e.stopPropagation();
-                        navigate(`/person/${card.succeededBy.id}`);
-                      }
-                    }}
-                    className={`text-right flex-1 font-medium ${
-                      card.succeededBy.id
-                        ? 'text-white hover:underline cursor-pointer'
-                        : 'text-white'
-                    }`}
-                  >
-                    {card.succeededBy.name}
-                  </span>
+          {(card.precededBy || card.succeededBy || card.constituency) && (
+            <div className="bg-[#0D1525] border-t border-[#22314E] p-4 flex flex-col gap-2">
+              {card.constituency && (
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] uppercase tracking-widest text-[#7B96D4] font-bold">Constituency</span>
+                  <span className="text-xs font-bold text-white">{card.constituency.name}</span>
                 </div>
               )}
-
-              {/* Constituency */}
-              {card.constituency && (
-                <div className="flex items-center justify-between py-2.5 px-6 text-sm">
-                  <span className="text-white font-bold w-36 shrink-0">Constituency</span>
-                  <span
-                    onClick={(e) => {
-                      if (card.constituency?.id) {
-                        e.stopPropagation();
-                        navigate(`/constituency/${card.constituency.id}`);
-                      }
-                    }}
-                    className={`text-right flex-1 font-medium ${
-                      card.constituency.id
-                        ? 'text-[#5B8DEF] hover:underline cursor-pointer'
-                        : 'text-[#5B8DEF]'
-                    }`}
-                  >
-                    {card.constituency.name}
-                  </span>
+              {card.precededBy && (
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] uppercase tracking-widest text-[#7B96D4] font-bold">Preceded by</span>
+                  <span className="text-xs font-bold text-white">{card.precededBy.name}</span>
+                </div>
+              )}
+              {card.succeededBy && (
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] uppercase tracking-widest text-[#7B96D4] font-bold">Succeeded by</span>
+                  <span className="text-xs font-bold text-white">{card.succeededBy.name}</span>
                 </div>
               )}
             </div>
