@@ -1095,11 +1095,28 @@ export const firestoreService = {
       'orders'
     ];
 
+    const { writeBatch } = await import('firebase/firestore');
+
     for (const colName of collections) {
       const q = collection(db, 'users', uid, colName);
       const snapshot = await getDocs(q);
-      for (const doc of snapshot.docs) {
-        await deleteDoc(doc.ref);
+      
+      // Delete in batches of 500 (Firestore limit)
+      let batch = writeBatch(db);
+      let count = 0;
+      
+      for (const d of snapshot.docs) {
+        batch.delete(d.ref);
+        count++;
+        if (count === 500) {
+          await batch.commit();
+          batch = writeBatch(db);
+          count = 0;
+        }
+      }
+      
+      if (count > 0) {
+        await batch.commit();
       }
     }
   }

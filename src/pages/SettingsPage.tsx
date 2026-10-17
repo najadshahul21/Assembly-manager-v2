@@ -27,19 +27,26 @@ export const SettingsPage: React.FC = () => {
   };
 
   const handleClearData = async () => {
-    if (userInput !== captchaValue) {
+    const trimmedInput = userInput.trim();
+    if (trimmedInput !== captchaValue) {
       setClearError('Invalid verification code. Please try again.');
       return;
     }
 
     setIsClearing(true);
+    setClearError(null);
     try {
+      console.log("Initiating full database purge...");
       await firestoreService.clearAllData();
-      setShowClearModal(false);
-      window.location.href = '/'; // Redirect to dashboard after clear
+      console.log("Database purge successful.");
+      
+      // Briefly show success before redirecting
+      setTimeout(() => {
+        window.location.href = '/?reset=success';
+      }, 1000);
     } catch (err: any) {
-      setClearError(err.message || 'Failed to clear database.');
-    } finally {
+      console.error("Purge failed:", err);
+      setClearError(err.message || 'Failed to clear database. Please check your connection and permissions.');
       setIsClearing(false);
     }
   };
