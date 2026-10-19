@@ -434,52 +434,76 @@ export const buildLegislativeSessionsList = ({
       }
 
       // 2. Process desig.history
+      const personTenures: any[] = [];
       if (Array.isArray(desig.history)) {
         const sortedHistory = [...desig.history].sort((a, b) => a.date - b.date);
-        sortedHistory.forEach((h, idx) => {
-          governorSeq++;
-          const person = h.personId ? personsMap[h.personId] : null;
-          const partyDetails = resolvePartyDetails(person?.partyId, partiesMap, alliancesMap);
-          
-          rows.push({
-            id: `gov-hist-${idx}`,
-            assemblyOrdinal: "",
-            assemblyName: "",
-            slNo: governorSeq,
-            members: [{
-              memberName: person?.name || (h.personId && h.personId !== 'vacant' ? h.personId : 'Vacant'),
-              memberId: person?.id || h.personId,
-              partyName: partyDetails.partyName,
-              partyColor: partyDetails.partyColor,
-              partyId: person?.partyId
-            }]
-          });
+        sortedHistory.forEach((h) => {
+          if (h.reason === 'appointment') {
+            personTenures.push({
+              personId: h.personId,
+              electionDate: h.date,
+              removalDate: undefined,
+              reason: undefined
+            });
+          } else if (h.reason === 'resignation' || h.reason === 'expiry') {
+            // Find the last tenure for this person that hasn't been closed
+            const lastTenure = [...personTenures].reverse().find(t => t.personId === h.personId && !t.removalDate);
+            if (lastTenure) {
+              lastTenure.removalDate = h.date;
+              lastTenure.reason = h.reason;
+            } else if (h.personId && h.personId !== 'vacant') {
+              // Fallback if we have a removal without an appointment (incomplete data)
+              personTenures.push({
+                personId: h.personId,
+                electionDate: undefined,
+                removalDate: h.date,
+                reason: h.reason
+              });
+            }
+          }
         });
       }
 
-      // 3. Current incumbent
+      // 3. Add current incumbent if not already represented as an open tenure
       if (desig.incumbentId && desig.incumbentId !== 'vacant') {
-        const alreadyListed = rows.some(r => r.members.some(m => m.memberId === desig.incumbentId));
-        if (!alreadyListed) {
-          governorSeq++;
-          const currentPerson = personsMap[desig.incumbentId];
-          const partyDetails = resolvePartyDetails(currentPerson?.partyId, partiesMap, alliancesMap);
-          
-          rows.push({
-            id: `gov-current-${desig.id}`,
-            assemblyOrdinal: "",
-            assemblyName: "",
-            slNo: governorSeq,
-            members: [{
-              memberName: currentPerson?.name || desig.incumbentId,
-              memberId: currentPerson?.id || desig.incumbentId,
-              partyName: partyDetails.partyName,
-              partyColor: partyDetails.partyColor,
-              partyId: currentPerson?.partyId
-            }]
+        const lastTenure = personTenures[personTenures.length - 1];
+        // Only add if not already the last person in history, regardless of whether it was closed
+        // This avoids duplication when someone leaves (is closed in history but still incumbent in record)
+        if (!lastTenure || lastTenure.personId !== desig.incumbentId) {
+          personTenures.push({
+            personId: desig.incumbentId,
+            electionDate: desig.updatedAt,
+            removalDate: undefined,
+            reason: undefined
           });
         }
       }
+
+      // 4. Create rows from tenures
+      personTenures.forEach((tenure, idx) => {
+        governorSeq++;
+        const person = tenure.personId ? personsMap[tenure.personId] : null;
+        const partyDetails = resolvePartyDetails(person?.partyId, partiesMap, alliancesMap);
+        
+        rows.push({
+          id: `gov-tenure-${idx}`,
+          assemblyOrdinal: "",
+          assemblyName: "",
+          slNo: governorSeq,
+          members: [{
+            memberName: person 
+              ? formatPersonName(person.name, person.gender, true) 
+              : (tenure.personId === 'vacant' ? 'Vacant' : tenure.personId),
+            memberId: person?.id || tenure.personId,
+            partyName: partyDetails.partyName,
+            partyColor: partyDetails.partyColor,
+            partyId: person?.partyId,
+            electionDate: tenure.electionDate,
+            removalDate: tenure.removalDate,
+            reason: tenure.reason
+          }]
+        });
+      });
       
       return rows; // Return early for governor
     }

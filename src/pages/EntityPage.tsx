@@ -13,7 +13,10 @@ import {
   ElectionResult,
   formatOfficeOfHonble,
   LegislativeOrder,
+  LegislativeBill,
 } from "../types";
+import { BillsList } from "../components/BillsList";
+import { CreateBillModal } from "../components/CreateBillModal";
 import { motion, AnimatePresence } from "motion/react";
 import {
   ArrowLeft,
@@ -42,6 +45,8 @@ import {
   Crown,
   CheckCircle2,
   Network,
+  FileText,
+  FilePlus,
 } from "lucide-react";
 import { EntityCard } from "../components/EntityCards";
 import { ElectionResultsTable } from "../components/ElectionResultsTable";
@@ -213,7 +218,7 @@ export const EntityPage: React.FC = () => {
   const [departmentInput, setDepartmentInput] = useState("");
   const [isLeadershipModalOpen, setIsLeadershipModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<
-    "details" | "related" | "history" | "cabinet" | "orders"
+    "details" | "related" | "history" | "cabinet" | "orders" | "bills"
   >(
     initialTab === "sessions"
       ? (type === EntityType.CONSTITUENCY ? "related" : "history")
@@ -222,6 +227,8 @@ export const EntityPage: React.FC = () => {
       ? (initialTab as any)
       : "details",
   );
+  const [isCreateBillModalOpen, setIsCreateBillModalOpen] = useState(false);
+  const [bills, setBills] = useState<LegislativeBill[]>([]);
   const [alliancePartiesViewMode, setAlliancePartiesViewMode] = useState<"table" | "grid">("table");
 
   const entityType = type as EntityType;
@@ -234,8 +241,23 @@ export const EntityPage: React.FC = () => {
     constituencies: constituenciesList, 
     designations: designationsList,
     orders: ordersList,
+    bills: billsFromLookup,
     loaded: dbLoaded
   } = useDbLookup();
+
+  React.useEffect(() => {
+    if (entityType === EntityType.ASSEMBLY && id && dbLoaded) {
+      const fetchBills = async () => {
+        try {
+          const fetchedBills = await firestoreService.getBillsByAssembly(id);
+          setBills(fetchedBills);
+        } catch (error) {
+          console.error("Error fetching bills:", error);
+        }
+      };
+      fetchBills();
+    }
+  }, [id, entityType, dbLoaded]);
 
   const entity = useMemo(() => {
     if (!id || !dbLoaded) return null;
@@ -2499,6 +2521,20 @@ export const EntityPage: React.FC = () => {
             )}
           </button>
         )}
+        {entityType === EntityType.ASSEMBLY && (
+          <button
+            onClick={() => setActiveTab("bills")}
+            className={`px-6 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${activeTab === "bills" ? "bg-[#FFD700] text-black shadow-lg shadow-[#FFD700]/20" : "text-gray-400 hover:text-white"}`}
+          >
+            <FileText size={13} />
+            <span>BILLS</span>
+            {bills && bills.length > 0 && (
+              <span className={`px-1.5 py-0.2 text-[10px] rounded-full font-mono ${activeTab === "bills" ? "bg-black text-[#FFD700]" : "bg-white/10 text-gray-300"}`}>
+                {bills.length}
+              </span>
+            )}
+          </button>
+        )}
       </div>
 
       {/* Tab Content */}
@@ -4672,14 +4708,49 @@ export const EntityPage: React.FC = () => {
                         <span className="text-[11px] text-gray-500 font-medium">
                           {order.taggedPersonIds?.length || 0} person(s) referenced
                         </span>
-                        <span className="text-[11px] font-bold text-[#FFD700] group-hover:underline flex items-center gap-1">
-                          View in Registry &rarr;
-                        </span>
                       </div>
                     </div>
                   ))}
                 </div>
               )}
+            </div>
+          )}
+
+          {activeTab === "bills" && entityType === EntityType.ASSEMBLY && entity && (
+            <div className="space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white/5 border border-white/10 rounded-2xl p-6">
+                <div>
+                  <h3 className="text-xl font-black uppercase tracking-tight text-white flex items-center gap-2.5">
+                    <FileText className="text-[#FFD700]" size={22} />
+                    <span>Legislative Bills & Enactments</span>
+                  </h3>
+                  <p className="text-xs text-gray-400 mt-1">
+                    Manage and track the progress of bills presented in {(entity as Assembly).name}.
+                  </p>
+                </div>
+                {(entity as Assembly).isActive !== false && !isViewerMode && (
+                  <button
+                    onClick={() => setIsCreateBillModalOpen(true)}
+                    className="inline-flex items-center justify-center gap-2 px-6 py-3 bg-[#FFD700] hover:bg-[#FFD700]/90 rounded-xl text-black transition-all font-black text-xs uppercase tracking-widest shadow-lg shadow-[#FFD700]/20 cursor-pointer shrink-0"
+                  >
+                    <FilePlus size={16} />
+                    <span>Create New Bill</span>
+                  </button>
+                )}
+              </div>
+
+              <BillsList 
+                bills={bills} 
+                assembly={entity as Assembly} 
+                members={assemblyMembers} 
+              />
+              
+              <CreateBillModal
+                isOpen={isCreateBillModalOpen}
+                onClose={() => setIsCreateBillModalOpen(false)}
+                assembly={entity as Assembly}
+                members={assemblyMembers}
+              />
             </div>
           )}
         </motion.div>

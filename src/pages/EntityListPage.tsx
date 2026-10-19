@@ -39,7 +39,9 @@ export const EntityListPage: React.FC<ListPageProps> = ({ type, searchQuery = ''
     alliances, 
     assemblies, 
     constituencies, 
-    designations 
+    designations, 
+    partiesMap, 
+    personsMap
   } = useDbLookup();
 
   const entities = React.useMemo(() => {
@@ -91,13 +93,49 @@ export const EntityListPage: React.FC<ListPageProps> = ({ type, searchQuery = ''
     if (!searchQuery) return results;
     
     const query = searchQuery.toLowerCase();
-    return results.filter(e => 
-      e.name?.toLowerCase().includes(query) || 
-      e.abbreviation?.toLowerCase().includes(query) ||
-      e.subName?.toLowerCase().includes(query) ||
-      e.constituency?.toLowerCase().includes(query)
-    );
-  }, [type, searchQuery, persons, parties, alliances, assemblies, constituencies, designations]);
+    return results.filter(e => {
+      const basicSearch = 
+        e.name?.toLowerCase().includes(query) || 
+        e.abbreviation?.toLowerCase().includes(query) ||
+        e.subName?.toLowerCase().includes(query) ||
+        e.constituency?.toLowerCase().includes(query) ||
+        e.district?.toLowerCase().includes(query) ||
+        e.state?.toLowerCase().includes(query);
+
+      if (basicSearch) return true;
+
+      // Type-specific deep search
+      if (type === EntityType.PERSON) {
+        const party = e.partyId ? partiesMap[e.partyId] : null;
+        const partyMatch = party?.name?.toLowerCase().includes(query) || party?.abbreviation?.toLowerCase().includes(query);
+        const constituencyMatch = e.constituencyName?.toLowerCase().includes(query);
+        const designationMatch = e.designations?.some((dId: string) => {
+          const d = (designations as any[]).find(des => des.id === dId);
+          return d?.name?.toLowerCase().includes(query);
+        });
+        return partyMatch || constituencyMatch || designationMatch;
+      }
+
+      if (type === EntityType.ASSEMBLY) {
+        const party = e.partyControlId ? partiesMap[e.partyControlId] : null;
+        return party?.name?.toLowerCase().includes(query) || party?.abbreviation?.toLowerCase().includes(query);
+      }
+
+      if (type === EntityType.CONSTITUENCY) {
+        return e.slNo?.toString().includes(query);
+      }
+
+      if (type === EntityType.DESIGNATION) {
+        const incumbent = e.incumbentId && e.incumbentId !== 'vacant' ? personsMap[e.incumbentId] : null;
+        const incumbentMatch = incumbent?.name?.toLowerCase().includes(query);
+        const party = incumbent?.partyId ? partiesMap[incumbent.partyId] : null;
+        const partyMatch = party?.name?.toLowerCase().includes(query) || party?.abbreviation?.toLowerCase().includes(query);
+        return incumbentMatch || partyMatch;
+      }
+
+      return false;
+    });
+  }, [type, searchQuery, persons, parties, alliances, assemblies, constituencies, designations, partiesMap, personsMap]);
 
   const handleDelete = async () => {
     if (!entityToDelete) return;

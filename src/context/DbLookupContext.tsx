@@ -2,11 +2,12 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { 
   collection, 
   onSnapshot, 
-  query 
+  query,
+  orderBy
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from './AuthContext';
-import { Person, Party, Alliance, Assembly, Designation, Constituency, LegislativeOrder } from '../types';
+import { Person, Party, Alliance, Assembly, Designation, Constituency, LegislativeOrder, LegislativeBill } from '../types';
 
 interface DbLookupContextType {
   loaded: boolean;
@@ -17,6 +18,7 @@ interface DbLookupContextType {
   persons: Person[];
   constituencies: Constituency[];
   orders: LegislativeOrder[];
+  bills: LegislativeBill[];
   partiesMap: Record<string, Party>;
   alliancesMap: Record<string, Alliance>;
   assembliesMap: Record<string, Assembly>;
@@ -49,7 +51,8 @@ export const DbLookupProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       'designations',
       'persons',
       'constituencies',
-      'orders'
+      'orders',
+      'bills'
     ];
 
     const unsubscribes: (() => void)[] = [];
@@ -60,7 +63,8 @@ export const DbLookupProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       designations: [],
       persons: [],
       constituencies: [],
-      orders: []
+      orders: [],
+      bills: []
     };
 
     let collectionsLoaded = 0;
@@ -73,8 +77,8 @@ export const DbLookupProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         // Sorting
         if (colName === 'parties' || colName === 'alliances' || colName === 'persons' || colName === 'designations') {
           docs.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
-        } else if (colName === 'orders') {
-          docs.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        } else if (colName === 'orders' || colName === 'bills') {
+          docs.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
         }
 
         localData[colName] = docs;
@@ -130,6 +134,7 @@ export const DbLookupProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     persons: data?.persons || [],
     constituencies: data?.constituencies || [],
     orders: data?.orders || [],
+    bills: data?.bills || [],
     partiesMap: data?.partiesMap || {},
     alliancesMap: data?.alliancesMap || {},
     assembliesMap: data?.assembliesMap || {},

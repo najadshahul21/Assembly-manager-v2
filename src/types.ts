@@ -199,6 +199,21 @@ export interface LegislativeOrder {
   updatedAt: number;
 }
 
+export interface LegislativeBill {
+  id: string;
+  billNo: string;
+  billName: string;
+  content: string;
+  presenterId: string;
+  presenterName: string;
+  presenterConstituency: string;
+  assemblyId: string;
+  votes: {[personId: string]: 'yes' | 'no' | 'neutral'};
+  status: 'Passed' | 'Rejected' | 'Withheld';
+  createdAt: number;
+  updatedAt: number;
+}
+
 export function formatOfficeOfHonble(rawOfficeName?: string): string {
   if (!rawOfficeName) return "By Office of Hon'ble Authority";
   let clean = rawOfficeName.trim();

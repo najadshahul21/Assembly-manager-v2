@@ -23,19 +23,39 @@ app.get(['/healthz', '/health', '/api/health'], (_req, res) => {
   res.status(200).json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
-// Serve static assets from Vite build output if present
-if (fs.existsSync(distPath)) {
-  app.use(express.static(distPath));
+// In development, mount Vite's middle-wares
+if (process.env.NODE_ENV !== 'production') {
+  const { createServer: createViteServer } = await import('vite');
+  const vite = await createViteServer({
+    server: { middlewareMode: true },
+    appType: 'spa'
+  });
+  app.use(vite.middlewares);
+} else {
+  // Serve static assets from Vite build output if present
+  if (fs.existsSync(distPath)) {
+    app.use(express.static(distPath));
+  }
 }
 
 // Fallback to index.html for React SPA router
-app.get('*', (_req, res) => {
-  if (fs.existsSync(indexPath)) {
-    res.sendFile(indexPath);
-  } else if (fs.existsSync(rootIndexPath)) {
-    res.sendFile(rootIndexPath);
-  } else {
-    res.status(200).send('<!DOCTYPE html><html><head><title>Assembly Manager</title></head><body><div id="root"></div></body></html>');
+app.get('*', async (req, res, next) => {
+  try {
+    if (process.env.NODE_ENV !== 'production') {
+      const html = fs.readFileSync(rootIndexPath, 'utf-8');
+      res.status(200).set({ 'Content-Type': 'text/html' }).end(html);
+      return;
+    }
+
+    if (fs.existsSync(indexPath)) {
+      res.sendFile(indexPath);
+    } else if (fs.existsSync(rootIndexPath)) {
+      res.sendFile(rootIndexPath);
+    } else {
+      res.status(200).send('<!DOCTYPE html><html><head><title>Assembly Manager</title></head><body><div id="root"></div></body></html>');
+    }
+  } catch (e) {
+    next(e);
   }
 });
 

@@ -50,13 +50,13 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({ searchQuery = '' }) => {
     return map;
   }, [parties]);
 
-  // Combined Search
+  // Combined Search (for UI display)
   const effectiveSearch = (searchQuery || localSearch).trim().toLowerCase();
 
   // Filtered Orders
   const filteredOrders = useMemo(() => {
     return (orders || []).filter(order => {
-      // Category filter
+      // 1. Category filter
       if (selectedCategory !== 'all') {
         if (selectedCategory === 'cabinet' && order.byCategory !== 'cabinet') return false;
         if (selectedCategory === 'mla' && order.byCategory !== 'mla') return false;
@@ -65,39 +65,45 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({ searchQuery = '' }) => {
         if (selectedCategory === 'speaker' && order.byCategory !== 'speaker') return false;
       }
 
-      // Designation filter
+      // 2. Designation filter
       if (selectedDesignationFilter !== 'all') {
         if (order.byDesignationId !== selectedDesignationFilter && order.byDesignationName !== selectedDesignationFilter) {
           return false;
         }
       }
 
-      // Tagged Person filter
+      // 3. Tagged Person filter
       if (selectedPersonFilter !== 'all') {
         const isTagged = order.taggedPersonIds?.includes(selectedPersonFilter);
         const isSigner = order.signerPersonId === selectedPersonFilter;
         if (!isTagged && !isSigner) return false;
       }
 
-      // Text search
-      if (effectiveSearch) {
-        const inName = order.orderName?.toLowerCase().includes(effectiveSearch);
-        const inContent = order.content?.toLowerCase().includes(effectiveSearch);
-        const inBy = order.byDesignationName?.toLowerCase().includes(effectiveSearch);
-        const inOffice = order.byOfficeTitle?.toLowerCase().includes(effectiveSearch);
-        const inSigner = order.signerPersonName?.toLowerCase().includes(effectiveSearch);
-        const inNumber = order.orderNumber?.toLowerCase().includes(effectiveSearch);
-        const inSlNo = order.slNo?.toLowerCase().includes(effectiveSearch);
-        
-        // Search tagged persons
-        const inTagged = order.taggedPersonIds?.some(pId => {
-          const p = personsMap.get(pId);
-          return p?.name.toLowerCase().includes(effectiveSearch);
-        });
+      // 4. Combined Search Logic (AND search if both global and local are present)
+      const globalQuery = searchQuery.trim().toLowerCase();
+      const localQuery = localSearch.trim().toLowerCase();
 
-        if (!inName && !inContent && !inBy && !inOffice && !inSigner && !inNumber && !inSlNo && !inTagged) {
-          return false;
-        }
+      if (globalQuery || localQuery) {
+        const searchInOrder = (term: string) => {
+          const inName = order.orderName?.toLowerCase().includes(term);
+          const inContent = order.content?.toLowerCase().includes(term);
+          const inBy = order.byDesignationName?.toLowerCase().includes(term);
+          const inOffice = order.byOfficeTitle?.toLowerCase().includes(term);
+          const inSigner = order.signerPersonName?.toLowerCase().includes(term);
+          const inNumber = order.orderNumber?.toLowerCase().includes(term);
+          const inSlNo = order.slNo?.toLowerCase().includes(term);
+          
+          // Search tagged persons using personsMap
+          const inTagged = order.taggedPersonIds?.some(pId => {
+            const p = personsMap.get(pId);
+            return p?.name.toLowerCase().includes(term);
+          });
+
+          return inName || inContent || inBy || inOffice || inSigner || inNumber || inSlNo || inTagged;
+        };
+
+        if (globalQuery && !searchInOrder(globalQuery)) return false;
+        if (localQuery && !searchInOrder(localQuery)) return false;
       }
 
       return true;

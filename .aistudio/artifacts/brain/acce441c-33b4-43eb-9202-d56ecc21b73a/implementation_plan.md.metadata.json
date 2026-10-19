@@ -1,0 +1,6 @@
+{
+  "summary": "Implementation plan to revert the development server to a standard Vite setup to resolve the 'Connection refused' issue. This involves updating the package.json scripts while maintaining the Express server for production deployment.",
+  "updatedAt": "2026-10-19T15:13:11.712618007Z",
+  "requestFeedback": true,
+  "userFacing": true
+}

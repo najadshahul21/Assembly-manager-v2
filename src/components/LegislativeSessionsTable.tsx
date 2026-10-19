@@ -142,18 +142,15 @@ export const LegislativeSessionsTable: React.FC<LegislativeSessionsTableProps> =
                               </span>
                             )}
                             
-                            {m.reason && m.reason !== 'appointment' && (
+                            {m.reason && !m.reason.toLowerCase().includes('appoint') && (
                               <span className="text-[10px] sm:text-[11px] text-red-500 font-black uppercase tracking-wider leading-tight mt-0.5 break-words whitespace-normal">
-                                ({m.reason}{m.removalDate ? ` • ${new Date(m.removalDate).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '-')}` : ''})
+                                ({m.reason.charAt(0).toUpperCase() + m.reason.slice(1)}{m.removalDate ? ` • ${new Date(m.removalDate).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '-')}` : ''})
                               </span>
                             )}
                             
-                            {m.isByelected && (
+                            {(m.isByelected || !showAssembly) && m.electionDate && (
                               <span className="text-[10px] sm:text-[11px] text-emerald-500 font-black uppercase tracking-wider leading-tight mt-0.5 italic break-words whitespace-normal">
-                                (Bye Elected{m.electionDate ? ` • ${(() => {
-                                  const d = new Date(m.electionDate);
-                                  return d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '-');
-                                })()}` : ''})
+                                ({m.isByelected ? 'Bye Elected' : 'Appointed'}{` • ${new Date(m.electionDate).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '-')}`})
                               </span>
                             )}
                           </div>

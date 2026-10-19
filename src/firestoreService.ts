@@ -12,7 +12,8 @@ import {
   Timestamp,
   DocumentData,
   collectionGroup,
-  runTransaction
+  runTransaction,
+  orderBy
 } from 'firebase/firestore';
 import { auth, db } from './firebase';
 import { 
@@ -22,7 +23,8 @@ import {
   Assembly, 
   Designation, 
   Constituency, 
-  LegislativeOrder 
+  LegislativeOrder,
+  LegislativeBill
 } from './types';
 
 import { getSystemTimestamp, getSystemDateString } from './utils/dateUtils';
@@ -66,14 +68,23 @@ interface FirestoreErrorInfo {
 }
 
 function sanitizeData(data: any): any {
-  if (data === null || typeof data !== 'object') return data;
-  if (Array.isArray(data)) return data.map(item => sanitizeData(item));
+  if (data === null || data === undefined) return data;
+  if (typeof data !== 'object') return data;
+  if (data instanceof Date) return data.getTime();
+  if (Array.isArray(data)) {
+    return data
+      .map(item => sanitizeData(item))
+      .filter(item => item !== undefined);
+  }
   
   const result: any = {};
   Object.keys(data).forEach(key => {
     const value = data[key];
     if (value !== undefined) {
-      result[key] = sanitizeData(value);
+      const sanitized = sanitizeData(value);
+      if (sanitized !== undefined) {
+        result[key] = sanitized;
+      }
     }
   });
   return result;
@@ -444,6 +455,60 @@ export const firestoreService = {
       await deleteDoc(docRef);
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, path);
+    }
+  },
+
+  saveBill: async (bill: LegislativeBill) => {
+    const path = `users/${auth.currentUser?.uid}/bills/${bill.id}`;
+    try {
+      const docRef = getUserDoc('bills', bill.id);
+      await setDoc(docRef, { ...bill, updatedAt: getSystemTimestamp() });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, path);
+    }
+  },
+  updateBill: async (id: string, data: Partial<LegislativeBill>) => {
+    const path = `users/${auth.currentUser?.uid}/bills/${id}`;
+    try {
+      const docRef = getUserDoc('bills', id);
+      await updateDoc(docRef, { ...data, updatedAt: getSystemTimestamp() });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, path);
+    }
+  },
+  deleteBill: async (id: string) => {
+    const path = `users/${auth.currentUser?.uid}/bills/${id}`;
+    try {
+      const docRef = getUserDoc('bills', id);
+      await deleteDoc(docRef);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, path);
+    }
+  },
+  getBills: async (): Promise<LegislativeBill[]> => {
+    const uid = auth.currentUser?.uid;
+    if (!uid) return [];
+    try {
+      const q = query(collection(db, 'users', uid, 'bills'), orderBy('updatedAt', 'desc'));
+      const snapshot = await getDocs(q);
+      return snapshot.docs.map(d => ({ id: d.id, ...d.data() } as LegislativeBill));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.LIST, `users/${uid}/bills`);
+    }
+  },
+  getBillsByAssembly: async (assemblyId: string): Promise<LegislativeBill[]> => {
+    const uid = auth.currentUser?.uid;
+    if (!uid) return [];
+    try {
+      const q = query(
+        collection(db, 'users', uid, 'bills'), 
+        where('assemblyId', '==', assemblyId),
+        orderBy('updatedAt', 'desc')
+      );
+      const snapshot = await getDocs(q);
+      return snapshot.docs.map(d => ({ ...d.data() } as LegislativeBill));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.LIST, `users/${uid}/bills?assemblyId=${assemblyId}`);
     }
   },
 
@@ -1109,7 +1174,8 @@ export const firestoreService = {
       'designations',
       'persons',
       'constituencies',
-      'orders'
+      'orders',
+      'bills'
     ];
 
     const { writeBatch } = await import('firebase/firestore');

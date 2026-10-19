@@ -101,6 +101,24 @@
                   }
                 }
               }
+            },
+            "bills": {
+              "documents": {
+                "{billId}": {
+                  "fields": {
+                    "id": { "type": "string" },
+                    "billNo": { "type": "string" },
+                    "billName": { "type": "string" },
+                    "content": { "type": "string" },
+                    "presenterId": { "type": "string" },
+                    "presenterName": { "type": "string" },
+                    "presenterConstituency": { "type": "string" },
+                    "assemblyId": { "type": "string" },
+                    "votes": { "type": "map" },
+                    "updatedAt": { "type": "number" }
+                  }
+                }
+              }
             }
           }
         }

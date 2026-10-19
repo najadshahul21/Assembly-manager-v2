@@ -674,7 +674,7 @@ export const LegislativeRolesHistoryWidget: React.FC<LegislativeRolesHistoryWidg
             <div className="grid grid-cols-2 bg-[#0A101D] border-t border-[#22314E]">
               <div className="p-4 border-r border-[#22314E] flex flex-col items-center justify-center text-center">
                 <p className="text-[10px] uppercase tracking-widest text-[#7B96D4] font-bold mb-1">
-                  {card.roleType === 'speaker' || card.roleType === 'deputy_speaker' ? 'Governor' : 'Appointed by'}
+                  {card.roleType === 'speaker' || card.roleType === 'deputy_speaker' ? 'Governor' : (card.roleTitle.toLowerCase().includes('governor') ? 'Head of State' : 'Appointed by')}
                 </p>
                 <p className="text-xs font-bold text-white leading-tight">
                   {card.governor?.name || "Hon'ble Governor"}
