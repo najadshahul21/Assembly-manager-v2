@@ -112,7 +112,7 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({ searchQuery = '' }) => {
         ? compareOrdersReverseChronological(a, b)
         : compareOrdersReverseChronological(b, a);
     });
-  }, [orders, selectedCategory, selectedDesignationFilter, selectedPersonFilter, effectiveSearch, personsMap, sortOrder]);
+  }, [orders, selectedCategory, selectedDesignationFilter, selectedPersonFilter, searchQuery, localSearch, personsMap, sortOrder]);
 
   // Statistics
   const stats = useMemo(() => {

@@ -805,7 +805,7 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
                                   </span>
                                 )}
                                 
-                                {((isPrimary && isDateOverridden) || inc.isByelected) && !inc.removalDate && inc.electionDate && (
+                                {inc.isByelected && !inc.removalDate && inc.electionDate && (
                                   <span className="text-[10px] text-emerald-500 font-bold leading-tight italic break-words whitespace-normal">
                                     (Assumed office on {formatAppDate(inc.electionDate)})
                                   </span>

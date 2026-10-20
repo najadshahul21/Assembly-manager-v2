@@ -435,10 +435,21 @@ export const buildLegislativeSessionsList = ({
 
       // 2. Process desig.history
       const personTenures: any[] = [];
+      
+      // Identify the last person from seeds to avoid starting a duplicate tenure for them
+      const lastSeedRow = rows.length > 0 ? rows[rows.length - 1] : null;
+      const lastSeedPersonId = lastSeedRow?.members[0]?.memberId;
+
       if (Array.isArray(desig.history)) {
         const sortedHistory = [...desig.history].sort((a, b) => a.date - b.date);
         sortedHistory.forEach((h) => {
           if (h.reason === 'appointment') {
+            // Only add as a NEW tenure if this person isn't already the last one in seeds
+            // OR if there are already tenures in the list (meaning they came back)
+            if (h.personId === lastSeedPersonId && personTenures.length === 0) {
+              // They are already represented in Row #N (the seed)
+              return;
+            }
             personTenures.push({
               personId: h.personId,
               electionDate: h.date,
@@ -451,8 +462,15 @@ export const buildLegislativeSessionsList = ({
             if (lastTenure) {
               lastTenure.removalDate = h.date;
               lastTenure.reason = h.reason;
+            } else if (h.personId === lastSeedPersonId && personTenures.length === 0) {
+              // SPECIAL CASE: This resignation applies to the person who was seeded.
+              // Instead of creating a new row, we update the seeded row if it's the last one.
+              if (lastSeedRow && lastSeedRow.members[0]) {
+                 lastSeedRow.members[0].removalDate = h.date;
+                 lastSeedRow.members[0].reason = h.reason;
+              }
             } else if (h.personId && h.personId !== 'vacant') {
-              // Fallback if we have a removal without an appointment (incomplete data)
+              // Fallback for incomplete data
               personTenures.push({
                 personId: h.personId,
                 electionDate: undefined,
@@ -467,9 +485,12 @@ export const buildLegislativeSessionsList = ({
       // 3. Add current incumbent if not already represented as an open tenure
       if (desig.incumbentId && desig.incumbentId !== 'vacant') {
         const lastTenure = personTenures[personTenures.length - 1];
-        // Only add if not already the last person in history, regardless of whether it was closed
-        // This avoids duplication when someone leaves (is closed in history but still incumbent in record)
-        if (!lastTenure || lastTenure.personId !== desig.incumbentId) {
+        
+        // Check if they are already represented in the last seed row as an open tenure
+        const isCurrentlyInLastSeed = !lastTenure && lastSeedPersonId === desig.incumbentId && !lastSeedRow?.members[0]?.removalDate;
+        const isCurrentlyInLastTenure = lastTenure && lastTenure.personId === desig.incumbentId && !lastTenure.removalDate;
+
+        if (!isCurrentlyInLastSeed && !isCurrentlyInLastTenure) {
           personTenures.push({
             personId: desig.incumbentId,
             electionDate: desig.updatedAt,

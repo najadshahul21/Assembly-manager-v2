@@ -165,16 +165,25 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSearch, onPlusClick,
             <button onClick={() => setSidebarOpen(true)} className="p-2 lg:hidden hover:bg-white/10 rounded-full">
               <Menu size={24} />
             </button>
-            <div className="relative w-full max-w-md">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
+            <div className="relative w-full max-w-md group">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within:text-[#FFD700] transition-colors" size={18} />
               <input
                 type="text"
                 placeholder="Search entities..."
                 value={searchQuery}
                 onChange={(e) => onSearch(e.target.value)}
-                className="w-full bg-[#1a1a1a] border border-[#FFD700]/10 rounded-full py-2 pl-10 pr-4 focus:outline-none focus:border-[#FFD700]/40 transition-colors"
+                className="w-full bg-[#1a1a1a] border border-[#FFD700]/10 rounded-full py-2 pl-10 pr-10 focus:outline-none focus:border-[#FFD700]/40 transition-colors"
                 id="global-search"
               />
+              {searchQuery && (
+                <button
+                  onClick={() => onSearch('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-gray-500 hover:text-white hover:bg-white/10 rounded-full transition-all"
+                  title="Clear search"
+                >
+                  <X size={14} />
+                </button>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-3 sm:gap-4 ml-4">

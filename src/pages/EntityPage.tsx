@@ -1082,9 +1082,14 @@ export const EntityPage: React.FC = () => {
         };
       });
 
+      const active = incumbents.find(i => i.isActive);
+
       return {
         constituency: c,
         incumbents,
+        politician: active?.person,
+        party: active?.party,
+        alliance: active?.alliance,
       };
     });
 
@@ -2309,11 +2314,6 @@ export const EntityPage: React.FC = () => {
                 </div>
               )}
 
-              {(entity as any).bio && (
-                <p className="text-sm text-gray-300 leading-relaxed max-w-2xl font-medium italic border-l-2 border-[#FFD700]/30 pl-4 py-1 my-4">
-                  {(entity as any).bio}
-                </p>
-              )}
 
               <div className="flex flex-wrap items-center justify-center md:justify-start gap-4 text-gray-400 font-medium">
                 {entityType === EntityType.PERSON && (
@@ -2568,6 +2568,19 @@ export const EntityPage: React.FC = () => {
                 onNavigateParty={(partyId) => navigate(`/party/${partyId}`)}
                 isDissolved={isDissolvedRecord}
               />
+
+              <section className="glass-card p-8">
+                <h3 className="text-lg font-bold uppercase tracking-widest mb-6 text-white">
+                  About {(entity as any).name}
+                </h3>
+                <div className="prose prose-invert max-w-none text-gray-400 leading-relaxed">
+                  {(entity as any).bio ? (
+                    <div className="whitespace-pre-wrap">{(entity as any).bio}</div>
+                  ) : (
+                    `Strategic political alliance: ${(entity as Alliance).name} (${(entity as Alliance).abbreviation}).`
+                  )}
+                </div>
+              </section>
             </div>
           )}
 
@@ -2595,6 +2608,19 @@ export const EntityPage: React.FC = () => {
                 }}
                 isDissolved={isDissolvedRecord}
               />
+
+              <section className="glass-card p-8">
+                <h3 className="text-lg font-bold uppercase tracking-widest mb-6 text-white">
+                  About {(entity as any).name}
+                </h3>
+                <div className="prose prose-invert max-w-none text-gray-400 leading-relaxed">
+                  {(entity as any).bio ? (
+                    <div className="whitespace-pre-wrap">{(entity as any).bio}</div>
+                  ) : (
+                    `Official profile of ${(entity as Party).name} (${(entity as Party).abbreviation}).`
+                  )}
+                </div>
+              </section>
             </div>
           )}
 
@@ -2655,6 +2681,19 @@ export const EntityPage: React.FC = () => {
                   })()}
                 </section>
               </div>
+
+              <section className="glass-card p-8 max-w-4xl mx-auto">
+                <h3 className="text-lg font-bold uppercase tracking-widest mb-6 text-white">
+                  About {(entity as any).name}
+                </h3>
+                <div className="prose prose-invert max-w-none text-gray-400 leading-relaxed">
+                  {(entity as any).bio ? (
+                    <div className="whitespace-pre-wrap">{(entity as any).bio}</div>
+                  ) : (
+                    `Official legislative record for the ${(entity as Constituency).name} assembly constituency.`
+                  )}
+                </div>
+              </section>
             </div>
           )}
 
@@ -2868,12 +2907,18 @@ export const EntityPage: React.FC = () => {
                     About {(entity as any).name}
                   </h3>
                   <div className="prose prose-invert max-w-none text-gray-400 leading-relaxed">
-                    {entityType === EntityType.ASSEMBLY &&
-                      (entity as Assembly).description}
-                    {entityType === EntityType.PERSON &&
-                      `Details for legislator ${(entity as Person).name} ${(entity as Person).partyId === "independent" ? "serving as an independent." : `affiliated with ${personParty?.name || (entity as Person).partyId}.`}`}
-                    {entityType === EntityType.DESIGNATION &&
-                      `Official designation of ${(entity as Designation).name} for the ${associatedConstituency?.name || (entity as Designation).constituency || "selected"} constituency.`}
+                    {(entity as any).bio ? (
+                      <div className="whitespace-pre-wrap">{(entity as any).bio}</div>
+                    ) : (
+                      <>
+                        {entityType === EntityType.ASSEMBLY &&
+                          (entity as Assembly).description}
+                        {entityType === EntityType.PERSON &&
+                          `Details for legislator ${(entity as Person).name} ${(entity as Person).partyId === "independent" ? "serving as an independent." : `affiliated with ${personParty?.name || (entity as Person).partyId}.`}`}
+                        {entityType === EntityType.DESIGNATION &&
+                          `Official designation of ${(entity as Designation).name} for the ${associatedConstituency?.name || (entity as Designation).constituency || "selected"} constituency.`}
+                      </>
+                    )}
                   </div>
 
                   {/* Legislative Control section removed per user request */}
@@ -3594,10 +3639,10 @@ export const EntityPage: React.FC = () => {
                                 const seat = assemblySeats[idx];
                                 if (!seat) return null;
                                 const isVacant = !seat.politician;
-                                const color = isVacant
+                                const seatColor = isVacant
                                   ? "#4B5563"
-                                  : seat.alliance?.colors?.[0] ||
-                                    seat.party?.colors?.[0] ||
+                                  : (seat.party?.colors?.[0] || (seat.party as any)?.color) ||
+                                    (seat.alliance?.colors?.[0] || (seat.alliance as any)?.color) ||
                                     "#666666";
                                 const isCurrentlyInspected =
                                   inspectorSeat?.constituency?.id ===
@@ -3609,7 +3654,7 @@ export const EntityPage: React.FC = () => {
                                     cx={pos.x}
                                     cy={pos.y}
                                     r={isCurrentlyInspected ? 9 : 6.5}
-                                    fill={color}
+                                    fill={seatColor}
                                     className={`transition-all duration-300 cursor-pointer ${
                                       isCurrentlyInspected
                                         ? "stroke-white stroke-[2.5px] scale-125"
@@ -3720,11 +3765,9 @@ export const EntityPage: React.FC = () => {
                                     <div
                                       className="w-3.5 h-3.5 rounded"
                                       style={{
-                                        backgroundColor: inspectorSeat.alliance
-                                          ? inspectorSeat.alliance.colors?.[0]
-                                          : inspectorSeat.party
-                                            ? inspectorSeat.party.colors?.[0]
-                                            : "#4B5563",
+                                        backgroundColor: (inspectorSeat.party?.colors?.[0] || (inspectorSeat.party as any)?.color) ||
+                                                         (inspectorSeat.alliance?.colors?.[0] || (inspectorSeat.alliance as any)?.color) ||
+                                                         "#4B5563",
                                       }}
                                     />
                                     <div>

@@ -562,7 +562,8 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
         designations: [],
         assemblyRoles: {},
         isSuspended: false,
-        updatedAt: now
+        updatedAt: now,
+        bio: (p as any).bio || ''
       }));
 
       for (const payload of payloads) {
@@ -1262,6 +1263,19 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
                             </button>
                           </div>
                         </div>
+                        {/* Bio */}
+                        <div className="sm:col-span-12">
+                          <label className="text-[10px] text-gray-400 uppercase font-bold tracking-wider mb-1 block">
+                            Short Biography (Optional)
+                          </label>
+                          <textarea
+                            value={(person as any).bio || ''}
+                            onChange={(e) => handleUpdateBulkField(person.id, 'bio' as any, e.target.value)}
+                            placeholder="Brief professional summary..."
+                            rows={1}
+                            className="w-full bg-white/5 border border-white/10 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-[#FFD700]/50 resize-none h-10"
+                          />
+                        </div>
                       </div>
                     </div>
                   );
@@ -1322,8 +1336,11 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
                 </div>
               </div>
               <div>
-                <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Bio (Optional)</label>
-                <textarea {...register('bio')} placeholder="Enter short bio..." rows={3} className="w-full bg-white/5 border border-white/10 rounded-xl p-3 focus:outline-none focus:border-[#FFD700]/50" />
+                <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block flex items-center justify-between">
+                   <span>Bio / Biography</span>
+                   <span className="text-[10px] font-normal text-gray-600">Optional • Max 500 chars</span>
+                </label>
+                <textarea {...register('bio')} placeholder="Enter professional history, achievements or short biography..." rows={3} maxLength={500} className="w-full bg-white/5 border border-white/10 rounded-xl p-3 focus:outline-none focus:border-[#FFD700]/50 resize-none" />
               </div>
             </div>
           </>
@@ -1364,8 +1381,11 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
                 </select>
             </div>
             <div className="sm:col-span-2">
-              <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Bio (Optional)</label>
-              <textarea {...register('bio')} placeholder="Enter party history or bio..." rows={3} className="w-full bg-white/5 border border-white/10 rounded-xl p-3 focus:outline-none focus:border-[#FFD700]/50" />
+              <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block flex items-center justify-between">
+                <span>Party Biography / History</span>
+                <span className="text-[10px] font-normal text-gray-600">Optional • Max 1000 chars</span>
+              </label>
+              <textarea {...register('bio')} placeholder="Enter party origins, ideologies, or historical context..." rows={4} maxLength={1000} className="w-full bg-white/5 border border-white/10 rounded-xl p-3 focus:outline-none focus:border-[#FFD700]/50 resize-none" />
             </div>
             <div className="sm:col-span-2 pt-4 border-t border-white/10">
                <div className="flex items-center justify-between mb-3">
@@ -1452,8 +1472,11 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
                <input {...register('color')} type="color" className="w-full h-12 bg-white/5 border border-white/10 rounded-xl p-1 focus:outline-none focus:border-[#FFD700]/50" />
             </div>
             <div className="sm:col-span-2">
-              <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Bio (Optional)</label>
-              <textarea {...register('bio')} placeholder="Enter alliance bio..." rows={3} className="w-full bg-white/5 border border-white/10 rounded-xl p-3 focus:outline-none focus:border-[#FFD700]/50" />
+              <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block flex items-center justify-between">
+                <span>Alliance Summary</span>
+                <span className="text-[10px] font-normal text-gray-600">Optional • Max 1000 chars</span>
+              </label>
+              <textarea {...register('bio')} placeholder="Enter coalition goals, common minimum programs, or front history..." rows={4} maxLength={1000} className="w-full bg-white/5 border border-white/10 rounded-xl p-3 focus:outline-none focus:border-[#FFD700]/50 resize-none" />
             </div>
             <div className="sm:col-span-2">
               <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Alliance Logo URL (Optional)</label>
