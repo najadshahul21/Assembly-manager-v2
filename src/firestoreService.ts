@@ -744,7 +744,7 @@ export const firestoreService = {
               name: p.name,
               constituencyName: con.name,
               partyId: p.partyId,
-              imageUrl: p.imageUrl,
+              imageUrl: p.imageUrl?.startsWith("data:") ? undefined : p.imageUrl,
               subtitleOverride: finalSubtitle,
               mlaStatusText: mlaStatusText || undefined,
             });
@@ -763,7 +763,7 @@ export const firestoreService = {
               name: p.name,
               constituencyName: d.constituency || "Special Role",
               partyId: p.partyId,
-              imageUrl: p.imageUrl,
+              imageUrl: p.imageUrl?.startsWith("data:") ? undefined : p.imageUrl,
             });
             addedPersons.add(p.id);
           }
@@ -821,11 +821,51 @@ export const firestoreService = {
           }
         }
 
+        // Lightweight representations without full historical arrays or data-url images
+        const cleanConstituency = {
+          id: c.id,
+          name: c.name,
+          slNo: c.slNo || "",
+          district: c.district || "",
+          currentAssemblyId: c.currentAssemblyId,
+          currentIncumbentId: c.currentIncumbentId,
+        };
+
+        const cleanPolitician = politician
+          ? {
+              id: politician.id,
+              name: politician.name,
+              partyId: politician.partyId,
+              gender: politician.gender || "Male",
+              imageUrl: politician.imageUrl?.startsWith("data:")
+                ? undefined
+                : politician.imageUrl,
+            }
+          : undefined;
+
+        const cleanParty = party
+          ? {
+              id: party.id,
+              name: party.name,
+              abbreviation: party.abbreviation,
+              colors: party.colors || [],
+            }
+          : undefined;
+
+        const cleanAlliance = alliance
+          ? {
+              id: alliance.id,
+              name: alliance.name,
+              abbreviation: alliance.abbreviation,
+              colors: (alliance as any).colors || [],
+            }
+          : undefined;
+
         return {
-          constituency: JSON.parse(JSON.stringify(c)),
-          politician: politician ? JSON.parse(JSON.stringify(politician)) : undefined,
-          party: party ? JSON.parse(JSON.stringify(party)) : undefined,
-          alliance: alliance ? JSON.parse(JSON.stringify(alliance)) : undefined,
+          constituency: cleanConstituency,
+          politician: cleanPolitician,
+          party: cleanParty,
+          alliance: cleanAlliance,
         };
       });
 

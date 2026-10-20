@@ -891,7 +891,14 @@ export const EntityPage: React.FC = () => {
 
     const assemblyRecord = assembliesList?.find(a => a.id === id);
     if (assemblyRecord && !assemblyRecord.isActive && assemblyRecord.composition?.members) {
-      return assemblyRecord.composition.members;
+      const personsMap = new Map<string, Person>((personsList as Person[]).map((p) => [p.id, p]));
+      return (assemblyRecord.composition.members as any[]).map((m: any) => {
+        const p = m.id ? personsMap.get(m.id) : null;
+        return {
+          ...m,
+          imageUrl: (p?.imageUrl || m?.imageUrl) as string | undefined,
+        };
+      });
     }
 
     const relevantCs = constituenciesList.filter(c => c.currentAssemblyId === id || (c.history && c.history.some(h => h.assemblyId === id)));
@@ -1051,8 +1058,11 @@ export const EntityPage: React.FC = () => {
       const personsMap = new Map(personsList.map(p => [p.id, p]));
       return assemblyObj.composition.seatingLayout.map((s: any) => {
         let incumbents = s.incumbents || (s.politician ? [{ person: s.politician, party: s.party, alliance: s.alliance }] : []);
+        const politicianDbP = s.politician?.id ? personsMap.get(s.politician.id) : null;
+        const politician = politicianDbP ? Object.assign({}, s.politician || {}, politicianDbP) : s.politician;
         return {
           ...s,
+          politician,
           incumbents: incumbents.map((inc: any) => {
             const dbP = inc.person?.id ? personsMap.get(inc.person.id) : null;
             return Object.assign({}, inc, { person: dbP ? Object.assign({}, inc.person || {}, dbP) : inc.person });
