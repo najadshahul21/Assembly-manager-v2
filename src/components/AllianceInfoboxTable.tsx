@@ -319,6 +319,15 @@ export const AllianceInfoboxTable: React.FC<AllianceInfoboxTableProps> = ({
         </div>
       </div>
 
+      {/* Optional Bio Section */}
+      {alliance.bio && (
+        <div className="px-6 py-4 bg-black/20 border-b border-zinc-800/80">
+          <p className="text-xs sm:text-sm text-zinc-300 leading-relaxed italic text-center">
+            "{alliance.bio}"
+          </p>
+        </div>
+      )}
+
       {/* Main Tabular Specifications (Wikipedia Infobox Format) */}
       <div className="divide-y divide-zinc-800/80 text-sm sm:text-base">
         {/* 1. Abbreviation */}

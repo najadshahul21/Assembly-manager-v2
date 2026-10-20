@@ -39,7 +39,7 @@ function AppContent() {
 
   return (
     <BrowserRouter>
-      <Layout onSearch={setSearchQuery} onPlusClick={() => setCreateMenuOpen(true)}>
+      <Layout onSearch={setSearchQuery} searchQuery={searchQuery} onPlusClick={() => setCreateMenuOpen(true)}>
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/orders" element={<OrdersPage searchQuery={searchQuery} />} />

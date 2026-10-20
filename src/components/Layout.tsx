@@ -10,9 +10,10 @@ interface LayoutProps {
   children: React.ReactNode;
   onSearch: (query: string) => void;
   onPlusClick: () => void;
+  searchQuery: string;
 }
 
-export const Layout: React.FC<LayoutProps> = ({ children, onSearch, onPlusClick }) => {
+export const Layout: React.FC<LayoutProps> = ({ children, onSearch, onPlusClick, searchQuery }) => {
   const [isSidebarOpen, setSidebarOpen] = useState(false);
   const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
   const [showDateConfirm, setShowDateConfirmation] = useState(false);
@@ -169,6 +170,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSearch, onPlusClick 
               <input
                 type="text"
                 placeholder="Search entities..."
+                value={searchQuery}
                 onChange={(e) => onSearch(e.target.value)}
                 className="w-full bg-[#1a1a1a] border border-[#FFD700]/10 rounded-full py-2 pl-10 pr-4 focus:outline-none focus:border-[#FFD700]/40 transition-colors"
                 id="global-search"

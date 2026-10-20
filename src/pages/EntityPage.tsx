@@ -2309,6 +2309,12 @@ export const EntityPage: React.FC = () => {
                 </div>
               )}
 
+              {(entity as any).bio && (
+                <p className="text-sm text-gray-300 leading-relaxed max-w-2xl font-medium italic border-l-2 border-[#FFD700]/30 pl-4 py-1 my-4">
+                  {(entity as any).bio}
+                </p>
+              )}
+
               <div className="flex flex-wrap items-center justify-center md:justify-start gap-4 text-gray-400 font-medium">
                 {entityType === EntityType.PERSON && (
                   <>

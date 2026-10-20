@@ -614,7 +614,8 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
           designations: Array.isArray(editData?.designations) ? editData.designations : [],
           assemblyRoles: (editData?.assemblyRoles && typeof editData.assemblyRoles === 'object') ? editData.assemblyRoles : {},
           isSuspended: editData?.isSuspended || false,
-          updatedAt: now
+          updatedAt: now,
+          bio: data.bio || ''
         };
         await firestoreService.savePerson(payload);
       } else if (type === EntityType.PARTY) {
@@ -627,7 +628,8 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
           allianceId: data.allianceId || 'independent',
           colors: Array.isArray(data.colors) ? data.colors.map((c: any) => c.value) : [],
           isSuspended: editData?.isSuspended || false,
-          updatedAt: now
+          updatedAt: now,
+          bio: data.bio || ''
         };
         await firestoreService.saveParty(payload);
       } else if (type === EntityType.ALLIANCE) {
@@ -663,7 +665,8 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
           leadingPartyId: data.leadingPartyId || '',
           colors: [data.color || '#D32F2F'],
           highCommandIds: editData?.highCommandIds || [],
-          updatedAt: now
+          updatedAt: now,
+          bio: data.bio || ''
         };
         await firestoreService.saveAlliance(payload);
       } else if (type === EntityType.ASSEMBLY) {
@@ -1318,6 +1321,10 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
                    </button>
                 </div>
               </div>
+              <div>
+                <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Bio (Optional)</label>
+                <textarea {...register('bio')} placeholder="Enter short bio..." rows={3} className="w-full bg-white/5 border border-white/10 rounded-xl p-3 focus:outline-none focus:border-[#FFD700]/50" />
+              </div>
             </div>
           </>
         );
@@ -1355,6 +1362,10 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
                   <option value="independent">None (Independent)</option>
                   {alliances.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                 </select>
+            </div>
+            <div className="sm:col-span-2">
+              <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Bio (Optional)</label>
+              <textarea {...register('bio')} placeholder="Enter party history or bio..." rows={3} className="w-full bg-white/5 border border-white/10 rounded-xl p-3 focus:outline-none focus:border-[#FFD700]/50" />
             </div>
             <div className="sm:col-span-2 pt-4 border-t border-white/10">
                <div className="flex items-center justify-between mb-3">
@@ -1439,6 +1450,10 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
             <div>
                <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Alliance Color</label>
                <input {...register('color')} type="color" className="w-full h-12 bg-white/5 border border-white/10 rounded-xl p-1 focus:outline-none focus:border-[#FFD700]/50" />
+            </div>
+            <div className="sm:col-span-2">
+              <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Bio (Optional)</label>
+              <textarea {...register('bio')} placeholder="Enter alliance bio..." rows={3} className="w-full bg-white/5 border border-white/10 rounded-xl p-3 focus:outline-none focus:border-[#FFD700]/50" />
             </div>
             <div className="sm:col-span-2">
               <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Alliance Logo URL (Optional)</label>

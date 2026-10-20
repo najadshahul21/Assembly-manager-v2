@@ -293,6 +293,15 @@ export const PartyInfoboxTable: React.FC<PartyInfoboxTableProps> = ({
         )}
       </div>
 
+      {/* Optional Bio Section */}
+      {party.bio && (
+        <div className="px-6 py-4 bg-black/20 border-b border-zinc-800/80">
+          <p className="text-xs sm:text-sm text-zinc-300 leading-relaxed italic text-center">
+            "{party.bio}"
+          </p>
+        </div>
+      )}
+
       {/* Main Tabular Specifications (Wikipedia Two-Column Format) */}
       <div className="divide-y divide-zinc-800/80 text-sm sm:text-base">
         {/* 1. Abbreviation */}

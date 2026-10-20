@@ -27,6 +27,7 @@ export interface Person {
   subtitleOverride?: string;
   isSuspended?: boolean;
   updatedAt: number;
+  bio?: string;
 }
 
 export interface Party {
@@ -44,6 +45,7 @@ export interface Party {
   legislativeLeaderId?: string;
   isSuspended?: boolean;
   updatedAt: number;
+  bio?: string;
 }
 
 export interface Alliance {
@@ -60,6 +62,7 @@ export interface Alliance {
   leadingPartyId?: string;
   eciStatus?: string;
   updatedAt: number;
+  bio?: string;
 }
 
 export interface AssemblyHistoryEntry {
