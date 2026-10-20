@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { FileText, ChevronRight, Check, X, Minus, User, Calendar, Scale, Info } from 'lucide-react';
 import { LegislativeBill, Assembly, Person } from '../types';
@@ -10,28 +10,51 @@ interface BillsListProps {
   bills: LegislativeBill[];
   assembly: Assembly;
   members: any[];
+  onUpdateBill?: (updatedBill: LegislativeBill) => void;
 }
 
-export const BillsList: React.FC<BillsListProps> = ({ bills, assembly, members }) => {
+export const BillsList: React.FC<BillsListProps> = ({ bills, assembly, members, onUpdateBill }) => {
   const { isViewerMode } = useAuth();
   const [selectedBillId, setSelectedBillId] = useState<string | null>(null);
-  const [isVotingMode, setIsVotingMode] = useState<string | null>(null);
+  const [isVotingMode, setIsVotingMode] = useState<boolean>(true);
+  const [localBills, setLocalBills] = useState<LegislativeBill[]>(bills);
 
-  const sortedBills = useMemo(() => {
-    return [...bills].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  useEffect(() => {
+    setLocalBills(bills);
   }, [bills]);
 
-  const handleVote = async (bill: LegislativeBill, personId: string, vote: 'yes' | 'no' | 'neutral') => {
-    if (isViewerMode || assembly.isActive === false) return;
+  const sortedBills = useMemo(() => {
+    return [...localBills].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  }, [localBills]);
 
-    const newVotes = { ...bill.votes, [personId]: vote };
+  const handleVote = async (bill: LegislativeBill, personId: string, vote: 'yes' | 'no' | 'neutral') => {
+    if (isViewerMode) {
+      alert('Viewer Mode is active. Turn off Viewer Mode to record votes.');
+      return;
+    }
+    if (assembly.isActive === false) {
+      alert('This assembly has dissolved. Voting and modifications are disabled.');
+      return;
+    }
+
+    const currentVotes = { ...(bill.votes || {}) };
+    const existingVote = currentVotes[personId];
+
+    // Toggle off if clicking the already selected vote, otherwise assign new vote
+    if (existingVote === vote) {
+      delete currentVotes[personId];
+    } else {
+      currentVotes[personId] = vote;
+    }
     
     // Calculate new status
     let yesCount = 0;
     let noCount = 0;
-    Object.values(newVotes).forEach(v => {
+    let neutralCount = 0;
+    Object.values(currentVotes).forEach(v => {
       if (v === 'yes') yesCount++;
-      if (v === 'no') noCount++;
+      else if (v === 'no') noCount++;
+      else if (v === 'neutral') neutralCount++;
     });
 
     let status: 'Passed' | 'Rejected' | 'Withheld' = 'Withheld';
@@ -39,22 +62,30 @@ export const BillsList: React.FC<BillsListProps> = ({ bills, assembly, members }
     else if (noCount > yesCount) status = 'Rejected';
     else status = 'Withheld';
 
+    const updatedBill: LegislativeBill = {
+      ...bill,
+      votes: currentVotes,
+      status,
+      updatedAt: getSystemTimestamp(),
+    };
+
+    // Immediate optimistic local update so UI reflects the vote instantly
+    setLocalBills(prev => prev.map(b => (b.id === bill.id ? updatedBill : b)));
+    onUpdateBill?.(updatedBill);
+
     try {
-      await firestoreService.saveBill({
-        ...bill,
-        votes: newVotes,
-        status,
-        updatedAt: getSystemTimestamp(),
-      });
+      await firestoreService.saveBill(updatedBill);
     } catch (error) {
-      console.error('Error voting:', error);
-      alert('Failed to save vote.');
+      console.error('Error saving vote:', error);
+      // Revert optimistic update on failure
+      setLocalBills(prev => prev.map(b => (b.id === bill.id ? bill : b)));
+      alert('Failed to save vote to server.');
     }
   };
 
   const selectedBill = useMemo(() => {
-    return bills.find(b => b.id === selectedBillId);
-  }, [bills, selectedBillId]);
+    return localBills.find(b => b.id === selectedBillId);
+  }, [localBills, selectedBillId]);
 
   const getStatusStyles = (status: string) => {
     switch (status) {
@@ -172,72 +203,124 @@ export const BillsList: React.FC<BillsListProps> = ({ bills, assembly, members }
 
                     <section>
                       <div className="flex items-center justify-between mb-4">
-                        <h5 className="text-[10px] font-black uppercase tracking-widest text-[#FFD700]">Legislative Voting</h5>
+                        <div className="flex items-center gap-2">
+                          <h5 className="text-[10px] font-black uppercase tracking-widest text-[#FFD700]">Legislative Voting</h5>
+                          <span className="text-[9px] text-gray-500 font-bold uppercase tracking-wider">
+                            ({members.length} {members.length === 1 ? 'Member' : 'Members'})
+                          </span>
+                        </div>
                         {assembly.isActive !== false && !isViewerMode && (
                           <button 
-                            onClick={() => setIsVotingMode(isVotingMode ? null : selectedBill.id)}
-                            className="text-[10px] font-black uppercase tracking-widest text-[#FFD700] bg-[#FFD700]/10 px-3 py-1 rounded-full hover:bg-[#FFD700]/20 transition-colors"
+                            type="button"
+                            onClick={() => setIsVotingMode(!isVotingMode)}
+                            className="text-[10px] font-black uppercase tracking-widest text-[#FFD700] bg-[#FFD700]/10 px-3 py-1 rounded-full hover:bg-[#FFD700]/20 transition-colors cursor-pointer"
                           >
-                            {isVotingMode ? 'Finish Voting' : 'Record Votes'}
+                            {isVotingMode ? 'Summary View' : 'Record Votes'}
                           </button>
                         )}
                       </div>
                       
                       <div className="space-y-1 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
-                        {members.map((member) => {
-                          const vote = selectedBill.votes[member.id];
-                          return (
-                            <div key={member.id} className="flex items-center justify-between p-3 rounded-xl hover:bg-white/5 transition-colors border border-transparent hover:border-white/5">
-                              <div className="flex items-center gap-3">
-                                <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-xs font-black text-gray-500 overflow-hidden">
-                                  {member.imageUrl ? (
-                                    <img src={member.imageUrl} alt={member.name} className="w-full h-full object-cover" />
+                        {members.length === 0 ? (
+                          <div className="py-8 text-center text-gray-500 font-bold uppercase tracking-widest text-xs">
+                            No members found for this assembly
+                          </div>
+                        ) : (
+                          members.map((member, idx) => {
+                            const billVotes = selectedBill.votes || {};
+                            const vote = billVotes[member.id];
+                            return (
+                              <div 
+                                key={member.uniqueKey || `${member.id}-${idx}`} 
+                                className="flex items-center justify-between p-3 rounded-xl hover:bg-white/5 transition-colors border border-transparent hover:border-white/5"
+                              >
+                                <div className="flex items-center gap-3 min-w-0 pr-2">
+                                  <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-xs font-black text-gray-500 overflow-hidden shrink-0">
+                                    {member.imageUrl ? (
+                                      <img src={member.imageUrl} alt={member.name} className="w-full h-full object-cover" />
+                                    ) : (
+                                      <User size={14} />
+                                    )}
+                                  </div>
+                                  <div className="min-w-0 truncate">
+                                    <p className="text-[11px] font-bold text-white leading-none mb-0.5 truncate">{member.name}</p>
+                                    <p className="text-[9px] text-gray-500 uppercase font-black tracking-widest truncate">{member.constituencyName}</p>
+                                  </div>
+                                </div>
+                                
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  {isVotingMode && assembly.isActive !== false && !isViewerMode ? (
+                                    <>
+                                      <button
+                                        type="button"
+                                        title="In Favor / Yes (Tick)"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleVote(selectedBill, member.id, 'yes');
+                                        }}
+                                        className={`p-1.5 rounded-lg transition-all cursor-pointer flex items-center justify-center ${
+                                          vote === 'yes' 
+                                            ? 'bg-emerald-500 text-black shadow-md shadow-emerald-500/30 scale-105 font-black' 
+                                            : 'bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/25 hover:scale-105'
+                                        }`}
+                                      >
+                                        <Check size={14} strokeWidth={2.5} />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        title="Against / No (Cross)"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleVote(selectedBill, member.id, 'no');
+                                        }}
+                                        className={`p-1.5 rounded-lg transition-all cursor-pointer flex items-center justify-center ${
+                                          vote === 'no' 
+                                            ? 'bg-rose-500 text-black shadow-md shadow-rose-500/30 scale-105 font-black' 
+                                            : 'bg-rose-500/10 text-rose-400 hover:bg-rose-500/25 hover:scale-105'
+                                        }`}
+                                      >
+                                        <X size={14} strokeWidth={2.5} />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        title="Neutral / Abstain (Minus)"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleVote(selectedBill, member.id, 'neutral');
+                                        }}
+                                        className={`p-1.5 rounded-lg transition-all cursor-pointer flex items-center justify-center ${
+                                          vote === 'neutral' 
+                                            ? 'bg-amber-400 text-black shadow-md shadow-amber-400/30 scale-105 font-black' 
+                                            : 'bg-gray-500/15 text-gray-400 hover:bg-gray-500/30 hover:text-white hover:scale-105'
+                                        }`}
+                                      >
+                                        <Minus size={14} strokeWidth={2.5} />
+                                      </button>
+                                      {vote && (
+                                        <span className={`ml-1 text-[9px] font-black uppercase tracking-widest ${
+                                          vote === 'yes' ? 'text-emerald-400' :
+                                          vote === 'no' ? 'text-rose-400' :
+                                          'text-amber-400'
+                                        }`}>
+                                          {vote}
+                                        </span>
+                                      )}
+                                    </>
                                   ) : (
-                                    <User size={14} />
+                                    <div className={`px-2.5 py-1 rounded text-[9px] font-black uppercase tracking-widest ${
+                                      vote === 'yes' ? 'text-emerald-400 bg-emerald-500/10 border border-emerald-500/20' :
+                                      vote === 'no' ? 'text-rose-400 bg-rose-500/10 border border-rose-500/20' :
+                                      vote === 'neutral' ? 'text-amber-400 bg-amber-500/10 border border-amber-500/20' :
+                                      'text-gray-500 bg-white/5'
+                                    }`}>
+                                      {vote ? vote.toUpperCase() : 'NO VOTE'}
+                                    </div>
                                   )}
                                 </div>
-                                <div>
-                                  <p className="text-[11px] font-bold text-white leading-none mb-0.5">{member.name}</p>
-                                  <p className="text-[9px] text-gray-500 uppercase font-black tracking-widest">{member.constituencyName}</p>
-                                </div>
                               </div>
-                              
-                              <div className="flex items-center gap-1">
-                                {isVotingMode ? (
-                                  <>
-                                    <button
-                                      onClick={() => handleVote(selectedBill, member.id, 'yes')}
-                                      className={`p-1.5 rounded-lg transition-all ${vote === 'yes' ? 'bg-emerald-500 text-black' : 'bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20'}`}
-                                    >
-                                      <Check size={14} />
-                                    </button>
-                                    <button
-                                      onClick={() => handleVote(selectedBill, member.id, 'no')}
-                                      className={`p-1.5 rounded-lg transition-all ${vote === 'no' ? 'bg-rose-500 text-black' : 'bg-rose-500/10 text-rose-500 hover:bg-rose-500/20'}`}
-                                    >
-                                      <X size={14} />
-                                    </button>
-                                    <button
-                                      onClick={() => handleVote(selectedBill, member.id, 'neutral')}
-                                      className={`p-1.5 rounded-lg transition-all ${vote === 'neutral' ? 'bg-gray-500 text-black' : 'bg-gray-500/10 text-gray-500 hover:bg-gray-500/20'}`}
-                                    >
-                                      <Minus size={14} />
-                                    </button>
-                                  </>
-                                ) : (
-                                  <div className={`px-2 py-1 rounded text-[9px] font-black uppercase tracking-widest ${
-                                    vote === 'yes' ? 'text-emerald-400 bg-emerald-500/10' :
-                                    vote === 'no' ? 'text-rose-400 bg-rose-500/10' :
-                                    vote === 'neutral' ? 'text-gray-400 bg-gray-500/10' :
-                                    'text-gray-600 bg-white/5'
-                                  }`}>
-                                    {vote || 'No Vote'}
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })}
+                            );
+                          })
+                        )}
                       </div>
                     </section>
                   </div>
@@ -256,15 +339,21 @@ export const BillsList: React.FC<BillsListProps> = ({ bills, assembly, members }
                         <div className="space-y-2">
                           <div className="flex justify-between text-[11px] font-bold uppercase tracking-tight">
                             <span className="text-emerald-400">Yes Votes</span>
-                            <span className="text-white">{Object.values(selectedBill.votes).filter(v => v === 'yes').length}</span>
+                            <span className="text-white">
+                              {Object.values(selectedBill.votes || {}).filter(v => v === 'yes').length}
+                            </span>
                           </div>
                           <div className="flex justify-between text-[11px] font-bold uppercase tracking-tight">
                             <span className="text-rose-400">No Votes</span>
-                            <span className="text-white">{Object.values(selectedBill.votes).filter(v => v === 'no').length}</span>
+                            <span className="text-white">
+                              {Object.values(selectedBill.votes || {}).filter(v => v === 'no').length}
+                            </span>
                           </div>
                           <div className="flex justify-between text-[11px] font-bold uppercase tracking-tight">
-                            <span className="text-gray-400">Neutral</span>
-                            <span className="text-white">{Object.values(selectedBill.votes).filter(v => v === 'neutral').length}</span>
+                            <span className="text-amber-400">Neutral</span>
+                            <span className="text-white">
+                              {Object.values(selectedBill.votes || {}).filter(v => v === 'neutral').length}
+                            </span>
                           </div>
                         </div>
                       </div>

@@ -246,18 +246,35 @@ export const EntityPage: React.FC = () => {
   } = useDbLookup();
 
   React.useEffect(() => {
-    if (entityType === EntityType.ASSEMBLY && id && dbLoaded) {
-      const fetchBills = async () => {
-        try {
-          const fetchedBills = await firestoreService.getBillsByAssembly(id);
-          setBills(fetchedBills);
-        } catch (error) {
-          console.error("Error fetching bills:", error);
-        }
-      };
-      fetchBills();
+    if (entityType === EntityType.ASSEMBLY && id) {
+      if (billsFromLookup && billsFromLookup.length > 0) {
+        const asmBills = billsFromLookup.filter(b => b.assemblyId === id);
+        setBills(asmBills);
+      } else if (dbLoaded) {
+        const fetchBills = async () => {
+          try {
+            const fetchedBills = await firestoreService.getBillsByAssembly(id);
+            setBills(fetchedBills);
+          } catch (error) {
+            console.error("Error fetching bills:", error);
+          }
+        };
+        fetchBills();
+      }
     }
-  }, [id, entityType, dbLoaded]);
+  }, [id, entityType, billsFromLookup, dbLoaded]);
+
+  const handleUpdateBill = React.useCallback((updatedBill: LegislativeBill) => {
+    setBills((prev) => {
+      const idx = prev.findIndex((b) => b.id === updatedBill.id);
+      if (idx >= 0) {
+        const next = [...prev];
+        next[idx] = updatedBill;
+        return next;
+      }
+      return [updatedBill, ...prev];
+    });
+  }, []);
 
   const entity = useMemo(() => {
     if (!id || !dbLoaded) return null;
@@ -4793,6 +4810,7 @@ export const EntityPage: React.FC = () => {
                 bills={bills} 
                 assembly={entity as Assembly} 
                 members={assemblyMembers} 
+                onUpdateBill={handleUpdateBill}
               />
               
               <CreateBillModal
@@ -4800,6 +4818,7 @@ export const EntityPage: React.FC = () => {
                 onClose={() => setIsCreateBillModalOpen(false)}
                 assembly={entity as Assembly}
                 members={assemblyMembers}
+                onBillCreated={handleUpdateBill}
               />
             </div>
           )}

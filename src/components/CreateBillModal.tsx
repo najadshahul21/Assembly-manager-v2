@@ -11,13 +11,15 @@ interface CreateBillModalProps {
   onClose: () => void;
   assembly: Assembly;
   members: any[]; // These are assembly members
+  onBillCreated?: (bill: LegislativeBill) => void;
 }
 
 export const CreateBillModal: React.FC<CreateBillModalProps> = ({
   isOpen,
   onClose,
   assembly,
-  members
+  members,
+  onBillCreated
 }) => {
   const { user } = useAuth();
   const [billNo, setBillNo] = useState('');
@@ -54,6 +56,7 @@ export const CreateBillModal: React.FC<CreateBillModalProps> = ({
       };
 
       await firestoreService.saveBill(newBill);
+      onBillCreated?.(newBill);
       onClose();
       // Reset form
       setBillNo('');
