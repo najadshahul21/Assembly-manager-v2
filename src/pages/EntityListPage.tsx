@@ -208,7 +208,7 @@ export const EntityListPage: React.FC<ListPageProps> = ({ type, searchQuery = ''
         {entities?.length === 0 && (
           <div className="col-span-full py-32 text-center border-2 border-dashed border-white/5 rounded-[2rem]">
              <p className="text-gray-600 font-bold uppercase tracking-widest">No entries found in this department</p>
-             <p className="text-xs text-gray-700 mt-2">Use the + button to add the first entry</p>
+             {!isViewerMode && <p className="text-xs text-gray-700 mt-2">Use the + button to add the first entry</p>}
           </div>
         )}
       </div>

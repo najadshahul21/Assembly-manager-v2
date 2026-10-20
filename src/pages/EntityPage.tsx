@@ -1062,7 +1062,7 @@ export const EntityPage: React.FC = () => {
         return { pId, earliestDate, isActive, removal };
       }).sort((a, b) => a.earliestDate - b.earliestDate);
 
-      const incumbents = personAppointments.map(({ pId, isActive, removal }) => {
+      const incumbents = personAppointments.map(({ pId, isActive, removal }, index) => {
         const p = personsList.find(item => item.id === pId);
         const party = p ? partiesList.find(pt => pt.id === p.partyId) : null;
         let allianceId = party?.allianceId;
@@ -1079,6 +1079,7 @@ export const EntityPage: React.FC = () => {
           removalReason: removal?.reason,
           removalDate: removal ? toTime(removal.date) : undefined,
           electionDate: isActive ? toTime(c.updatedAt) : undefined,
+          isByelected: index > 0,
         };
       });
 
@@ -3641,8 +3642,8 @@ export const EntityPage: React.FC = () => {
                                 const isVacant = !seat.politician;
                                 const seatColor = isVacant
                                   ? "#4B5563"
-                                  : (seat.party?.colors?.[0] || (seat.party as any)?.color) ||
-                                    (seat.alliance?.colors?.[0] || (seat.alliance as any)?.color) ||
+                                  : (seat.alliance?.colors?.[0] || (seat.alliance as any)?.color) ||
+                                    (seat.party?.colors?.[0] || (seat.party as any)?.color) ||
                                     "#666666";
                                 const isCurrentlyInspected =
                                   inspectorSeat?.constituency?.id ===
@@ -4251,7 +4252,7 @@ export const EntityPage: React.FC = () => {
                         isDissolved={isDissolvedRecord}
                         government={assemblyPerformance?.government}
                         onPromote={
-                          !isDissolvedRecord
+                          !isDissolvedRecord && !isViewerMode
                             ? (personId, personName) =>
                                 setShowPromotePopup({
                                   personId,
@@ -4260,7 +4261,7 @@ export const EntityPage: React.FC = () => {
                             : undefined
                         }
                         onSupportAlliance={
-                          !isDissolvedRecord
+                          !isDissolvedRecord && !isViewerMode
                             ? (personId, personName) =>
                                 setShowSupportAlliancePopup({
                                   personId,

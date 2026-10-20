@@ -20,6 +20,7 @@ import {
 } from "../utils/governmentUtils";
 import { formatAppDate } from "../utils/dateUtils";
 import { useSystemDate } from "../context/SystemDateContext";
+import { useAuth } from "../context/AuthContext";
 
 export interface AssemblySeatItem {
   constituency: Constituency;
@@ -101,6 +102,7 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
   onPromote,
   onSupportAlliance,
 }) => {
+  const { isViewerMode } = useAuth();
   const navigate = useNavigate();
   const { isDateOverridden } = useSystemDate();
   const [searchTerm, setSearchTerm] = useState("");
@@ -917,7 +919,7 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
                     <td className="px-3 py-2.5 text-center">
                       <div className="flex items-center justify-center gap-2">
                         {/* Support Alliance Action (Only for Independent MLAs) */}
-                        {!isDissolved && row.incumbents.length > 0 && row.incumbents[row.incumbents.length - 1].isIndependent && onSupportAlliance && (
+                        {!isDissolved && !isViewerMode && row.incumbents.length > 0 && row.incumbents[row.incumbents.length - 1].isIndependent && onSupportAlliance && (
                           <button
                             type="button"
                             onClick={(e) => {
@@ -937,7 +939,7 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
                         )}
 
                         {/* Promote to Cabinet / Add Portfolio action button (Only for Government MLAs) */}
-                        {!isDissolved && row.incumbents.length > 0 && 
+                        {!isDissolved && !isViewerMode && row.incumbents.length > 0 && 
                          !row.incumbents[row.incumbents.length - 1].hasMinisterRole && 
                          row.isGovernmentMember && onPromote && (
                           <button

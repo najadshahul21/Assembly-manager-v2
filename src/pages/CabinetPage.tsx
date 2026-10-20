@@ -17,6 +17,12 @@ export const CabinetPage: React.FC = () => {
   const [isLeadershipModalOpen, setIsLeadershipModalOpen] = React.useState(false);
   const [isAdjustMode, setIsAdjustMode] = React.useState(false);
 
+  React.useEffect(() => {
+    if (isViewerMode) {
+      setIsAdjustMode(false);
+    }
+  }, [isViewerMode]);
+
   const { 
     constituencies, 
     parties: allParties, 

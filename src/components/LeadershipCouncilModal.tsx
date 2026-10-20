@@ -8,6 +8,7 @@ import {
 import { computeAssemblyGovernmentComposition } from '../utils/governmentUtils';
 import { SearchableLeaderSelect } from './SearchableLeaderSelect';
 import { getSystemTimestamp } from '../utils/dateUtils';
+import { useAuth } from '../context/AuthContext';
 
 export interface LeadershipCouncilModalProps {
   assembly: Assembly;
@@ -120,6 +121,7 @@ export const LeadershipCouncilModal: React.FC<LeadershipCouncilModalProps> = ({
   onClose,
   onSaved,
 }) => {
+  const { isViewerMode } = useAuth();
   // Local state for draft leaders
   const [draftLeaders, setDraftLeaders] = useState<Assembly['leaders']>(() => ({
     speaker: assembly.leaders?.speaker || '',
@@ -354,6 +356,8 @@ export const LeadershipCouncilModal: React.FC<LeadershipCouncilModalProps> = ({
       vacant: COUNCIL_ROLES.length - filled,
     };
   }, [draftLeaders]);
+
+  if (isViewerMode) return null;
 
   return (
     <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-[100] flex items-center justify-center p-2 sm:p-4 md:p-6 overflow-hidden">

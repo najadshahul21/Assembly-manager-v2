@@ -35,7 +35,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSearch, onPlusClick,
     { title: 'Alliances', icon: Shield, path: '/alliances' },
     { title: 'Parties', icon: Flag, path: '/parties' },
     { title: 'Constituencies', icon: MapPin, path: '/constituencies' },
-    { title: 'Settings', icon: Settings, path: '/settings' },
+    ...(!isViewerMode ? [{ title: 'Settings', icon: Settings, path: '/settings' }] : []),
   ];
 
   const [showSlowLoad, setShowSlowLoad] = useState(false);
@@ -187,26 +187,28 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSearch, onPlusClick,
             </div>
           </div>
           <div className="flex items-center gap-3 sm:gap-4 ml-4">
-            <button
-              onClick={() => {
-                setShowDateConfirmation(false);
-                setIsDatePickerOpen(true);
-              }}
-              title="Change Database Date (Set System Time)"
-              className={`p-2 rounded-xl border transition-all flex items-center gap-2 relative ${
-                isDateOverridden 
-                  ? "bg-amber-500/10 border-amber-500/20 text-amber-500" 
-                  : "bg-white/5 border-white/10 text-gray-400 hover:bg-white/10"
-              }`}
-            >
-              <div className="relative">
-                <Calendar size={18} />
-                <Pencil size={8} className="absolute -top-1 -right-1 bg-[#0a0a0a] rounded-full p-[1px]" />
-              </div>
-              <span className="text-[10px] font-black uppercase tracking-widest hidden xl:inline">
-                {isDateOverridden ? systemDate.toLocaleDateString() : "System Date"}
-              </span>
-            </button>
+            {!isViewerMode && (
+              <button
+                onClick={() => {
+                  setShowDateConfirmation(false);
+                  setIsDatePickerOpen(true);
+                }}
+                title="Change Database Date (Set System Time)"
+                className={`p-2 rounded-xl border transition-all flex items-center gap-2 relative ${
+                  isDateOverridden 
+                    ? "bg-amber-500/10 border-amber-500/20 text-amber-500" 
+                    : "bg-white/5 border-white/10 text-gray-400 hover:bg-white/10"
+                }`}
+              >
+                <div className="relative">
+                  <Calendar size={18} />
+                  <Pencil size={8} className="absolute -top-1 -right-1 bg-[#0a0a0a] rounded-full p-[1px]" />
+                </div>
+                <span className="text-[10px] font-black uppercase tracking-widest hidden xl:inline">
+                  {isDateOverridden ? systemDate.toLocaleDateString() : "System Date"}
+                </span>
+              </button>
+            )}
             <button
               onClick={toggleViewerMode}
               title={isViewerMode ? "Disable Viewer Mode (Show Admin Controls)" : "Enable Viewer Mode (Hide Admin Controls)"}

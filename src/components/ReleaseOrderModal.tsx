@@ -10,6 +10,7 @@ import { isMinisterialRole } from '../utils/governmentUtils';
 import { nanoid } from 'nanoid';
 import { useDbLookup } from '../context/DbLookupContext';
 import { getSystemDateString, getSystemTimestamp } from '../utils/dateUtils';
+import { useAuth } from '../context/AuthContext';
 
 interface ReleaseOrderModalProps {
   isOpen: boolean;
@@ -36,6 +37,7 @@ export const ReleaseOrderModal: React.FC<ReleaseOrderModalProps> = ({
   initialDesignationId,
   initialPersonId
 }) => {
+  const { isViewerMode } = useAuth();
   const { 
     persons, 
     parties, 
@@ -784,6 +786,8 @@ export const ReleaseOrderModal: React.FC<ReleaseOrderModalProps> = ({
   }, [persons, pickerSearch, partiesMap]);
 
   if (!isOpen) return null;
+
+  if (isViewerMode) return null;
 
   return (
     <AnimatePresence>

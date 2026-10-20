@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
 import { Download, Trash2, ShieldAlert, CheckCircle2, Loader2, Settings as SettingsIcon, AlertCircle, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { useNavigate } from 'react-router';
 import { useDbLookup } from '../context/DbLookupContext';
 import { useAuth } from '../context/AuthContext';
 import { firestoreService } from '../firestoreService';
 import JSZip from 'jszip';
 
 export const SettingsPage: React.FC = () => {
+  const navigate = useNavigate();
   const { isViewerMode } = useAuth();
   const { persons, parties, alliances, assemblies, constituencies, orders } = useDbLookup();
   const [isDownloading, setIsDownloading] = useState(false);
@@ -137,6 +139,29 @@ export const SettingsPage: React.FC = () => {
     setIsDownloading(false);
     setDownloadProgress({ current: 0, total: 0 });
   };
+
+  if (isViewerMode) {
+    return (
+      <div className="flex flex-col items-center justify-center h-[60vh] text-center space-y-6">
+        <div className="p-6 bg-white/5 rounded-[2rem] text-red-500 border border-white/10">
+          <ShieldAlert size={48} />
+        </div>
+        <div className="space-y-2">
+          <h2 className="text-3xl font-black uppercase tracking-tight text-white">Registry Access Restricted</h2>
+          <p className="text-gray-500 max-w-sm mx-auto uppercase tracking-widest text-[10px] font-bold leading-relaxed">
+            The System Settings panel is strictly reserved for authorized administrators. 
+            Please deactivate Viewer Mode to access global configuration tools.
+          </p>
+        </div>
+        <button 
+          onClick={() => navigate('/')}
+          className="px-8 py-3 bg-white/5 hover:bg-white/10 rounded-2xl text-xs font-black uppercase tracking-widest transition-all border border-white/10 hover:border-[#FFD700]/30 text-gray-400 hover:text-white"
+        >
+          Return to Dashboard
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-4xl mx-auto space-y-8 pb-20">

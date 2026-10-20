@@ -271,6 +271,7 @@ export const LegislativeRolesHistoryWidget: React.FC<LegislativeRolesHistoryWidg
         isActive: true,
         assumedDate,
         governor: gov,
+        chiefMinister: resolveChiefMinister(activeAssembly),
         constituency: person.constituencyName ? { name: person.constituencyName } : null,
         orderPriority: 1
       });
@@ -299,7 +300,7 @@ export const LegislativeRolesHistoryWidget: React.FC<LegislativeRolesHistoryWidg
         isActive: true,
         assumedDate,
         governor: gov,
-        speaker: currentSpeaker,
+        chiefMinister: resolveChiefMinister(activeAssembly),
         constituency: person.constituencyName ? { name: person.constituencyName } : null,
         orderPriority: 2
       });
@@ -671,21 +672,23 @@ export const LegislativeRolesHistoryWidget: React.FC<LegislativeRolesHistoryWidg
           </div>
 
           {!card.roleTitle.toLowerCase().includes('governor') && (
-            <div className="grid grid-cols-2 bg-[#0A101D] border-t border-[#22314E]">
-              <div className="p-4 border-r border-[#22314E] flex flex-col items-center justify-center text-center">
-                <p className="text-[10px] uppercase tracking-widest text-[#7B96D4] font-bold mb-1">
-                  {card.roleType === 'speaker' || card.roleType === 'deputy_speaker' ? 'Governor' : (card.roleTitle.toLowerCase().includes('governor') ? 'Head of State' : 'Appointed by')}
-                </p>
-                <p className="text-xs font-bold text-white leading-tight">
-                  {card.governor?.name || "Hon'ble Governor"}
-                </p>
-              </div>
+            <div className={`grid ${card.roleType === 'speaker' || card.roleType === 'deputy_speaker' ? 'grid-cols-2' : 'grid-cols-1'} bg-[#0A101D] border-t border-[#22314E]`}>
+              {(card.roleType === 'speaker' || card.roleType === 'deputy_speaker' || card.roleTitle.toLowerCase().includes('governor')) && (
+                <div className="p-4 border-r border-[#22314E] flex flex-col items-center justify-center text-center">
+                  <p className="text-[10px] uppercase tracking-widest text-[#7B96D4] font-bold mb-1">
+                    {card.roleTitle.toLowerCase().includes('governor') ? 'Head of State' : 'Governor'}
+                  </p>
+                  <p className="text-xs font-bold text-white leading-tight">
+                    {card.governor?.name || "Hon'ble Governor"}
+                  </p>
+                </div>
+              )}
               <div className="p-4 flex flex-col items-center justify-center text-center">
                 <p className="text-[10px] uppercase tracking-widest text-[#7B96D4] font-bold mb-1">
-                  {card.roleType === 'speaker' || card.roleType === 'deputy_speaker' ? 'Speaker' : 'Chief Minister'}
+                  Chief Minister
                 </p>
                 <p className="text-xs font-bold text-white leading-tight">
-                  {card.speaker?.name || card.chiefMinister?.name || "Hon'ble Chief Minister"}
+                  {card.chiefMinister?.name || "Hon'ble Chief Minister"}
                 </p>
               </div>
             </div>

@@ -18,7 +18,7 @@ import { SystemDateProvider } from './context/SystemDateContext';
 import { SettingsPage } from './pages/SettingsPage';
 
 function AppContent() {
-  const { user } = useAuth();
+  const { user, isViewerMode } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [isCreateMenuOpen, setCreateMenuOpen] = useState(false);
   const [activeCreateType, setActiveCreateType] = useState<EntityType | null>(null);
@@ -39,7 +39,7 @@ function AppContent() {
 
   return (
     <BrowserRouter>
-      <Layout onSearch={setSearchQuery} searchQuery={searchQuery} onPlusClick={() => setCreateMenuOpen(true)}>
+      <Layout onSearch={setSearchQuery} searchQuery={searchQuery} onPlusClick={!isViewerMode ? () => setCreateMenuOpen(true) : undefined}>
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/orders" element={<OrdersPage searchQuery={searchQuery} />} />
@@ -57,7 +57,7 @@ function AppContent() {
 
       {/* Floating Plus Menu */}
       <AnimatePresence>
-        {isCreateMenuOpen && (
+        {isCreateMenuOpen && !isViewerMode && (
           <div className="fixed inset-0 z-[90] flex items-end justify-center sm:items-center sm:justify-end p-6">
             <motion.div
               initial={{ opacity: 0 }}
@@ -106,16 +106,20 @@ function AppContent() {
         )}
       </AnimatePresence>
 
-      <CreateModals
-        type={activeCreateType}
-        isOpen={activeCreateType !== null}
-        onClose={() => setActiveCreateType(null)}
-      />
+      {!isViewerMode && (
+        <>
+          <CreateModals
+            type={activeCreateType}
+            isOpen={activeCreateType !== null}
+            onClose={() => setActiveCreateType(null)}
+          />
 
-      <ReleaseOrderModal
-        isOpen={isReleaseOrderModalOpen}
-        onClose={() => setIsReleaseOrderModalOpen(false)}
-      />
+          <ReleaseOrderModal
+            isOpen={isReleaseOrderModalOpen}
+            onClose={() => setIsReleaseOrderModalOpen(false)}
+          />
+        </>
+      )}
     </BrowserRouter>
   );
 }

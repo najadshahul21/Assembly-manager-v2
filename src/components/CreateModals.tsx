@@ -9,6 +9,7 @@ import {
 import { firestoreService } from '../firestoreService';
 import { EntityType, Assembly, Person } from '../types';
 import { getSystemTimestamp, getSystemDateString } from '../utils/dateUtils';
+import { useAuth } from '../context/AuthContext';
 import { nanoid } from 'nanoid';
 import { useDbLookup } from '../context/DbLookupContext';
 import { 
@@ -44,6 +45,7 @@ const createDefaultBulkPerson = (partyId = 'independent'): BulkPersonItem => ({
 });
 
 export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClose, editData }) => {
+  const { isViewerMode } = useAuth();
   const { register, handleSubmit, reset, setValue, control, watch } = useForm();
   const { 
     persons, 
@@ -63,6 +65,7 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
   const [bulkErrors, setBulkErrors] = useState<Record<string, string>>({});
   const [bulkPartyToApply, setBulkPartyToApply] = useState<string>('');
   const [isSubmittingBulk, setIsSubmittingBulk] = useState(false);
+
 
   const { fields: historyFields, append: appendHistory, remove: removeHistory } = useFieldArray({
     control,
@@ -1842,6 +1845,8 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
       handleSubmit(onSubmit)(e);
     }
   };
+
+  if (isViewerMode) return null;
 
   return (
     <AnimatePresence>
