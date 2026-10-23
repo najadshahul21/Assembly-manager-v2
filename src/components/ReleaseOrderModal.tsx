@@ -511,8 +511,8 @@ export const ReleaseOrderModal: React.FC<ReleaseOrderModalProps> = ({
     const cursor = textareaRef.current ? textareaRef.current.selectionStart : orderContent.length;
     const startIndex = mentionCursorIndex !== null ? mentionCursorIndex : cursor;
     
-    // We insert a clean mention tag: @[Person Name](person:id)
-    const mentionTag = `@[${person.name}](person:${person.id}) `;
+    // We insert a clean mention tag: @Person Name (no person code/ID exposed)
+    const mentionTag = `@${person.name} `;
     
     const before = orderContent.slice(0, startIndex);
     const after = orderContent.slice(cursor);
@@ -539,7 +539,7 @@ export const ReleaseOrderModal: React.FC<ReleaseOrderModalProps> = ({
 
   // Manual picker add
   const handlePickerSelect = (person: Person) => {
-    const mentionTag = `@[${person.name}](person:${person.id}) `;
+    const mentionTag = `@${person.name} `;
     setOrderContent(prev => prev + (prev.endsWith(' ') || prev === '' ? '' : ' ') + mentionTag);
     if (!taggedPersonIds.includes(person.id)) {
       setTaggedPersonIds(prev => [...prev, person.id]);
@@ -658,15 +658,28 @@ export const ReleaseOrderModal: React.FC<ReleaseOrderModalProps> = ({
       const frozenPartyAbbr = hasIncumbent ? (selectedOption.partyAbbr || (signerPersonObj ? partiesMap.get(signerPersonObj.partyId)?.abbreviation : undefined)) : undefined;
       const frozenImageUrl = signerPersonObj?.imageUrl;
 
-      // Extract all tagged person IDs from content as well (to ensure perfect sync)
-      const mentionRegex = /@\[([^\]]+)\]\(person:([^)]+)\)/g;
+      // Extract all tagged person IDs from content as well (supporting legacy tags and clean @Name mentions)
+      const mentionRegex = /@\[([^\]]+)\](?:\(person:([^)]+)\))?/g;
       const extractedIds: string[] = [];
       let match;
       while ((match = mentionRegex.exec(orderContent)) !== null) {
         if (match[2] && !extractedIds.includes(match[2])) {
           extractedIds.push(match[2]);
+        } else if (match[1]) {
+          const p = persons.find(item => item.name.toLowerCase() === match[1].trim().toLowerCase());
+          if (p && !extractedIds.includes(p.id)) {
+            extractedIds.push(p.id);
+          }
         }
       }
+      // Also match any @Name against existing persons
+      persons.forEach(p => {
+        if (p.name && orderContent.includes(`@${p.name}`)) {
+          if (!extractedIds.includes(p.id)) {
+            extractedIds.push(p.id);
+          }
+        }
+      });
       const finalTaggedIds = Array.from(new Set([...taggedPersonIds, ...extractedIds]));
 
       const newOrder: LegislativeOrder = {

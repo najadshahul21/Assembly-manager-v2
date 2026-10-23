@@ -16,6 +16,7 @@ import { DbLookupProvider } from './context/DbLookupContext';
 import { ReleaseOrderModal } from './components/ReleaseOrderModal';
 import { SystemDateProvider } from './context/SystemDateContext';
 import { SettingsPage } from './pages/SettingsPage';
+import { ElectionResultsPage } from './pages/ElectionResultsPage';
 
 function AppContent() {
   const { user, isViewerMode } = useAuth();
@@ -43,6 +44,7 @@ function AppContent() {
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/orders" element={<OrdersPage searchQuery={searchQuery} />} />
+          <Route path="/election-results" element={<ElectionResultsPage />} />
           <Route path="/persons" element={<EntityListPage type={EntityType.PERSON} searchQuery={searchQuery} />} />
           <Route path="/parties" element={<EntityListPage type={EntityType.PARTY} searchQuery={searchQuery} />} />
           <Route path="/alliances" element={<EntityListPage type={EntityType.ALLIANCE} searchQuery={searchQuery} />} />

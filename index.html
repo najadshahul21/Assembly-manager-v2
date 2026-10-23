@@ -8,6 +8,16 @@
     <meta name="description" content="A legislative management application for assembly constituencies, political parties, alliances, members, and executive posts." />
     <meta property="og:title" content="Assembly Manager" />
     <meta property="og:description" content="A legislative management application for assembly constituencies, political parties, alliances, members, and executive posts." />
+    <script>
+      // Suppress benign WebSocket connection rejections in preview iframes
+      window.addEventListener('unhandledrejection', function(event) {
+        var reason = event.reason;
+        var msg = (reason && (reason.message || reason.stack || String(reason))) || '';
+        if (msg.toLowerCase().includes('websocket')) {
+          event.preventDefault();
+        }
+      });
+    </script>
   </head>
   <body>
     <div id="root"></div>

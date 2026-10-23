@@ -828,17 +828,11 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
         if (isDissolving) {
           await firestoreService.freezeAssembly(id);
 
-          // Reset assembly leaders to vacant
+          // Preserve assembly leaders as historical un-editable snapshot
+          const currentLeaders = payload.leaders || (editData as Assembly)?.leaders || {};
           await firestoreService.updateAssembly(id, {
-            leaders: {
-              chiefMinister: 'vacant',
-              deputyChiefMinister: 'vacant',
-              speaker: 'vacant',
-              deputySpeaker: 'vacant',
-              leaderOfOpposition: 'vacant',
-              deputyLeaderOfOpposition: 'vacant',
-              chiefSecretary: 'vacant',
-            },
+            leaders: currentLeaders,
+            preDissolutionLeaders: currentLeaders,
             updatedAt: now
           } as any);
 
@@ -1341,9 +1335,9 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
               <div>
                 <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block flex items-center justify-between">
                    <span>Bio / Biography</span>
-                   <span className="text-[10px] font-normal text-gray-600">Optional • Max 500 chars</span>
+                   <span className="text-[10px] font-normal text-gray-500">Supports @mentions • Max 500 chars</span>
                 </label>
-                <textarea {...register('bio')} placeholder="Enter professional history, achievements or short biography..." rows={3} maxLength={500} className="w-full bg-white/5 border border-white/10 rounded-xl p-3 focus:outline-none focus:border-[#FFD700]/50 resize-none" />
+                <textarea {...register('bio')} placeholder="Enter professional history, achievements or short biography... (Type @Name to mention officials)" rows={3} maxLength={500} className="w-full bg-white/5 border border-white/10 rounded-xl p-3 focus:outline-none focus:border-[#FFD700]/50 resize-none text-white text-sm" />
               </div>
             </div>
           </>
@@ -1386,9 +1380,9 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
             <div className="sm:col-span-2">
               <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block flex items-center justify-between">
                 <span>Party Biography / History</span>
-                <span className="text-[10px] font-normal text-gray-600">Optional • Max 1000 chars</span>
+                <span className="text-[10px] font-normal text-gray-500">Supports @mentions • Max 1000 chars</span>
               </label>
-              <textarea {...register('bio')} placeholder="Enter party origins, ideologies, or historical context..." rows={4} maxLength={1000} className="w-full bg-white/5 border border-white/10 rounded-xl p-3 focus:outline-none focus:border-[#FFD700]/50 resize-none" />
+              <textarea {...register('bio')} placeholder="Enter party origins, ideologies, or historical context... (Type @Name to mention persons or founders)" rows={4} maxLength={1000} className="w-full bg-white/5 border border-white/10 rounded-xl p-3 focus:outline-none focus:border-[#FFD700]/50 resize-none text-white text-sm" />
             </div>
             <div className="sm:col-span-2 pt-4 border-t border-white/10">
                <div className="flex items-center justify-between mb-3">
@@ -1477,9 +1471,9 @@ export const CreateModals: React.FC<CreateModalsProps> = ({ type, isOpen, onClos
             <div className="sm:col-span-2">
               <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block flex items-center justify-between">
                 <span>Alliance Summary</span>
-                <span className="text-[10px] font-normal text-gray-600">Optional • Max 1000 chars</span>
+                <span className="text-[10px] font-normal text-gray-500">Supports @mentions • Max 1000 chars</span>
               </label>
-              <textarea {...register('bio')} placeholder="Enter coalition goals, common minimum programs, or front history..." rows={4} maxLength={1000} className="w-full bg-white/5 border border-white/10 rounded-xl p-3 focus:outline-none focus:border-[#FFD700]/50 resize-none" />
+              <textarea {...register('bio')} placeholder="Enter coalition goals, common minimum programs, or front history... (Type @Name to mention persons or leaders)" rows={4} maxLength={1000} className="w-full bg-white/5 border border-white/10 rounded-xl p-3 focus:outline-none focus:border-[#FFD700]/50 resize-none text-white text-sm" />
             </div>
             <div className="sm:col-span-2">
               <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Alliance Logo URL (Optional)</label>

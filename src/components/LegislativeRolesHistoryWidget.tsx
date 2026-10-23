@@ -4,6 +4,7 @@ import { useDbLookup } from '../context/DbLookupContext';
 import { Person, Assembly, Constituency, Designation } from '../types';
 import { formatAppDate, getSystemTimestamp } from '../utils/dateUtils';
 import { useSystemDate } from '../context/SystemDateContext';
+import { getAssemblyLeaders } from '../utils/governmentUtils';
 
 interface LegislativeRolesHistoryWidgetProps {
   person: Person;
@@ -215,24 +216,37 @@ export const LegislativeRolesHistoryWidget: React.FC<LegislativeRolesHistoryWidg
       const govDesig = allDesignations.find(
         (d) => d.id === 'governor' || d.name?.toLowerCase().includes('governor')
       );
-      if (govDesig?.incumbentId && govDesig.incumbentId !== 'vacant') {
-        const govP = personsMap.get(govDesig.incumbentId);
-        if (govP) return { name: govP.name, id: govP.id };
-      }
-      if (govDesig && Array.isArray(govDesig.history) && govDesig.history.length > 0) {
-        const hEntry = govDesig.history.find(h => (h as any).assemblyId === asm?.id) || govDesig.history[govDesig.history.length - 1];
-        if (hEntry?.personId && hEntry.personId !== 'vacant') {
-          const p = personsMap.get(hEntry.personId);
+      if (!govDesig) return null;
+
+      // If assembly specified, try history for that assembly first
+      if (asm) {
+        if (Array.isArray(govDesig.history)) {
+          const hEntry = govDesig.history.find(h => (h as any).assemblyId === asm.id);
+          if (hEntry?.personId && hEntry.personId !== 'vacant') {
+            const p = personsMap.get(hEntry.personId);
+            if (p) return { name: p.name, id: p.id };
+          }
+        }
+        if (asm.isActive && govDesig.incumbentId && govDesig.incumbentId !== 'vacant') {
+          const p = personsMap.get(govDesig.incumbentId);
           if (p) return { name: p.name, id: p.id };
         }
+      }
+
+      // Fallback
+      if (govDesig.incumbentId && govDesig.incumbentId !== 'vacant') {
+        const govP = personsMap.get(govDesig.incumbentId);
+        if (govP) return { name: govP.name, id: govP.id };
       }
       return null;
     };
 
     const resolveChiefMinister = (asm?: Assembly): { name: string; id?: string } | null => {
       const targetAsm = asm || activeAssembly;
-      if (targetAsm?.leaders?.chiefMinister && targetAsm.leaders.chiefMinister !== 'vacant') {
-        const cm = personsMap.get(targetAsm.leaders.chiefMinister);
+      if (!targetAsm) return null;
+      const leaders = getAssemblyLeaders(targetAsm, allDesignations, allPersons);
+      if (leaders?.chiefMinister && leaders.chiefMinister !== 'vacant') {
+        const cm = personsMap.get(leaders.chiefMinister);
         if (cm) return { name: cm.name, id: cm.id };
       }
       return null;
@@ -240,8 +254,10 @@ export const LegislativeRolesHistoryWidget: React.FC<LegislativeRolesHistoryWidg
 
     const resolveSpeakerForDeputy = (asm?: Assembly): { name: string; id?: string } | null => {
       const targetAsm = asm || activeAssembly;
-      if (targetAsm?.leaders?.speaker && targetAsm.leaders.speaker !== 'vacant') {
-        const spk = personsMap.get(targetAsm.leaders.speaker);
+      if (!targetAsm) return null;
+      const leaders = getAssemblyLeaders(targetAsm, allDesignations, allPersons);
+      if (leaders?.speaker && leaders.speaker !== 'vacant') {
+        const spk = personsMap.get(leaders.speaker);
         if (spk) return { name: spk.name, id: spk.id };
       }
       return null;
@@ -399,7 +415,7 @@ export const LegislativeRolesHistoryWidget: React.FC<LegislativeRolesHistoryWidg
           isActive: false,
           assumedDate: 'Past Term',
           vacatedDate: 'Past Term',
-          officeDatesFormatted: '(Past Term)',
+          officeDatesFormatted: 'Past Term',
           governor: gov,
           chiefMinister: cm,
           constituency: person.constituencyName ? { name: person.constituencyName } : null,
@@ -508,16 +524,20 @@ export const LegislativeRolesHistoryWidget: React.FC<LegislativeRolesHistoryWidg
           }
         }
 
+        const desigAsm = d.assemblyId ? assembliesMap.get(d.assemblyId) : null;
+        const asmName = desigAsm?.name || activeAsmName;
+
         cards.push({
           id: `desig_past_${d.id}`,
           roleType: isMinister ? 'minister' : 'designation',
           roleTitle: d.name,
+          respectiveAssemblyName: asmName,
           isActive: false,
           assumedDate: assumed,
           vacatedDate: vacated,
-          officeDatesFormatted: `(${assumed} – ${vacated})`,
-          governor: isMinister ? resolveGovernor() : undefined,
-          chiefMinister: isMinister ? resolveChiefMinister() : undefined,
+          officeDatesFormatted: `(${assumed}) - (${vacated})`,
+          governor: isMinister ? resolveGovernor(desigAsm || undefined) : undefined,
+          chiefMinister: isMinister ? resolveChiefMinister(desigAsm || undefined) : undefined,
           constituency: d.constituency ? { name: d.constituency } : null,
           orderPriority: isMinister ? 15 : 20
         });
@@ -576,36 +596,62 @@ export const LegislativeRolesHistoryWidget: React.FC<LegislativeRolesHistoryWidg
     }
 
     allConstituencies.forEach((c) => {
-      if (incumbentCon && c.id === incumbentCon.id) return;
+      if (incumbentCon && c.id === incumbentCon.id) {
+        // Even if they are current, they might have historical terms in history array
+      }
 
       if (Array.isArray(c.history)) {
         const personEntries = c.history.filter((h) => h.personId === person.id);
         if (personEntries.length > 0) {
-          const sortedHistory = [...c.history].sort((a, b) => (a.date || 0) - (b.date || 0));
-          let assumedDate = formatOfficeDisplayDate(personEntries[0].date);
-          let vacatedDate = 'Past Term';
+          // Group by assemblyId to show separate terms per assembly
+          const asmIds = [...new Set(personEntries.map(h => h.assemblyId))].filter(Boolean) as string[];
 
-          const lastPersonIdx = sortedHistory.map((h) => h.personId).lastIndexOf(person.id);
-          if (lastPersonIdx >= 0 && lastPersonIdx < sortedHistory.length - 1) {
-            vacatedDate = formatOfficeDisplayDate(sortedHistory[lastPersonIdx + 1].date);
-          } else if (c.updatedAt) {
-            vacatedDate = formatOfficeDisplayDate(c.updatedAt);
-          }
+          asmIds.forEach(asmId => {
+            const entriesForAsm = personEntries.filter(h => h.assemblyId === asmId);
+            const sortedAllHistory = [...c.history].sort((a, b) => (a.date || 0) - (b.date || 0));
+            
+            const assumedDate = formatOfficeDisplayDate(entriesForAsm[0].date);
+            let vacatedDate = 'Past Term';
 
-          const conAsm = c.currentAssemblyId ? assembliesMap.get(c.currentAssemblyId) || activeAssembly : activeAssembly;
-          const asmName = conAsm?.name || 'Legislative Assembly';
+            // Find when they vacated this specific term in this assembly
+            const reversedHistory = [...sortedAllHistory].reverse();
+            const lastMatchIdx = reversedHistory.findIndex(h => h.personId === person.id && h.assemblyId === asmId);
+            const lastEntryIdx = lastMatchIdx >= 0 ? (sortedAllHistory.length - 1 - lastMatchIdx) : -1;
 
-          cards.push({
-            id: `mla_past_${c.id}`,
-            roleType: 'mla',
-            roleTitle: `Member of the ${asmName}`,
-            respectiveAssemblyName: asmName,
-            isActive: false,
-            assumedDate,
-            vacatedDate,
-            officeDatesFormatted: `(${assumedDate} – ${vacatedDate})`,
-            constituency: { name: c.name, id: c.id },
-            orderPriority: 30
+            if (lastEntryIdx >= 0 && lastEntryIdx < sortedAllHistory.length - 1) {
+              vacatedDate = formatOfficeDisplayDate(sortedAllHistory[lastEntryIdx + 1].date);
+            } else {
+              // Check if they are actually the current incumbent in that assembly
+              if (c.currentIncumbentId === person.id && c.currentAssemblyId === asmId && activeAssembly?.id === asmId) {
+                // This is the active role, skipping to avoid duplication with the active MLA card
+                return;
+              }
+              // Otherwise, use assembly dissolution or constituency update as fallback
+              const asm = assembliesMap.get(asmId);
+              if (asm && !asm.isActive && asm.updatedAt) {
+                vacatedDate = formatOfficeDisplayDate(asm.updatedAt);
+              } else if (c.updatedAt) {
+                vacatedDate = formatOfficeDisplayDate(c.updatedAt);
+              }
+            }
+
+            const conAsm = assembliesMap.get(asmId) || activeAssembly;
+            const asmName = conAsm?.name || 'Legislative Assembly';
+
+            cards.push({
+              id: `mla_past_${c.id}_${asmId}`,
+              roleType: 'mla',
+              roleTitle: `Member of the ${asmName}`,
+              respectiveAssemblyName: asmName,
+              isActive: false,
+              assumedDate,
+              vacatedDate,
+              officeDatesFormatted: `(${assumedDate}) - (${vacatedDate})`,
+              constituency: { name: c.name, id: c.id },
+              governor: resolveGovernor(conAsm),
+              chiefMinister: resolveChiefMinister(conAsm),
+              orderPriority: 30
+            });
           });
         }
       }
@@ -658,12 +704,12 @@ export const LegislativeRolesHistoryWidget: React.FC<LegislativeRolesHistoryWidg
               <>
                 <p className="font-bold text-sm text-white tracking-wide">Assumed office</p>
                 <p className="text-sm text-gray-200 mt-1 font-medium tabular-nums">
-                  {card.assumedDate}
+                  ({card.assumedDate})
                 </p>
               </>
             ) : (
               <>
-                <p className="font-bold text-sm text-white tracking-wide">Office Term</p>
+                <p className="font-bold text-sm text-white tracking-wide">In office</p>
                 <p className="text-sm text-gray-200 mt-1 font-medium tabular-nums">
                   {card.officeDatesFormatted}
                 </p>

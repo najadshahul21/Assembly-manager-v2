@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, Plus, Home, Users, Flag, Landmark, Shield, Menu, X, Award, MapPin, LogOut, Stamp, Eye, EyeOff, Calendar, Pencil, Settings, CheckCircle2 } from 'lucide-react';
+import { Search, Plus, Home, Users, Flag, Landmark, Shield, Menu, X, Award, MapPin, LogOut, Stamp, Eye, EyeOff, Calendar, Pencil, Settings, CheckCircle2, Vote } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useNavigate, useLocation } from 'react-router';
 import { useDbLookup } from '../context/DbLookupContext';
@@ -31,6 +31,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSearch, onPlusClick,
     { title: 'Assemblies', icon: Landmark, path: '/assemblies' },
     { title: 'Cabinet', icon: Award, path: '/cabinet' },
     { title: 'Orders', icon: Stamp, path: '/orders' },
+    { title: 'Election Results', icon: Vote, path: '/election-results' },
     { title: 'Persons', icon: Users, path: '/persons' },
     { title: 'Alliances', icon: Shield, path: '/alliances' },
     { title: 'Parties', icon: Flag, path: '/parties' },

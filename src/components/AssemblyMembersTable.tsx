@@ -17,10 +17,12 @@ import {
 import {
   prefixRole,
   formatPersonName,
+  getAssemblyLeaders,
 } from "../utils/governmentUtils";
 import { formatAppDate } from "../utils/dateUtils";
 import { useSystemDate } from "../context/SystemDateContext";
 import { useAuth } from "../context/AuthContext";
+import { useDbLookup } from "../context/DbLookupContext";
 
 export interface AssemblySeatItem {
   constituency: Constituency;
@@ -105,6 +107,7 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
   const { isViewerMode } = useAuth();
   const navigate = useNavigate();
   const { isDateOverridden } = useSystemDate();
+  const { persons: allPersons } = useDbLookup();
   const [searchTerm, setSearchTerm] = useState("");
   const [activeFilter, setActiveFilter] = useState<"all" | "occupied" | "vacant" | "remarks">("all");
   const [sortColumn, setSortColumn] = useState<SortColumn>("no");
@@ -135,15 +138,33 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
     return cleanA === cleanTarget || cleanA.includes(cleanTarget) || cleanTarget.includes(cleanA);
   };
 
+  // Seamlessly resolve leadership council for both active and dissolved / historical assemblies
+  const effectiveLeaders = useMemo(() => {
+    return getAssemblyLeaders(assembly, designationsList, allPersons);
+  }, [assembly, designationsList, allPersons]);
+
   // Pre-compute designations map for faster lookups in the loop
+  // Includes historical incumbents for dissolved assemblies or vacated designations
   const designationsByIncumbentMap = useMemo(() => {
     const map = new Map<string, Designation[]>();
     (designationsList || []).forEach((d) => {
       if (isMatchingAssembly(d.assemblyId)) {
-        if (d.incumbentId && d.incumbentId !== "vacant") {
-          const existing = map.get(d.incumbentId) || [];
+        let incumbentId = d.incumbentId;
+        if (!incumbentId || incumbentId === "vacant") {
+          // If the assembly is dissolved or designation was vacated on expiry,
+          // find the historical incumbent who held this designation for this assembly!
+          if (Array.isArray(d.history) && d.history.length > 0) {
+            const valid = d.history.filter(h => h.personId && h.personId !== "vacant");
+            if (valid.length > 0) {
+              const expiryEntry = valid.slice().reverse().find(h => h.reason === "expiry");
+              incumbentId = expiryEntry ? expiryEntry.personId : valid[valid.length - 1].personId;
+            }
+          }
+        }
+        if (incumbentId && incumbentId !== "vacant") {
+          const existing = map.get(incumbentId) || [];
           existing.push(d);
-          map.set(d.incumbentId, existing);
+          map.set(incumbentId, existing);
         }
       }
     });
@@ -157,12 +178,12 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
     const remarksSet = new Set<string>();
     let hasMinister = false;
 
-    // 1. Leader roles on Assembly (Active designations)
-    const leadersSource = assembly.leaders || (assembly as any).preDissolutionLeaders;
+    // 1. Leader roles on Assembly (using effectiveLeaders which supports active & historical)
+    const leadersSource = effectiveLeaders;
     if (leadersSource) {
       Object.entries(leadersSource).forEach(([key, leaderVal]) => {
         const lId = typeof leaderVal === "object" && leaderVal ? (leaderVal as any).id : String(leaderVal || "");
-        if (lId === p.id) {
+        if (lId === p.id && lId !== "vacant") {
           const title = leaderRoleTitles[key] || key.replace(/([A-Z])/g, " $1").trim();
           if (title.toLowerCase() !== "leader of the house") {
             const formatted = title.charAt(0).toUpperCase() + title.slice(1);
@@ -172,7 +193,7 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
       });
     }
 
-    // 2. Active Designations in the assembly (using map)
+    // 2. Active & Historical Designations in the assembly (using map)
     const activePersonDesignations = designationsByIncumbentMap.get(p.id) || [];
     activePersonDesignations.forEach((d) => {
       const trimmed = d.name.trim();
@@ -185,11 +206,11 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
       }
     });
 
-    // 3. Custom active assembly roles
+    // 3. Custom active assembly roles and archived roleHistory
+    let customRoles: string[] = [];
     if (p.assemblyRoles) {
-      let customRoles: string[] = [];
       if (p.assemblyRoles[assembly.id]) {
-        customRoles = p.assemblyRoles[assembly.id].split(/[,;\n|]+/);
+        customRoles.push(...p.assemblyRoles[assembly.id].split(/[,;\n|]+/));
       } else {
         for (const [key, val] of Object.entries(p.assemblyRoles)) {
           if (val && isMatchingAssembly(key)) {
@@ -197,21 +218,30 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
           }
         }
       }
+    }
 
-      customRoles.forEach((r) => {
-        const trimmed = r.trim();
-        if (!trimmed) return;
-        if (trimmed.toLowerCase() === "leader of the house") return;
-        
-        if (trimmed.toLowerCase().includes("minister") && !trimmed.toLowerCase().includes("former")) {
-          hasMinister = true;
+    // Check roleHistory for roles held in this assembly (crucial when dissolved)
+    if (Array.isArray(p.roleHistory)) {
+      p.roleHistory.forEach((h: any) => {
+        if (h && isMatchingAssembly(h.assemblyId) && h.role) {
+          customRoles.push(h.role);
         }
-        remarksSet.add(trimmed);
       });
     }
 
+    customRoles.forEach((r) => {
+      const trimmed = r.trim();
+      if (!trimmed) return;
+      if (trimmed.toLowerCase() === "leader of the house") return;
+      
+      if (trimmed.toLowerCase().includes("minister") && !trimmed.toLowerCase().includes("former")) {
+        hasMinister = true;
+      }
+      remarksSet.add(trimmed);
+    });
+
     // 4. Default "MLA" designation if no other active role
-    if (remarksSet.size === 0 && p.constituencyName && p.constituencyName !== 'Special Role') {
+    if (remarksSet.size === 0 && ((p.constituencyName && p.constituencyName !== 'Special Role') || p.partyId)) {
       remarksSet.add("MLA");
     }
 
@@ -266,16 +296,21 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
             ]
           : [];
 
-      const incumbents = rawIncumbents.map((inc) => {
+      const incumbents = rawIncumbents.map((inc, incIdx) => {
         const p = inc.person;
         const isIndependent = p.partyId === "independent";
         const res = getRemarksForPolitician(p);
         
-        // Only show remarks and ministerial status for the ACTIVE incumbent
-        // (Active = hasn't been removed/resigned/expired in this assembly context)
-        const isActiveIncumbent = !inc.removalDate;
-        const remarks = isActiveIncumbent ? res.remarks : [];
-        const hasMinisterRole = isActiveIncumbent ? res.hasMinisterRole : false;
+        // In an active assembly, only show remarks and ministerial status for active incumbents (no removalDate)
+        // In a dissolved assembly, all final incumbents who served up to dissolution (including expiry or the last incumbent of the seat) MUST show their remarks as historical un-editable data!
+        const isDissolvedAssembly = isDissolved || assembly.isActive === false;
+        const isLastInSeat = incIdx === rawIncumbents.length - 1;
+        const isEligibleForRemarks = isDissolvedAssembly
+          ? (!inc.removalDate || inc.reason === "expiry" || isLastInSeat)
+          : !inc.removalDate;
+
+        const remarks = isEligibleForRemarks ? res.remarks : [];
+        const hasMinisterRole = isEligibleForRemarks ? res.hasMinisterRole : false;
 
         const isSupportingAlliance = !!(assembly.independentSupports?.[p.id]);
 
@@ -777,9 +812,10 @@ export const AssemblyMembersTable: React.FC<AssemblyMembersTableProps> = ({
                             const rawReason = inc.reason || '';
                             const isElection = rawReason === 'election' || rawReason === 'appointment';
                             const isResigned = rawReason.toLowerCase().includes('resign');
-                            const isExpired = !isElection && !isResigned && rawReason.length > 0;
+                            const isRemoved = rawReason.toLowerCase().includes('remov');
+                            const isExpired = !isElection && !isResigned && !isRemoved && rawReason.length > 0;
                             
-                            const reasonLabel = isResigned ? "Resigned" : (isExpired ? "Expired" : "");
+                            const reasonLabel = isResigned ? "Resigned" : (isRemoved ? "Removed" : (isExpired ? "Expired" : ""));
                             const dateStr = inc.removalDate ? ` on ${new Date(inc.removalDate).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '-')}` : '';
                             const assuDateStr = inc.electionDate ? ` on ${new Date(inc.electionDate).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '-')}` : '';
                             

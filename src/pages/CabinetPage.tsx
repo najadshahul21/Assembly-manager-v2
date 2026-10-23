@@ -6,7 +6,7 @@ import { Person, Assembly, Party, Alliance, Designation, Constituency } from '..
 import { Landmark, ArrowDown, UserMinus, ShieldCheck, Award, Users, Shield, Calendar, MapPin, ExternalLink, Crown, Settings2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { LeadershipCouncilModal } from '../components/LeadershipCouncilModal';
-import { prefixRole, formatPersonName } from '../utils/governmentUtils';
+import { prefixRole, formatPersonName, getAssemblyLeaders } from '../utils/governmentUtils';
 import { getSystemTimestamp } from '../utils/dateUtils';
 
 export const CabinetPage: React.FC = () => {
@@ -59,17 +59,35 @@ export const CabinetPage: React.FC = () => {
              r.includes('chief secretary');
     };
 
+    const isAssemblyActive = currentAssembly.isActive !== false;
     const specialDesignations = designations.filter(d => isCabinetRole(d.name) && d.assemblyId === targetAssemblyId);
 
     const cabinetData: Map<string, { person: Person; roles: { name: string; canDemote: boolean }[] }> = new Map();
 
-    const ministers = allPersons.filter(p => !p.isSuspended && p.assemblyRoles && p.assemblyRoles[targetAssemblyId]);
+    // 1. Roles from assemblyRoles or roleHistory
+    const ministers = allPersons.filter(p => !p.isSuspended && (
+      (p.assemblyRoles && p.assemblyRoles[targetAssemblyId]) ||
+      (Array.isArray(p.roleHistory) && p.roleHistory.some(h => h.assemblyId === targetAssemblyId && isCabinetRole(h.role)))
+    ));
+
     for (const p of ministers) {
-      const roles = p.assemblyRoles[targetAssemblyId].split(', ').filter(isCabinetRole);
+      let roleStrings: string[] = [];
+      if (p.assemblyRoles && p.assemblyRoles[targetAssemblyId]) {
+        roleStrings.push(...p.assemblyRoles[targetAssemblyId].split(', '));
+      }
+      if (Array.isArray(p.roleHistory)) {
+        p.roleHistory.forEach(h => {
+          if (h.assemblyId === targetAssemblyId && h.role) {
+            roleStrings.push(h.role);
+          }
+        });
+      }
+
+      const roles = Array.from(new Set(roleStrings.map(r => r.trim()).filter(isCabinetRole)));
       if (roles.length > 0) {
         const rolesList = roles.map(r => ({
           name: r,
-          canDemote: true
+          canDemote: isAssemblyActive
         }));
         cabinetData.set(p.id, { 
           person: p, 
@@ -78,16 +96,28 @@ export const CabinetPage: React.FC = () => {
       }
     }
 
+    // 2. Roles from designations (active or historical)
     for (const d of specialDesignations) {
-      if (d.incumbentId && d.incumbentId !== 'vacant') {
-        const holder = allPersons.find(p => p.id === d.incumbentId);
+      let holderId = d.incumbentId;
+      if (!holderId || holderId === 'vacant') {
+        if (Array.isArray(d.history) && d.history.length > 0) {
+          const validHistory = d.history.filter(h => h.personId && h.personId !== 'vacant');
+          if (validHistory.length > 0) {
+            const expiryEntry = validHistory.slice().reverse().find(h => h.reason === 'expiry');
+            holderId = expiryEntry ? expiryEntry.personId : validHistory[validHistory.length - 1].personId;
+          }
+        }
+      }
+
+      if (holderId && holderId !== 'vacant') {
+        const holder = allPersons.find(p => p.id === holderId);
         if (holder && !holder.isSuspended) {
           const entry = cabinetData.get(holder.id) || { person: holder, roles: [] };
           if (isCabinetRole(d.name)) {
-            if (!entry.roles.some(r => r.name === d.name)) {
+            if (!entry.roles.some(r => r.name.toLowerCase() === d.name.toLowerCase())) {
               entry.roles.push({
                 name: d.name,
-                canDemote: !isSpecialRole(d.name)
+                canDemote: isAssemblyActive && !isSpecialRole(d.name)
               });
             }
             cabinetData.set(holder.id, entry);
@@ -96,8 +126,10 @@ export const CabinetPage: React.FC = () => {
       }
     }
 
-    if (currentAssembly.leaders) {
-      for (const [role, pId] of Object.entries(currentAssembly.leaders)) {
+    // 3. Roles from Leadership Council (active or historical snapshot)
+    const effectiveLeaders = getAssemblyLeaders(currentAssembly, designations, allPersons);
+    if (effectiveLeaders) {
+      for (const [role, pId] of Object.entries(effectiveLeaders)) {
         if (
           role === 'leaderOfOpposition' || 
           role === 'deputyLeaderOfOpposition'

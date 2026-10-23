@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Person, Party, Alliance, ElectionResult, CandidateResult, Designation, Assembly } from '../types';
+import { Person, Party, Alliance, ElectionResult, CandidateResult, Designation, Assembly, Constituency } from '../types';
 import { useDbLookup } from '../context/DbLookupContext';
 import { 
   Vote, Plus, Trash2, X, CheckCircle, Search, AlertCircle, 
@@ -11,7 +11,7 @@ import { getSystemTimestamp } from '../utils/dateUtils';
 /**
  * Shared helper to find a person's primary active designation (e.g. Minister, Speaker, or MLA)
  */
-const getActiveDesignation = (p: Person, designations: Designation[], assemblies: Assembly[]) => {
+const getActiveDesignation = (p: Person, designations: Designation[], assemblies: Assembly[], constituencies: Constituency[]) => {
   // Priority 1: Official active designations (Minister, Speaker, etc.)
   const activeAssemblyIds = new Set(assemblies.filter(a => a.isActive !== false).map(a => a.id));
   
@@ -38,9 +38,15 @@ const getActiveDesignation = (p: Person, designations: Designation[], assemblies
     }
   }
 
-  // Priority 3: MLA status
+  // Priority 3: MLA status - ONLY if in an active assembly
   if (p.constituencyName && p.constituencyName !== 'Special Role') {
-    return `MLA • ${p.constituencyName}`;
+    const con = constituencies.find(c => c.name === p.constituencyName && c.currentIncumbentId === p.id);
+    if (con && con.currentAssemblyId) {
+      const asm = assemblies.find(a => a.id === con.currentAssemblyId);
+      if (asm && asm.isActive !== false) {
+        return `MLA • ${p.constituencyName}`;
+      }
+    }
   }
 
   return null;
@@ -83,6 +89,7 @@ interface SearchablePersonSelectProps {
   alliancesList: Alliance[];
   designationsList: Designation[];
   assembliesList: Assembly[];
+  constituenciesList: Constituency[];
   onSelect: (tempId: string, personId: string, customName?: string) => void;
 }
 
@@ -99,6 +106,7 @@ const SearchablePersonSelect: React.FC<SearchablePersonSelectProps> = ({
   alliancesList,
   designationsList,
   assembliesList,
+  constituenciesList,
   onSelect,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -351,7 +359,7 @@ const SearchablePersonSelect: React.FC<SearchablePersonSelectProps> = ({
                 const allianceColorStyle = partyAlliance?.colors?.[0] || '#4B5563';
                 const allianceName = partyAlliance?.name;
 
-                const activeDesig = getActiveDesignation(person, designationsList, assembliesList);
+                const activeDesig = getActiveDesignation(person, designationsList, assembliesList, constituenciesList);
 
                 return (
                   <button
@@ -448,7 +456,11 @@ export const ElectModal: React.FC<ElectModalProps> = ({
   onClose,
   onConfirm
 }) => {
-  const { alliances: dbAlliances, designations: dbDesignations, assemblies: dbAssemblies } = useDbLookup();
+  const { alliances: dbAlliances, designations: dbDesignations, assemblies: dbAssemblies, constituencies: dbConstituencies } = useDbLookup();
+
+  const effectiveConstituenciesList = useMemo(() => {
+    return dbConstituencies || [];
+  }, [dbConstituencies]);
 
   const effectiveAlliancesList = useMemo(() => {
     return (alliancesList && alliancesList.length > 0) ? alliancesList : (dbAlliances || []);
@@ -987,7 +999,7 @@ export const ElectModal: React.FC<ElectModalProps> = ({
                     const allianceColor = partyAlliance?.colors?.[0] || '#4B5563';
                     const allianceName = partyAlliance?.name;
 
-                    const activeDesig = getActiveDesignation(p, effectiveDesignationsList, effectiveAssembliesList);
+                    const activeDesig = getActiveDesignation(p, effectiveDesignationsList, effectiveAssembliesList, effectiveConstituenciesList);
 
                     return (
                       <button
@@ -1090,6 +1102,7 @@ export const ElectModal: React.FC<ElectModalProps> = ({
                     alliancesList={effectiveAlliancesList}
                     designationsList={effectiveDesignationsList}
                     assembliesList={effectiveAssembliesList}
+                    constituenciesList={effectiveConstituenciesList}
                     onSelect={handlePersonSelect}
                   />
 

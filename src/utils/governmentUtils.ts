@@ -1,4 +1,4 @@
-import { Assembly, Constituency, Party, Alliance, Person, LegislativeOrder } from '../types';
+import { Assembly, Constituency, Party, Alliance, Person, LegislativeOrder, Designation } from '../types';
 import { firestoreService } from '../firestoreService';
 
 export interface GovernmentCompositionResult {
@@ -530,5 +530,147 @@ export const formatPersonName = (name: string, gender?: string, hasDesignation: 
   if (hasPrefix) return trimmedName;
   return `${prefix} ${trimmedName}`;
 };
+
+export interface AssemblyLeadersResult {
+  chiefMinister: string;
+  deputyChiefMinister: string;
+  speaker: string;
+  deputySpeaker: string;
+  leaderOfOpposition: string;
+  deputyLeaderOfOpposition: string;
+  chiefSecretary: string;
+}
+
+/**
+ * Resolves the leadership council of an assembly, seamlessly handling active
+ * as well as dissolved / historical assemblies with fallback to historical designations and role histories.
+ */
+export function getAssemblyLeaders(
+  assembly?: Assembly | null,
+  designations?: Designation[],
+  persons?: Person[]
+): AssemblyLeadersResult {
+  const defaultLeaders: AssemblyLeadersResult = {
+    chiefMinister: 'vacant',
+    deputyChiefMinister: 'vacant',
+    speaker: 'vacant',
+    deputySpeaker: 'vacant',
+    leaderOfOpposition: 'vacant',
+    deputyLeaderOfOpposition: 'vacant',
+    chiefSecretary: 'vacant',
+  };
+
+  if (!assembly) return defaultLeaders;
+
+  const asmId = assembly.id;
+  const isMatchingAsm = (targetId?: string) => {
+    if (!targetId) return false;
+    if (targetId === asmId) return true;
+    if (targetId.toLowerCase() === asmId.toLowerCase()) return true;
+    const cleanA = asmId.replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
+    const cleanT = targetId.replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
+    return cleanA === cleanT || cleanA.includes(cleanT) || cleanT.includes(cleanA);
+  };
+
+  // 1. Pull from assembly.leaders, preDissolutionLeaders, or composition.leaders
+  const lSource = assembly.leaders || {};
+  const preDissolution = (assembly as any).preDissolutionLeaders || (assembly as any).composition?.leaders || {};
+
+  const result: AssemblyLeadersResult = {
+    chiefMinister: (lSource.chiefMinister && lSource.chiefMinister !== 'vacant') ? lSource.chiefMinister : (preDissolution.chiefMinister && preDissolution.chiefMinister !== 'vacant' ? preDissolution.chiefMinister : 'vacant'),
+    deputyChiefMinister: (lSource.deputyChiefMinister && lSource.deputyChiefMinister !== 'vacant') ? lSource.deputyChiefMinister : (preDissolution.deputyChiefMinister && preDissolution.deputyChiefMinister !== 'vacant' ? preDissolution.deputyChiefMinister : 'vacant'),
+    speaker: (lSource.speaker && lSource.speaker !== 'vacant') ? lSource.speaker : (preDissolution.speaker && preDissolution.speaker !== 'vacant' ? preDissolution.speaker : 'vacant'),
+    deputySpeaker: (lSource.deputySpeaker && lSource.deputySpeaker !== 'vacant') ? lSource.deputySpeaker : (preDissolution.deputySpeaker && preDissolution.deputySpeaker !== 'vacant' ? preDissolution.deputySpeaker : 'vacant'),
+    leaderOfOpposition: (lSource.leaderOfOpposition && lSource.leaderOfOpposition !== 'vacant') ? lSource.leaderOfOpposition : (preDissolution.leaderOfOpposition && preDissolution.leaderOfOpposition !== 'vacant' ? preDissolution.leaderOfOpposition : 'vacant'),
+    deputyLeaderOfOpposition: (lSource.deputyLeaderOfOpposition && lSource.deputyLeaderOfOpposition !== 'vacant') ? lSource.deputyLeaderOfOpposition : (preDissolution.deputyLeaderOfOpposition && preDissolution.deputyLeaderOfOpposition !== 'vacant' ? preDissolution.deputyLeaderOfOpposition : 'vacant'),
+    chiefSecretary: (lSource.chiefSecretary && lSource.chiefSecretary !== 'vacant') ? lSource.chiefSecretary : (preDissolution.chiefSecretary && preDissolution.chiefSecretary !== 'vacant' ? preDissolution.chiefSecretary : 'vacant'),
+  };
+
+  // 2. If any role is still vacant, inspect designations and persons
+  const rolesToFind: { key: keyof AssemblyLeadersResult; matchFn: (name: string) => boolean }[] = [
+    {
+      key: 'chiefMinister',
+      matchFn: (n) => {
+        const l = n.toLowerCase();
+        return l.includes('chief minister') && !l.includes('deputy');
+      }
+    },
+    {
+      key: 'deputyChiefMinister',
+      matchFn: (n) => n.toLowerCase().includes('deputy chief minister')
+    },
+    {
+      key: 'speaker',
+      matchFn: (n) => {
+        const l = n.toLowerCase();
+        return l.includes('speaker') && !l.includes('deputy');
+      }
+    },
+    {
+      key: 'deputySpeaker',
+      matchFn: (n) => n.toLowerCase().includes('deputy speaker')
+    },
+    {
+      key: 'leaderOfOpposition',
+      matchFn: (n) => {
+        const l = n.toLowerCase();
+        return l.includes('opposition') && (l.includes('leader') || l.includes('lop')) && !l.includes('deputy');
+      }
+    },
+    {
+      key: 'deputyLeaderOfOpposition',
+      matchFn: (n) => {
+        const l = n.toLowerCase();
+        return l.includes('opposition') && l.includes('deputy');
+      }
+    },
+    {
+      key: 'chiefSecretary',
+      matchFn: (n) => n.toLowerCase().includes('chief secretary')
+    }
+  ];
+
+  for (const item of rolesToFind) {
+    if (result[item.key] && result[item.key] !== 'vacant') continue;
+
+    // Check designations
+    if (designations && designations.length > 0) {
+      const matchDesig = designations.find(d => isMatchingAsm(d.assemblyId) && item.matchFn(d.name || ''));
+      if (matchDesig) {
+        if (matchDesig.incumbentId && matchDesig.incumbentId !== 'vacant') {
+          result[item.key] = matchDesig.incumbentId;
+          continue;
+        }
+        if (Array.isArray(matchDesig.history) && matchDesig.history.length > 0) {
+          const validHistory = matchDesig.history.filter(h => h.personId && h.personId !== 'vacant');
+          if (validHistory.length > 0) {
+            const expiryEntry = validHistory.slice().reverse().find(h => h.reason === 'expiry');
+            result[item.key] = expiryEntry ? expiryEntry.personId : validHistory[validHistory.length - 1].personId;
+            continue;
+          }
+        }
+      }
+    }
+
+    // Check persons roleHistory or assemblyRoles
+    if (persons && persons.length > 0) {
+      const matchPerson = persons.find(p => {
+        if (p.assemblyRoles && p.assemblyRoles[asmId] && item.matchFn(p.assemblyRoles[asmId])) {
+          return true;
+        }
+        if (Array.isArray(p.roleHistory)) {
+          return p.roleHistory.some(h => isMatchingAsm(h.assemblyId) && item.matchFn(h.role || ''));
+        }
+        return false;
+      });
+      if (matchPerson) {
+        result[item.key] = matchPerson.id;
+      }
+    }
+  }
+
+  return result;
+}
+
 
 

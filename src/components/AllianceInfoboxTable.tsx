@@ -2,6 +2,7 @@ import React from 'react';
 import { Shield, ExternalLink } from 'lucide-react';
 import { Alliance, Party, Person, Assembly, Constituency } from '../types';
 import { getSystemDate } from '../utils/dateUtils';
+import { renderMentions } from '../utils/mentionUtils';
 
 interface AllianceInfoboxTableProps {
   alliance: Alliance;
@@ -323,7 +324,7 @@ export const AllianceInfoboxTable: React.FC<AllianceInfoboxTableProps> = ({
       {alliance.bio && (
         <div className="px-6 py-4 bg-black/20 border-b border-zinc-800/80">
           <p className="text-xs sm:text-sm text-zinc-300 leading-relaxed italic text-center">
-            "{alliance.bio}"
+            "{renderMentions(alliance.bio, personsList, onNavigatePerson)}"
           </p>
         </div>
       )}

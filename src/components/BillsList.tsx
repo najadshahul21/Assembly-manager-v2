@@ -37,6 +37,12 @@ export const BillsList: React.FC<BillsListProps> = ({ bills, assembly, members, 
       return;
     }
 
+    const member = members.find(m => m.id === personId);
+    if (member && member.isActive === false) {
+      alert('This member has vacated their seat and is no longer eligible to vote.');
+      return;
+    }
+
     const currentVotes = { ...(bill.votes || {}) };
     const existingVote = currentVotes[personId];
 
@@ -249,7 +255,7 @@ export const BillsList: React.FC<BillsListProps> = ({ bills, assembly, members, 
                                 </div>
                                 
                                 <div className="flex items-center gap-1.5 shrink-0">
-                                  {isVotingMode && assembly.isActive !== false && !isViewerMode ? (
+                                  {isVotingMode && assembly.isActive !== false && !isViewerMode && member.isActive !== false ? (
                                     <>
                                       <button
                                         type="button"

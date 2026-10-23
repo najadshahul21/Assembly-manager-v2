@@ -2,6 +2,7 @@ import React from 'react';
 import { Flag, Shield, ExternalLink, Users, Award, Landmark, X, Check } from 'lucide-react';
 import { Party, Alliance, Person, Assembly, Constituency } from '../types';
 import { getSystemDate } from '../utils/dateUtils';
+import { renderMentions } from '../utils/mentionUtils';
 
 interface PartyInfoboxTableProps {
   party: Party;
@@ -297,7 +298,7 @@ export const PartyInfoboxTable: React.FC<PartyInfoboxTableProps> = ({
       {party.bio && (
         <div className="px-6 py-4 bg-black/20 border-b border-zinc-800/80">
           <p className="text-xs sm:text-sm text-zinc-300 leading-relaxed italic text-center">
-            "{party.bio}"
+            "{renderMentions(party.bio, personsList, onNavigatePerson)}"
           </p>
         </div>
       )}

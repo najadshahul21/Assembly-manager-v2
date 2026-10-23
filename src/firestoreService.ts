@@ -903,17 +903,195 @@ export const firestoreService = {
         return slA - slB;
       });
 
+      const frozenLeaders = assemblyObj.leaders || (assemblyObj as any).preDissolutionLeaders || {};
+
       const finalComposition = {
         ...assemblyPerformance,
+        leaders: frozenLeaders,
         seatingLayout: sortedSeats,
       };
 
       await updateDoc(doc(db, 'users', uid, 'assemblies', assemblyId), {
         composition: finalComposition,
+        preDissolutionLeaders: frozenLeaders,
         updatedAt: getSystemTimestamp()
       });
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, path);
+    }
+  },
+
+  reviveAssembly: async (assemblyId: string) => {
+    const user = auth.currentUser;
+    if (!user) throw new Error("User must be authenticated to revive an assembly.");
+    const uid = user.uid;
+    const now = getSystemTimestamp();
+    const path = `users/${uid}/assemblies/${assemblyId}`;
+
+    try {
+      // 1. Check if another assembly is currently active
+      const assembliesSnap = await getDocs(collection(db, 'users', uid, 'assemblies'));
+      const allAssemblies = assembliesSnap.docs.map(d => d.data() as Assembly);
+      const otherActive = allAssemblies.find(a => a.id !== assemblyId && a.isActive !== false);
+      if (otherActive) {
+        throw new Error(`Cannot revive assembly. Another assembly ("${otherActive.name}") is currently active.`);
+      }
+
+      const targetAssembly = allAssemblies.find(a => a.id === assemblyId);
+      if (!targetAssembly) {
+        throw new Error("Target assembly not found in database.");
+      }
+
+      const getCol = async (name: string) => {
+        const q = collection(db, 'users', uid, name);
+        const snap = await getDocs(q);
+        return snap.docs.map(d => d.data());
+      };
+
+      const constituencies = await getCol('constituencies') as Constituency[];
+      const designations = await getCol('designations') as Designation[];
+      const persons = await getCol('persons') as Person[];
+
+      // Resolve leaders to restore (prioritize preDissolutionLeaders or composition.leaders)
+      const rawLeaders = targetAssembly.preDissolutionLeaders || 
+        targetAssembly.composition?.leaders || 
+        targetAssembly.leaders || {};
+
+      const restoredLeaders = {
+        chiefMinister: (rawLeaders.chiefMinister && rawLeaders.chiefMinister !== 'vacant') ? rawLeaders.chiefMinister : 'vacant',
+        deputyChiefMinister: (rawLeaders.deputyChiefMinister && rawLeaders.deputyChiefMinister !== 'vacant') ? rawLeaders.deputyChiefMinister : 'vacant',
+        speaker: (rawLeaders.speaker && rawLeaders.speaker !== 'vacant') ? rawLeaders.speaker : 'vacant',
+        deputySpeaker: (rawLeaders.deputySpeaker && rawLeaders.deputySpeaker !== 'vacant') ? rawLeaders.deputySpeaker : 'vacant',
+        leaderOfOpposition: (rawLeaders.leaderOfOpposition && rawLeaders.leaderOfOpposition !== 'vacant') ? rawLeaders.leaderOfOpposition : 'vacant',
+        deputyLeaderOfOpposition: (rawLeaders.deputyLeaderOfOpposition && rawLeaders.deputyLeaderOfOpposition !== 'vacant') ? rawLeaders.deputyLeaderOfOpposition : 'vacant',
+        chiefSecretary: (rawLeaders.chiefSecretary && rawLeaders.chiefSecretary !== 'vacant') ? rawLeaders.chiefSecretary : 'vacant',
+      };
+
+      // 2. Mark assembly as active with restored leaders
+      await updateDoc(doc(db, 'users', uid, 'assemblies', assemblyId), {
+        isActive: true,
+        leaders: restoredLeaders,
+        updatedAt: now,
+      });
+
+      const personUpdates = new Map<string, {
+        constituencyId?: string;
+        constituencyName?: string;
+        assemblyRolesToAdd: string[];
+      }>();
+
+      // 3. Restore constituencies
+      for (const con of constituencies) {
+        const conHist = con.history || [];
+        const isBelongingToAssembly = con.currentAssemblyId === assemblyId || conHist.some(h => h.assemblyId === assemblyId);
+
+        if (isBelongingToAssembly) {
+          const expiryEntry = conHist.slice().reverse().find(h => (h.assemblyId === assemblyId || !h.assemblyId) && h.reason === 'expiry' && h.personId && h.personId !== 'vacant');
+          const lastEntry = conHist.slice().reverse().find(h => (h.assemblyId === assemblyId || !h.assemblyId) && h.personId && h.personId !== 'vacant');
+          const incumbentToRestore = expiryEntry ? expiryEntry.personId : (con.currentIncumbentId && con.currentIncumbentId !== 'vacant' ? con.currentIncumbentId : lastEntry?.personId);
+
+          if (incumbentToRestore && incumbentToRestore !== 'vacant') {
+            const cleanedHistory = conHist.filter(h => !(h.personId === incumbentToRestore && (h.assemblyId === assemblyId || !h.assemblyId) && h.reason === 'expiry'));
+
+            await updateDoc(doc(db, 'users', uid, 'constituencies', con.id), {
+              currentAssemblyId: assemblyId,
+              currentIncumbentId: incumbentToRestore,
+              history: cleanedHistory,
+              updatedAt: now,
+            });
+
+            const existingPUpdate = personUpdates.get(incumbentToRestore) || { assemblyRolesToAdd: [] };
+            existingPUpdate.constituencyId = con.id;
+            existingPUpdate.constituencyName = con.name;
+            personUpdates.set(incumbentToRestore, existingPUpdate);
+          } else {
+            await updateDoc(doc(db, 'users', uid, 'constituencies', con.id), {
+              currentAssemblyId: assemblyId,
+              updatedAt: now,
+            });
+          }
+        }
+      }
+
+      // 4. Restore designations
+      const matchingDesignations = designations.filter(d => d.assemblyId === assemblyId || (d.history && d.history.some((h: any) => h.assemblyId === assemblyId)));
+      for (const desig of matchingDesignations) {
+        const dHist = desig.history || [];
+        const expiryEntry = dHist.slice().reverse().find(h => h.reason === 'expiry' && h.personId && h.personId !== 'vacant');
+        const lastEntry = dHist.slice().reverse().find(h => h.personId && h.personId !== 'vacant');
+        const personToRestore = expiryEntry ? expiryEntry.personId : (desig.incumbentId && desig.incumbentId !== 'vacant' ? desig.incumbentId : lastEntry?.personId);
+
+        if (personToRestore && personToRestore !== 'vacant') {
+          const cleanedHistory = dHist.filter(h => !(h.personId === personToRestore && h.reason === 'expiry'));
+          await updateDoc(doc(db, 'users', uid, 'designations', desig.id), {
+            incumbentId: personToRestore,
+            history: cleanedHistory,
+            updatedAt: now,
+          });
+
+          const existingPUpdate = personUpdates.get(personToRestore) || { assemblyRolesToAdd: [] };
+          existingPUpdate.assemblyRolesToAdd.push(desig.name);
+          personUpdates.set(personToRestore, existingPUpdate);
+        }
+      }
+
+      // Restore leadership council roles
+      for (const [rKey, pId] of Object.entries(restoredLeaders)) {
+        if (pId && pId !== 'vacant') {
+          const roleName = rKey.replace(/([A-Z])/g, ' $1').trim();
+          const formattedRole = roleName.charAt(0).toUpperCase() + roleName.slice(1);
+          const existingPUpdate = personUpdates.get(pId as string) || { assemblyRolesToAdd: [] };
+          existingPUpdate.assemblyRolesToAdd.push(formattedRole);
+          personUpdates.set(pId as string, existingPUpdate);
+        }
+      }
+
+      // 5. Update persons (re-link constituency and active assemblyRoles)
+      for (const [pId, pData] of personUpdates.entries()) {
+        const pRecord = persons.find(p => p.id === pId);
+        if (!pRecord) continue;
+
+        const updatedAssemblyRoles = { ...(pRecord.assemblyRoles || {}) };
+        const currentRolesInAsm = updatedAssemblyRoles[assemblyId] 
+          ? updatedAssemblyRoles[assemblyId].split(', ').map(r => r.trim()).filter(Boolean)
+          : [];
+
+        if (Array.isArray(pRecord.roleHistory)) {
+          pRecord.roleHistory.forEach((h: any) => {
+            if (h.assemblyId === assemblyId && h.role && h.action === 'expiry') {
+              currentRolesInAsm.push(h.role);
+            }
+          });
+        }
+
+        pData.assemblyRolesToAdd.forEach(r => {
+          if (!currentRolesInAsm.includes(r)) {
+            currentRolesInAsm.push(r);
+          }
+        });
+
+        if (currentRolesInAsm.length > 0) {
+          updatedAssemblyRoles[assemblyId] = Array.from(new Set(currentRolesInAsm)).join(', ');
+        }
+
+        const cleanedRoleHistory = (pRecord.roleHistory || []).filter(h => !(h.assemblyId === assemblyId && h.action === 'expiry'));
+
+        await updateDoc(doc(db, 'users', uid, 'persons', pId), {
+          assemblyRoles: updatedAssemblyRoles,
+          roleHistory: cleanedRoleHistory,
+          ...(pData.constituencyId ? {
+            constituencyId: pData.constituencyId,
+            constituencyName: pData.constituencyName,
+            mlaStatusText: null,
+          } : {}),
+          updatedAt: now,
+        });
+      }
+
+      return { success: true };
+    } catch (err: any) {
+      handleFirestoreError(err, OperationType.WRITE, path);
+      throw err;
     }
   },
 

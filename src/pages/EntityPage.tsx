@@ -47,6 +47,7 @@ import {
   Network,
   FileText,
   FilePlus,
+  RotateCcw,
 } from "lucide-react";
 import { EntityCard } from "../components/EntityCards";
 import { ElectionResultsTable } from "../components/ElectionResultsTable";
@@ -62,6 +63,8 @@ import {
   formatCommaSeparatedRoles,
   formatPersonName,
   getActiveAssembly,
+  getAssemblyLeaders,
+  AssemblyLeadersResult,
 } from "../utils/governmentUtils";
 
 import { CreateModals } from "../components/CreateModals";
@@ -76,6 +79,7 @@ import { buildLegislativeSessionsList, extractOrdinal } from "../data/legislativ
 import { LegislativeRolesHistoryWidget } from "../components/LegislativeRolesHistoryWidget";
 import { formatAppDate, formatAppDateTime, getSystemTimestamp } from "../utils/dateUtils";
 import { useSystemDate } from "../context/SystemDateContext";
+import { renderMentions } from "../utils/mentionUtils";
 
 const getAssemblyChronologicalScore = (assembly?: Assembly | null) => {
   if (!assembly) return 0;
@@ -223,13 +227,15 @@ export const EntityPage: React.FC = () => {
     initialTab === "sessions"
       ? (type === EntityType.CONSTITUENCY ? "related" : "history")
       : initialTab &&
-        ["details", "related", "history", "cabinet", "orders"].includes(initialTab)
+        ["details", "related", "history", "cabinet", "orders", "bills"].includes(initialTab)
       ? (initialTab as any)
       : "details",
   );
   const [isCreateBillModalOpen, setIsCreateBillModalOpen] = useState(false);
   const [bills, setBills] = useState<LegislativeBill[]>([]);
   const [alliancePartiesViewMode, setAlliancePartiesViewMode] = useState<"table" | "grid">("table");
+  const [isRevivingAssembly, setIsRevivingAssembly] = useState(false);
+  const [showReviveConfirmModal, setShowReviveConfirmModal] = useState(false);
 
   const entityType = type as EntityType;
 
@@ -244,6 +250,12 @@ export const EntityPage: React.FC = () => {
     bills: billsFromLookup,
     loaded: dbLoaded
   } = useDbLookup();
+
+  const lookupPersonsMap = useMemo(() => {
+    const map = new Map<string, Person>();
+    (personsList || []).forEach(p => map.set(p.id, p));
+    return map;
+  }, [personsList]);
 
   React.useEffect(() => {
     if (entityType === EntityType.ASSEMBLY && id) {
@@ -940,7 +952,17 @@ export const EntityPage: React.FC = () => {
           const alliance = party && party.allianceId !== "independent" ? alliancesList?.find(item => item.id === party.allianceId) : null;
           let baseSubtitle = p.partyId === "independent" ? "Independent" : (party?.name || "Member");
           if (alliance) baseSubtitle = `${baseSubtitle} • ${alliance.name}`;
-          membersListOutput.push({ id: p.id, uniqueKey: `${p.id}-${con.id}-${index}`, name: p.name, constituencyName: con.name, partyId: p.partyId, imageUrl: p.imageUrl, subtitleOverride: mlaStatusText ? `${mlaStatusText} | ${baseSubtitle} (${con.name})` : `${baseSubtitle} (${con.name})`, mlaStatusText: mlaStatusText || undefined });
+          membersListOutput.push({ 
+            id: p.id, 
+            uniqueKey: `${p.id}-${con.id}-${index}`, 
+            name: p.name, 
+            constituencyName: con.name, 
+            partyId: p.partyId, 
+            imageUrl: p.imageUrl, 
+            subtitleOverride: mlaStatusText ? `${mlaStatusText} | ${baseSubtitle} (${con.name})` : `${baseSubtitle} (${con.name})`, 
+            mlaStatusText: mlaStatusText || undefined,
+            isActive: !!isActive
+          });
           addedPersons.add(p.id);
         }
       });
@@ -1183,6 +1205,12 @@ export const EntityPage: React.FC = () => {
     return false;
   }, [entity, entityType, assembliesList]);
 
+  const hasOtherActiveAssembly = useMemo(() => {
+    return (assembliesList || []).some(a => a.id !== id && a.isActive !== false);
+  }, [assembliesList, id]);
+
+  const canReviveAssembly = !isViewerMode && entityType === EntityType.ASSEMBLY && (entity as Assembly)?.isActive === false && !hasOtherActiveAssembly;
+
   const confirmAction = (
     title: string,
     message: string,
@@ -1236,10 +1264,15 @@ export const EntityPage: React.FC = () => {
     return [...rawPositions].sort((a, b) => b.angle - a.angle);
   }, [assemblySeats?.length]);
 
+  const effectiveAssemblyLeaders = React.useMemo(() => {
+    if (entityType !== EntityType.ASSEMBLY || !entity) return null;
+    return getAssemblyLeaders(entity as Assembly, designationsList, personsList);
+  }, [entity, entityType, designationsList, personsList]);
+
   const speakerDetails = React.useMemo(() => {
     if (entityType !== EntityType.ASSEMBLY || !entity) return null;
-    const speakerId = (entity as Assembly).leaders?.speaker;
-    if (!speakerId) return null;
+    const speakerId = effectiveAssemblyLeaders?.speaker || (entity as Assembly).leaders?.speaker;
+    if (!speakerId || speakerId === "vacant") return null;
 
     const speakerPerson = personsList.find((p) => p.id === speakerId);
     if (!speakerPerson) return null;
@@ -1265,7 +1298,7 @@ export const EntityPage: React.FC = () => {
       alliance: speakerAlliance,
       seat: speakerSeat,
     };
-  }, [entity, entityType, personsList, partiesList, alliancesList, assemblySeats]);
+  }, [entity, entityType, effectiveAssemblyLeaders, personsList, partiesList, alliancesList, assemblySeats]);
 
   React.useEffect(() => {
     if (assemblySeats && assemblySeats.length > 0) {
@@ -1629,17 +1662,12 @@ export const EntityPage: React.FC = () => {
         async () => {
           const now = getSystemTimestamp();
           await firestoreService.freezeAssembly(id!);
+          const currentAssemblyLeaders = (entity as Assembly)?.leaders || {};
           await firestoreService.updateAssembly(id!, {
             isActive: false,
-            leaders: {
-              chiefMinister: 'vacant',
-              deputyChiefMinister: 'vacant',
-              speaker: 'vacant',
-              deputySpeaker: 'vacant',
-              leaderOfOpposition: 'vacant',
-              deputyLeaderOfOpposition: 'vacant',
-              chiefSecretary: 'vacant',
-            },
+            // Preserve leadership council intact as un-editable historical snapshot
+            leaders: currentAssemblyLeaders,
+            preDissolutionLeaders: currentAssemblyLeaders,
             updatedAt: now,
           });
 
@@ -1716,6 +1744,20 @@ export const EntityPage: React.FC = () => {
         true,
         "Dissolve Assembly",
       );
+    }
+  };
+
+  const handleConfirmReviveAssembly = async () => {
+    if (!id || entityType !== EntityType.ASSEMBLY) return;
+    setIsRevivingAssembly(true);
+    try {
+      await firestoreService.reviveAssembly(id);
+      setShowReviveConfirmModal(false);
+    } catch (err: any) {
+      console.error("Failed to revive assembly:", err);
+      alert(err.message || "Failed to revive assembly.");
+    } finally {
+      setIsRevivingAssembly(false);
     }
   };
 
@@ -2603,7 +2645,7 @@ export const EntityPage: React.FC = () => {
                 </h3>
                 <div className="prose prose-invert max-w-none text-gray-400 leading-relaxed">
                   {(entity as any).bio ? (
-                    <div className="whitespace-pre-wrap">{(entity as any).bio}</div>
+                    <div className="whitespace-pre-wrap">{renderMentions((entity as any).bio, lookupPersonsMap, (pId) => navigate(`/person/${pId}`))}</div>
                   ) : (
                     `Strategic political alliance: ${(entity as Alliance).name} (${(entity as Alliance).abbreviation}).`
                   )}
@@ -2643,7 +2685,7 @@ export const EntityPage: React.FC = () => {
                 </h3>
                 <div className="prose prose-invert max-w-none text-gray-400 leading-relaxed">
                   {(entity as any).bio ? (
-                    <div className="whitespace-pre-wrap">{(entity as any).bio}</div>
+                    <div className="whitespace-pre-wrap">{renderMentions((entity as any).bio, lookupPersonsMap, (pId) => navigate(`/person/${pId}`))}</div>
                   ) : (
                     `Official profile of ${(entity as Party).name} (${(entity as Party).abbreviation}).`
                   )}
@@ -2716,7 +2758,7 @@ export const EntityPage: React.FC = () => {
                 </h3>
                 <div className="prose prose-invert max-w-none text-gray-400 leading-relaxed">
                   {(entity as any).bio ? (
-                    <div className="whitespace-pre-wrap">{(entity as any).bio}</div>
+                    <div className="whitespace-pre-wrap">{renderMentions((entity as any).bio, lookupPersonsMap, (pId) => navigate(`/person/${pId}`))}</div>
                   ) : (
                     `Official legislative record for the ${(entity as Constituency).name} assembly constituency.`
                   )}
@@ -2936,7 +2978,7 @@ export const EntityPage: React.FC = () => {
                   </h3>
                   <div className="prose prose-invert max-w-none text-gray-400 leading-relaxed">
                     {(entity as any).bio ? (
-                      <div className="whitespace-pre-wrap">{(entity as any).bio}</div>
+                      <div className="whitespace-pre-wrap">{renderMentions((entity as any).bio, lookupPersonsMap, (pId) => navigate(`/person/${pId}`))}</div>
                     ) : (
                       <>
                         {entityType === EntityType.ASSEMBLY &&
@@ -4041,6 +4083,11 @@ export const EntityPage: React.FC = () => {
                           <span className="text-[9px] font-black text-[#FFD700] uppercase tracking-widest bg-[#FFD700]/10 px-2 py-0.5 rounded border border-[#FFD700]/20">
                             Constitutional Council
                           </span>
+                          {isDissolvedRecord && (
+                            <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest bg-white/5 px-2 py-0.5 rounded border border-white/10">
+                              Historical Record
+                            </span>
+                          )}
                         </div>
                         <h4 className="text-xl font-black uppercase tracking-tight text-white mt-0.5">
                           Leadership Council
@@ -4088,7 +4135,7 @@ export const EntityPage: React.FC = () => {
                         theme: "blue",
                       },
                     ].map((role) => {
-                      const pId = (entity as Assembly).leaders?.[role.key as keyof Assembly["leaders"]];
+                      const pId = effectiveAssemblyLeaders?.[role.key as keyof AssemblyLeadersResult] || (entity as Assembly).leaders?.[role.key as keyof Assembly["leaders"]];
                       const person = pId && pId !== "vacant" ? personsList.find((p) => p.id === pId) : null;
                       const isSilver = role.theme === "silver";
                       const isBlue = role.theme === "blue";
@@ -4569,6 +4616,52 @@ export const EntityPage: React.FC = () => {
                               </div>
                             </div>
                           )}
+                        </div>
+                      </section>
+                    )}
+
+                    {/* Administration Settings Section (Admin Only & When No Other Active Assembly Exists) */}
+                    {canReviveAssembly && (
+                      <section className="mt-20 pt-10 border-t border-white/5 max-w-2xl mx-auto lg:mx-0">
+                        <div className="flex items-center gap-3 mb-6">
+                          <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 border border-emerald-500/25 flex items-center justify-center text-emerald-400">
+                            <RotateCcw size={20} />
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-[9px] font-black text-emerald-400 uppercase tracking-widest bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                                Constitutional Revival
+                              </span>
+                              <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest bg-white/5 px-2 py-0.5 rounded border border-white/10">
+                                Admin Only
+                              </span>
+                            </div>
+                            <h4 className="text-xl font-black uppercase tracking-tight text-white mt-0.5">
+                              Assembly Administration Settings
+                            </h4>
+                          </div>
+                        </div>
+
+                        <div className="glass-card p-6 border border-emerald-500/20 bg-emerald-950/10 rounded-2xl relative overflow-hidden">
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6">
+                            <div className="space-y-1.5 max-w-xl">
+                              <h5 className="text-base font-bold text-white flex items-center gap-2">
+                                <span>Legislative Revival Protocol</span>
+                              </h5>
+                              <p className="text-xs text-gray-400 leading-relaxed">
+                                Reinstate this dissolved assembly to active governance status. All final MLAs, constituencies, cabinet ministerial portfolios, and leadership council offices will be restored.
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setShowReviveConfirmModal(true)}
+                              className="px-5 py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs uppercase tracking-wider shadow-lg shadow-emerald-950/40 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2 shrink-0 cursor-pointer"
+                              id="revive-assembly-btn"
+                            >
+                              <RotateCcw size={15} />
+                              <span>Revive Assembly</span>
+                            </button>
+                          </div>
                         </div>
                       </section>
                     )}
@@ -5406,6 +5499,83 @@ export const EntityPage: React.FC = () => {
               >
                 Close
               </button>
+            </motion.div>
+          </div>
+        )}
+
+        {showReviveConfirmModal && (
+          <div
+            key="revive-popup-wrapper"
+            className="fixed inset-0 z-[110] flex items-center justify-center p-4"
+          >
+            <motion.div
+              key="revive-popup-overlay"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => !isRevivingAssembly && setShowReviveConfirmModal(false)}
+              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+            />
+            <motion.div
+              key="revive-popup-content"
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="w-full max-w-md glass-card border-emerald-500/30 p-8 relative z-10"
+            >
+              <div className="text-center">
+                <div className="w-16 h-16 rounded-full bg-emerald-500/10 text-emerald-400 flex items-center justify-center mx-auto mb-4 border border-emerald-500/20">
+                  <RotateCcw size={32} />
+                </div>
+                <h3 className="text-xl font-bold mb-2 uppercase text-white">
+                  Revive Legislative Assembly
+                </h3>
+                <p className="text-gray-400 text-xs mb-6 leading-relaxed">
+                  Are you sure you want to revive the <span className="text-[#FFD700] font-bold">{(entity as Assembly)?.name}</span>? This will reactivate the legislative session and restore all MLAs, constituencies, designations, and constitutional leadership council appointments.
+                </p>
+
+                <div className="p-4 bg-emerald-500/5 border border-emerald-500/15 rounded-xl text-left space-y-2 mb-6">
+                  <p className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">
+                    What will be restored:
+                  </p>
+                  <ul className="text-xs text-gray-300 space-y-1.5 list-disc pl-4">
+                    <li>Assembly status will be set to <strong className="text-emerald-400">ACTIVE</strong></li>
+                    <li>Constituencies will reinstate their pre-dissolution MLAs</li>
+                    <li>Cabinet ministerial portfolios will be reactivated</li>
+                    <li>Leadership Council (Speaker, Chief Minister, etc.) will be reinstated</li>
+                  </ul>
+                </div>
+
+                <div className="flex flex-col gap-3">
+                  <button
+                    type="button"
+                    disabled={isRevivingAssembly}
+                    onClick={handleConfirmReviveAssembly}
+                    className="w-full py-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black rounded-xl border border-emerald-500/20 shadow-lg shadow-emerald-950/40 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:pointer-events-none"
+                    id="confirm-revive-btn"
+                  >
+                    {isRevivingAssembly ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        <span>Reviving Assembly...</span>
+                      </>
+                    ) : (
+                      <>
+                        <RotateCcw size={16} />
+                        <span>Confirm Assembly Revival</span>
+                      </>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isRevivingAssembly}
+                    onClick={() => setShowReviveConfirmModal(false)}
+                    className="w-full py-3 text-gray-400 hover:text-white transition-colors text-xs font-bold uppercase tracking-wider"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
             </motion.div>
           </div>
         )}

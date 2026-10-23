@@ -91,6 +91,7 @@ export interface Assembly {
     chiefSecretary?: string;
   };
   leadershipDates?: {[roleKey: string]: number};
+  preDissolutionLeaders?: {[roleKey: string]: string};
   updatedAt: number;
   isActive?: boolean;
   precededById?: string;
@@ -104,7 +105,51 @@ export interface Assembly {
     others: any[];
     members?: any[];
     seatingLayout?: any[];
+    leaders?: any;
   };
+  frozenElectionResults?: FrozenElectionResults;
+}
+
+export interface FrozenElectionColumn {
+  allianceId?: string;
+  allianceName?: string;
+  allianceAbbreviation?: string;
+  partyId?: string;
+  partyName?: string;
+  partyAbbreviation?: string;
+  partyColor?: string;
+  leaderId?: string;
+  leaderName?: string;
+  leaderImageUrl?: string;
+  leaderSinceYear?: string | number;
+  leaderSeatId?: string;
+  leaderSeatName?: string;
+  leaderSeatStatus?: 'won' | 'lost' | 'multiple_served' | 'not_contested';
+  lastElectionSeats?: number;
+  lastElectionVoteShare?: number;
+  seatsWon: number;
+  seatChange: number;
+  popularVote: number;
+  votePercentage: number;
+  swingPp: number;
+  allianceSeats: number;
+  allianceSeatChange: number;
+  alliancePopularVote: number;
+  allianceVoteShare: number;
+}
+
+export interface FrozenElectionResults {
+  assemblyId: string;
+  assemblyName: string;
+  frozenAt: number;
+  totalSeats: number;
+  majorityNeeded: number;
+  totalRegisteredElectors: number;
+  totalVotesCast: number;
+  turnoutPercentage: number;
+  turnoutSwingPp?: number;
+  registeredElectorsSwingPct?: number;
+  columns: FrozenElectionColumn[];
 }
 
 export interface Designation {
@@ -145,6 +190,7 @@ export interface ElectionResult {
   outcomeText?: string; // e.g. "BJP gain from CPI(M)" or "CPI(M) hold"
   swingText?: string;   // e.g. "Swing" or "5.2%"
   electionDate?: number;
+  isByElection?: boolean;
 }
 
 export interface Constituency {

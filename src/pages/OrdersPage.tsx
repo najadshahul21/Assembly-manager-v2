@@ -15,6 +15,7 @@ import { ReleaseOrderModal } from '../components/ReleaseOrderModal';
 import { useAuth } from '../context/AuthContext';
 import { compareOrdersReverseChronological } from '../utils/governmentUtils';
 import { formatAppDate } from '../utils/dateUtils';
+import { renderMentions, cleanMentions } from '../utils/mentionUtils';
 
 interface OrdersPageProps {
   searchQuery?: string;
@@ -129,7 +130,8 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({ searchQuery = '' }) => {
   const handleCopyOrder = (order: LegislativeOrder) => {
     const officeHeader = order.byOfficeTitle || formatOfficeOfHonble(order.byDesignationName);
     const incumbentHeader = order.signerPersonName ? `\n(${order.signerPersonName})` : '';
-    const textToCopy = `OFFICIAL ORDER: ${order.orderName}\nSl. No: ${order.slNo || order.orderNumber || 'N/A'}\nDate: ${formatAppDate(order.date)}\n${officeHeader}${incumbentHeader}\n\n${order.content}`;
+    const cleanedContent = cleanMentions(order.content);
+    const textToCopy = `OFFICIAL ORDER: ${order.orderName}\nSl. No: ${order.slNo || order.orderNumber || 'N/A'}\nDate: ${formatAppDate(order.date)}\n${officeHeader}${incumbentHeader}\n\n${cleanedContent}`;
     navigator.clipboard.writeText(textToCopy);
     setCopiedId(order.id);
     setTimeout(() => setCopiedId(null), 2000);
@@ -151,59 +153,9 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({ searchQuery = '' }) => {
 
   // Render text with interactive clickable @[Name](person:id) tags
   const renderFormattedOrderContent = (content: string = '', isPreview = false) => {
-    if (!content) return null;
-    const regex = /@\[([^\]]+)\]\(person:([^)]+)\)/g;
-    const parts = [];
-    let lastIndex = 0;
-    let match;
-
-    while ((match = regex.exec(content)) !== null) {
-      // Text before the mention
-      if (match.index > lastIndex) {
-        parts.push(content.substring(lastIndex, match.index));
-      }
-      
-      const personName = match[1];
-      const personId = match[2];
-      const personObj = personsMap.get(personId);
-
-      parts.push(
-        <button
-          key={`mention-${match.index}-${personId}`}
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            navigate(`/person/${personId}`);
-          }}
-          className="inline-flex items-center gap-1 px-2 py-0.5 my-0.5 mx-0.5 rounded-md bg-[#FFD700]/15 text-[#FFD700] hover:bg-[#FFD700]/25 font-semibold text-xs border border-[#FFD700]/30 transition-colors cursor-pointer group align-baseline"
-          title={`View profile of ${personName}`}
-        >
-          <img
-            src={personObj?.imageUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(personName)}`}
-            alt={personName}
-            className="w-3.5 h-3.5 rounded-full object-cover shrink-0"
-          />
-          <span className="group-hover:underline underline-offset-2">@{personName}</span>
-          <ArrowUpRight size={10} className="opacity-60 group-hover:opacity-100" />
-        </button>
-      );
-
-      lastIndex = regex.lastIndex;
-    }
-
-    if (lastIndex < content.length) {
-      parts.push(content.substring(lastIndex));
-    }
-
-    if (isPreview && content.length > 240) {
-      return (
-        <span className="line-clamp-3">
-          {parts}
-        </span>
-      );
-    }
-
-    return parts;
+    const contentToRender = isPreview && content.length > 240 ? content.substring(0, 240) + '...' : content;
+    
+    return renderMentions(contentToRender, personsMap, (pId) => navigate(`/person/${pId}`));
   };
 
   // Helper for category badge styling
